@@ -174,7 +174,8 @@ export async function handleRequest(req: Request, env: Env, ctx: ExecutionContex
     // go live: Entwurfs-Clips wieder freigeben (nach Sichtprüfung, BLOTATO_DRAFT=false deployen)
     if (rest[0] === "go_live" && req.method === "POST") {
       const r = await db.run(env, "UPDATE clips SET status = 'ready' WHERE status = 'drafted'");
-      await logEvent(env, `go_live: ${r.meta.changes} drafted clips → ready`);
+      await db.run(env, "UPDATE account_state SET paused = 0, reason = NULL WHERE reason = 'review'");
+      await logEvent(env, `go_live: ${r.meta.changes} drafted clips → ready, review-pause aufgehoben`);
       return json({ released: r.meta.changes, draft_mode_now: (env.BLOTATO_DRAFT ?? "true") === "true" });
     }
 
