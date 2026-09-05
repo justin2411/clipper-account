@@ -15,6 +15,10 @@ Q_HYDRATE = """query H($ids: [ID!]!) { assets(assetIds: $ids) { id name assetTyp
 
 
 def share_id(url: str) -> str:
+    """Share-ID aus next.frame.io/share/<id>[/view/<asset>] oder Kurzlink f.io/<code> (wird per Redirect aufgelöst)."""
+    if re.match(r"https?://(www\.)?f\.io/", url):
+        r = requests.get(url, allow_redirects=True, timeout=30)
+        url = r.url
     m = re.search(r"/share/([0-9a-f-]{36})", url) or re.search(r"/reviews?/([0-9a-f-]{36})", url)
     if not m:
         raise ValueError(f"keine Frame.io-Share-ID in {url}")

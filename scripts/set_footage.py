@@ -10,7 +10,7 @@ from pipeline import db  # noqa: E402
 if len(sys.argv) < 3:
     raise SystemExit(__doc__)
 cid, url = sys.argv[1], sys.argv[2]
-ftype = "frameio" if "frame.io/" in url else "gdrive" if "drive.google.com" in url else "url"
+ftype = "frameio" if ("frame.io/" in url or "://f.io/" in url) else "gdrive" if "drive.google.com" in url else "url"
 body = {"footage": {"type": ftype, "url": url}, "status": "joined"}
 if len(sys.argv) > 3:
     t = yaml.safe_load(open(sys.argv[3]))

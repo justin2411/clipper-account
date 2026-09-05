@@ -29,7 +29,7 @@ def fetch(footage: dict, dest: Path) -> list[Path]:
     t, url = footage.get("type"), (footage.get("url") or "").strip()
     if not url:
         return []
-    if t == "frameio" or "frame.io/" in url:
+    if t == "frameio" or "frame.io/" in url or re.match(r"https?://(www\.)?f\.io/", url):
         from pipeline.frameio import FrameioShare
         FrameioShare(url).download_all(dest)
     elif t == "gdrive" or "drive.google.com" in url:

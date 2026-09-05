@@ -42,8 +42,9 @@ def main():
         raw_clips += [(i, c) for c in clips]
     caption = platform.caption(campaign)
     kept = 0
+    overlay_text = (campaign.get("required") or {}).get("overlay_text") or ""
     for i, clip in raw_clips:
-        final = overlay.apply(clip, campaign["required"]["overlay_text"], WORK / "final", name=f"s{i}_{clip.name}")
+        final = overlay.apply(clip, overlay_text, WORK / "final", name=f"s{i}_{clip.name}")
         ok, reason = checks.validate(final, rules, forbidden=campaign.get("forbidden", {}))
         if not ok:
             db.insert_clip(a.campaign, a.account, str(final), status="rejected_precheck", note=reason); continue

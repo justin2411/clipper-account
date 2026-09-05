@@ -1,7 +1,7 @@
 """Pflichttext per ffmpeg. Safe-Zones: Text oben ab 12 %, untere 20 % frei (TikTok-UI).
 Der Text wird an ' · ' / ' | ' / Zeilenumbruch in Zeilen geteilt; die Schriftgröße wird so gewählt,
 dass die längste Zeile in 90 % der Breite passt (drawtext bricht selbst nicht um)."""
-import subprocess, tempfile
+import shutil, subprocess, tempfile
 from pathlib import Path
 
 FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
@@ -36,6 +36,9 @@ def layout(text: str, width: int) -> tuple[list[str], int]:
 def apply(src: Path, text: str, out_dir: Path, name: str | None = None) -> Path:
     out_dir.mkdir(parents=True, exist_ok=True)
     out = out_dir / (name or src.name)
+    if not text or not text.strip():                    # kein Pflichttext → Clip unverändert übernehmen
+        shutil.copyfile(src, out)
+        return out
     lines, size = layout(text, probe_width(src))
     with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False, encoding="utf-8") as tf:
         tf.write("\n".join(lines)); textfile = tf.name
