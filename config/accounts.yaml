@@ -5,7 +5,7 @@ accounts:
     clipper_flags: "--clips 8 --hook-v2 --no-subs --no-broll --no-bgm --whisper-model small --whisper-device cpu --whisper-compute-type int8"
     slots_utc: ["12:00", "15:00", "18:00"]        # Berlin 14/17/20
     blotato:
-      tiktok: ""       # accountId aus Blotato
+      tiktok: "58583"  # @mrbeastfire0 (Blotato accountId)
   - id: B
     style: reactions          # Reaktionen/Comedy, Untertitel, cinematic
     clipper_flags: "--clips 8 --hook-v2 --font-style CINEMATIC --no-broll --no-bgm --whisper-model small --whisper-device cpu --whisper-compute-type int8"
