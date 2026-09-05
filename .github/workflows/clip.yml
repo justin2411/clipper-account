@@ -8,25 +8,52 @@ jobs:
   clip:
     runs-on: ubuntu-latest
     timeout-minutes: 300
+    env:
+      CLIPFORGE_API_URL: ${{ secrets.CLIPFORGE_API_URL }}
+      CLIPFORGE_API_KEY: ${{ secrets.CLIPFORGE_API_KEY }}
+      GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
     steps:
       - uses: actions/checkout@v4
         with: { submodules: recursive }
+      # Preflight: Secrets und Kampagne prüfen, BEVOR Installation und Schnitt Minuten kosten.
+      - name: preflight
+        run: |
+          set -e
+          [ -n "$CLIPFORGE_API_URL" ] || { echo "::error::Secret CLIPFORGE_API_URL fehlt"; exit 1; }
+          [ -n "$CLIPFORGE_API_KEY" ] || { echo "::error::Secret CLIPFORGE_API_KEY fehlt"; exit 1; }
+          [ -n "$GOOGLE_API_KEY" ]    || { echo "::error::Secret GOOGLE_API_KEY fehlt"; exit 1; }
+          code=$(curl -s -o /tmp/h.json -w '%{http_code}' -H "Authorization: Bearer $CLIPFORGE_API_KEY" "$CLIPFORGE_API_URL/api/health")
+          [ "$code" = "200" ] || { echo "::error::Worker-API /api/health → $code ($(cat /tmp/h.json)) – CLIPFORGE_API_URL/KEY prüfen"; exit 1; }
+          code=$(curl -s -o /tmp/c.json -w '%{http_code}' -H "Authorization: Bearer $CLIPFORGE_API_KEY" "$CLIPFORGE_API_URL/api/campaigns/${{ inputs.campaign }}")
+          [ "$code" = "200" ] || { echo "::error::Kampagne ${{ inputs.campaign }} → $code ($(cat /tmp/c.json))"; exit 1; }
+          python3 -c "import json; c=json.load(open('/tmp/c.json')); u=c['footage'].get('url'); assert u, 'footage.url leer'; print('footage:', c['footage']['type'], u[:60])"
+          code=$(curl -s -o /tmp/g.json -w '%{http_code}' "https://generativelanguage.googleapis.com/v1beta/models?pageSize=1&key=$GOOGLE_API_KEY")
+          [ "$code" = "200" ] || { echo "::error::Gemini-API → $code ($(head -c 200 /tmp/g.json)) – GOOGLE_API_KEY prüfen"; exit 1; }
+          echo "preflight ok"
       - uses: actions/setup-python@v5
-        with: { python-version: "3.11" }
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            pipeline/requirements.txt
+            vendor/opensource-clipping/requirements.txt
+      - name: cache whisper/hf models
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-models-${{ hashFiles('config/accounts.yaml') }}
+          restore-keys: hf-models-
       - run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-dejavu-core
       # CPU-Torch (kein CUDA, spart ~2 GB); pyannote/HF nur bei --split-screen nötig
       - run: pip install --extra-index-url https://download.pytorch.org/whl/cpu -r pipeline/requirements.txt -r vendor/opensource-clipping/requirements.txt
       - run: python -m pipeline.main --campaign "${{ inputs.campaign }}" --account "${{ inputs.account }}"
-        env:
-          CLIPFORGE_API_URL: ${{ secrets.CLIPFORGE_API_URL }}
-          CLIPFORGE_API_KEY: ${{ secrets.CLIPFORGE_API_KEY }}
-          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: clips-${{ inputs.campaign }}-${{ inputs.account }}
           path: |
             work/final/*.mp4
-            work/${{ inputs.account }}/outputs/render_manifest.json
+            work/${{ inputs.account }}/**/outputs/render_manifest.json
+            work/${{ inputs.account }}/**/outputs/gemini_response.json
           if-no-files-found: ignore
           retention-days: 7
