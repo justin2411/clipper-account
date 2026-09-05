@@ -7,8 +7,8 @@ min_views: 5000
 max_per_post_usd: 1000
 min_seconds: 8
 footage:
-  type: frameio            # frameio | gdrive | url
-  url: ""                  # bei gdrive/url: automatisch; bei frameio: manuell → Drive-Ordner
+  type: frameio            # frameio | gdrive | url – alle drei lädt die Pipeline selbst (Frame.io-Share ohne Login)
+  url: ""                  # z.B. https://next.frame.io/share/<id>/ oder Drive-Ordner „Jeder mit dem Link“
 required:
   overlay_text: "The Most Dangerous Games · $1,000,000 · First challenge Sept 14"
   caption: |

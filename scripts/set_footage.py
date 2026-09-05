@@ -1,6 +1,6 @@
 """Footage-Link setzen + Kampagne auf 'joined' (ersetzt in V1 den Telegram-Befehl /footage).
 Legt die Kampagne an, falls sie noch nicht existiert (Felder aus der YAML-Vorlage).
-python scripts/set_footage.py <campaign_id> <drive_url> [config/campaign_template.yaml]
+python scripts/set_footage.py <campaign_id> <frameio_share|drive_url|video_url> [config/campaign_template.yaml]
 Env: CLIPFORGE_API_URL, CLIPFORGE_API_KEY (z.B. via: set -a; source .env; set +a)"""
 import sys, yaml
 from pathlib import Path
@@ -10,7 +10,7 @@ from pipeline import db  # noqa: E402
 if len(sys.argv) < 3:
     raise SystemExit(__doc__)
 cid, url = sys.argv[1], sys.argv[2]
-ftype = "gdrive" if "drive.google.com" in url else "url"
+ftype = "frameio" if "frame.io/" in url else "gdrive" if "drive.google.com" in url else "url"
 body = {"footage": {"type": ftype, "url": url}, "status": "joined"}
 if len(sys.argv) > 3:
     t = yaml.safe_load(open(sys.argv[3]))
