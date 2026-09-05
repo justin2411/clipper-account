@@ -116,10 +116,14 @@ export async function handleRequest(req: Request, env: Env, ctx: ExecutionContex
         return json(toCampaign((await db.first(env, "SELECT * FROM campaigns WHERE id = ?", id))!));
       }
       if (req.method === "POST" && rest[2] === "submitted") {
+        // Nur wirklich gepostete Clips (Post-URL vorhanden) gelten als eingereicht; geplante bleiben unberührt,
+        // sonst löscht der Tracker ihre Dateien, bevor Blotato sie posten kann.
         const now = nowIso();
-        const clips = await db.all<{ id: string }>(env, "SELECT id FROM clips WHERE campaign_id = ? AND status IN ('scheduled','posted')", id);
+        const clips = await db.all<{ id: string }>(env,
+          `SELECT DISTINCT c.id FROM clips c JOIN posts p ON p.clip_id = c.id
+           WHERE c.campaign_id = ? AND c.status = 'posted' AND p.status = 'posted' AND p.post_url IS NOT NULL AND p.submitted_at IS NULL`, id);
         for (const c of clips) {
-          await db.run(env, "UPDATE posts SET submitted_at = ? WHERE clip_id = ? AND submitted_at IS NULL", now, c.id);
+          await db.run(env, "UPDATE posts SET submitted_at = ? WHERE clip_id = ? AND status = 'posted' AND submitted_at IS NULL", now, c.id);
           await db.run(env, "UPDATE clips SET status = 'submitted' WHERE id = ?", c.id);
         }
         await logEvent(env, `submitted:${clips.length}`, id);

@@ -3,7 +3,7 @@
 id: vyro-extreme-places
 platform: vyro
 name: "We Survived The Most Extreme Places on Earth"
-external_url: ""              # https://vyro.com/campaigns/... (für die Telegram-Erinnerung)
+external_url: "https://app.vyro.com/campaigns?c=escape-100-cops-win-500-000-4Cq6EJYN"
 rate_per_1k_usd: 1.0          # $1.00 CPM, Pay type: Per View
 min_views: 5000               # Payout erst ab 5.000 Views pro Clip
 max_per_post_usd: 1000
