@@ -3,7 +3,8 @@
 **Phase 1: nur TikTok, 2 Accounts.** Instagram/YouTube später über `platforms:` in der Kampagne aktivieren.
 
 Pipeline: **Kampagne erkennen → Footage → Clips schneiden → prüfen → posten (Blotato) → tracken → Regeln anwenden**.
-Menschliche Schritte (bewusst, wegen Plattformregeln): Kampagne beitreten, Footage bereitstellen (bei Frame.io), Post-Links einreichen.
+Menschliche Schritte (bewusst, wegen Plattformregeln): Kampagne beitreten, Footage-Link setzen, Post-Links einreichen.
+Footage lädt die Pipeline selbst: Frame.io-Share (ohne Login, `pipeline/frameio.py`), Google-Drive-Ordner/-Datei („Jeder mit dem Link“) oder direkte Video-URLs; mehrere Dateien werden nacheinander geschnitten.
 
 ## Architektur
 - `platforms/` – Adapter pro Clipping-Plattform (`vyro.py` fertig, `whop.py` Stub). Neue Plattform = eine Datei.

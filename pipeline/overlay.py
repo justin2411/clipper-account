@@ -5,9 +5,9 @@ from pathlib import Path
 FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 
 
-def apply(src: Path, text: str, out_dir: Path) -> Path:
+def apply(src: Path, text: str, out_dir: Path, name: str | None = None) -> Path:
     out_dir.mkdir(parents=True, exist_ok=True)
-    out = out_dir / src.name
+    out = out_dir / (name or src.name)
     safe = text.replace(":", r"\:").replace("'", r"\'")
     vf = (f"drawtext=fontfile={FONT}:text='{safe}':fontcolor=white:fontsize=54:"
           f"box=1:boxcolor=black@0.55:boxborderw=18:x=(w-text_w)/2:y=h*0.12")

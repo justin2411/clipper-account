@@ -24,17 +24,23 @@ def main():
     platform = REGISTRY[campaign["platform"]]
     rules = platform.rules(campaign)
 
-    src = download.fetch(campaign["footage"], WORK / "src")
-    if src is None:
+    sources = download.fetch(campaign["footage"], WORK / "src")
+    if not sources:
         db.log(a.campaign, f"footage_missing account={a.account}"); sys.exit(0)
-    db.log(a.campaign, f"footage_ok account={a.account} file={src.name} bytes={src.stat().st_size}")
+    db.log(a.campaign, f"footage_ok account={a.account} files={len(sources)} bytes={sum(s.stat().st_size for s in sources)}")
 
-    raw_clips = clipper.run(src, acct["clipper_flags"], WORK / a.account, label_url=campaign["footage"].get("url", ""))
-    db.log(a.campaign, f"clipper_done account={a.account} raw={len(raw_clips)}")
+    raw_clips: list[tuple[int, Path]] = []            # (Quell-Index, Clip)
+    for i, src in enumerate(sources):
+        try:
+            clips = clipper.run(src, acct["clipper_flags"], WORK / a.account / f"src{i}", label_url=campaign["footage"].get("url", ""))
+        except Exception as e:                        # eine kaputte Quelle bricht den Job nicht ab
+            db.log(a.campaign, f"clipper_error account={a.account} src={src.name} err={str(e)[:120]}"); continue
+        db.log(a.campaign, f"clipper_done account={a.account} src={src.name} raw={len(clips)}")
+        raw_clips += [(i, c) for c in clips]
     caption = platform.caption(campaign)
     kept = 0
-    for clip in raw_clips:
-        final = overlay.apply(clip, campaign["required"]["overlay_text"], WORK / "final")
+    for i, clip in raw_clips:
+        final = overlay.apply(clip, campaign["required"]["overlay_text"], WORK / "final", name=f"s{i}_{clip.name}")
         ok, reason = checks.validate(final, rules, forbidden=campaign.get("forbidden", {}))
         if not ok:
             db.insert_clip(a.campaign, a.account, str(final), status="rejected_precheck", note=reason); continue
