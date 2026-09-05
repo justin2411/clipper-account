@@ -1,0 +1,11 @@
+.env
+work/
+client_secret.json
+__pycache__/
+SECRETS.local.md
+*.local.md
+clipforge.zip
+node_modules/
+worker/.wrangler/
+worker/.dev.vars
+worker/dist/

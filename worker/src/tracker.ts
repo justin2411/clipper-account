@@ -1,0 +1,69 @@
+// Tracker: holt Post-Status/URLs von Blotato, prüft Kill-Switch, löscht eingereichte Clips aus R2.
+// Hinweis: Blotato liefert KEINE Views (nur status/publicUrl/errorMessage). views_* bleiben leer, bis
+// eine Quelle angebunden ist (V2: TikTok-Analytics). Der Views-Kill-Switch greift daher erst mit Daten.
+import { BLOTATO, Env, blotatoHeaders, db, mediaKeyFromUrl, nowIso, telegram } from "./shared";
+
+const DROP = 0.2;
+const STOP_WORDS = ["spam", "automation", "bot", "inauthentic"];
+
+export async function runTracker(env: Env) {
+  const stats = { checked: 0, posted: 0, failed: 0, archived: 0, paused: [] as string[] };
+  if (env.BLOTATO_API_KEY) {
+    const open = await db.all<any>(env, "SELECT * FROM posts WHERE status IN ('scheduled','posted') AND blotato_submission_id IS NOT NULL AND (post_url IS NULL OR views_7d IS NULL)");
+    for (const p of open) {
+      stats.checked++;
+      const r = await fetch(`${BLOTATO}/posts/${p.blotato_submission_id}`, { headers: blotatoHeaders(env) });
+      if (!r.ok) { console.log("[tracker] blotato", r.status, p.blotato_submission_id); continue; }
+      const s: any = await r.json();
+      const sets: string[] = [], vals: unknown[] = [];
+      const url = s?.publicUrl ?? s?.postUrl;
+      if (s?.status === "published" && !p.post_url) {
+        sets.push("post_url = ?", "posted_at = ?", "status = 'posted'"); vals.push(url ?? "", nowIso()); stats.posted++;
+        await db.run(env, "UPDATE clips SET status = 'posted' WHERE id = ? AND status = 'scheduled'", p.clip_id);
+      }
+      if (typeof s?.views === "number" && p.posted_at) {
+        const age = (Date.now() - new Date(p.posted_at).getTime()) / 36e5;
+        if (age >= 24 && p.views_24h == null) { sets.push("views_24h = ?"); vals.push(s.views); }
+        if (age >= 72 && p.views_72h == null) { sets.push("views_72h = ?"); vals.push(s.views); }
+        if (age >= 168 && p.views_7d == null) { sets.push("views_7d = ?"); vals.push(s.views); }
+      }
+      if (s?.status === "failed") {
+        sets.push("status = 'rejected_platform'", "rejection_reason = ?"); vals.push(String(s?.errorMessage ?? s?.error ?? "failed")); stats.failed++;
+        await db.run(env, "UPDATE clips SET status = 'rejected_platform', note = ? WHERE id = ?", String(s?.errorMessage ?? "failed").slice(0, 200), p.clip_id);
+      }
+      if (sets.length) await db.run(env, `UPDATE posts SET ${sets.join(", ")} WHERE id = ?`, ...vals, p.id);
+    }
+  }
+
+  // Kill-Switch pro Account
+  for (const { account } of await db.all<{ account: string }>(env, "SELECT account FROM account_state WHERE paused = 0")) {
+    const rej = await db.all<{ rejection_reason: string | null }>(env,
+      "SELECT p.rejection_reason FROM posts p JOIN clips c ON c.id = p.clip_id WHERE c.account = ? AND p.status = 'rejected_platform'", account);
+    if (rej.some((r) => STOP_WORDS.some((w) => (r.rejection_reason ?? "").toLowerCase().includes(w)))) {
+      await db.run(env, "UPDATE account_state SET paused = 1, reason = 'rejection', updated_at = ? WHERE account = ?", nowIso(), account);
+      stats.paused.push(account);
+      await telegram(env, `⛔ Account ${account} pausiert: Ablehnung mit Spam/Automation-Grund. Bitte prüfen.`);
+      continue;
+    }
+    const w = await db.all<{ views_72h: number }>(env,
+      "SELECT p.views_72h FROM posts p JOIN clips c ON c.id = p.clip_id WHERE c.account = ? AND p.views_72h IS NOT NULL ORDER BY p.posted_at DESC LIMIT 40", account);
+    if (w.length >= 20) {
+      const avg = (xs: { views_72h: number }[]) => xs.reduce((a, b) => a + (b.views_72h ?? 0), 0) / xs.length;
+      const recent = avg(w.slice(0, 10)), prev = avg(w.slice(10, 20));
+      if (prev > 0 && recent < prev * DROP) {
+        await db.run(env, "UPDATE account_state SET paused = 1, reason = 'views_drop', updated_at = ? WHERE account = ?", nowIso(), account);
+        stats.paused.push(account);
+        await telegram(env, `⚠️ Account ${account} pausiert: Views-Einbruch (${Math.round(recent)} vs ${Math.round(prev)}).`);
+      }
+    }
+  }
+
+  // Eingereichte Clips: Datei aus R2 löschen, Zeile archivieren
+  for (const c of await db.all<{ id: string; media_url: string }>(env, "SELECT id, media_url FROM clips WHERE status = 'submitted'")) {
+    const key = mediaKeyFromUrl(c.media_url);
+    if (key) await env.CLIPS.delete(key);
+    await db.run(env, "UPDATE clips SET status = 'archived' WHERE id = ?", c.id);
+    stats.archived++;
+  }
+  return stats;
+}
