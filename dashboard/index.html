@@ -133,7 +133,10 @@ const fmt=(n)=>Math.round(n).toLocaleString("de-DE");
 const money=(n,c="$")=>fmt(n)+" "+c;
 const k=(n)=>n>=1e6?(n/1e6).toFixed(1)+"M":n>=1000?Math.round(n/1000)+"k":fmt(n);
 const cfgKey="clipforge.cfg";
+// Fest verdrahtet: kein Login. Der Lese-Key erlaubt nur GET /dashboard (Statistiken, keine Secrets, kein Schreiben).
+const DEFAULT_CFG={apiUrl:"https://clipforge.clipforge-xy.workers.dev",apiKey:"__DASHBOARD_READ_KEY__"};
 let cfg=null; try{cfg=JSON.parse(localStorage.getItem(cfgKey)||"null")}catch(e){cfg=null}
+if(!cfg||!cfg.apiKey)cfg=DEFAULT_CFG;
 
 function gate(msg=""){
   $("#app").innerHTML=`<div class="gate"><h1>ClipForge</h1><p>Verbinde das Dashboard mit deinem Worker. Worker-URL und DASHBOARD_READ_KEY stehen in SECRETS.local.md.</p>
@@ -220,7 +223,7 @@ function forecast(d){
 function status(s){return {active:"aktiv",ended:"beendet",joined:"beigetreten",paused:"pausiert"}[s]||s}
 function monthLabel(m){const [y,mo]=(m||"").split("-");const n=["Januar","Februar","März","April","Mai","Juni","Juli","August","September","Oktober","November","Dezember"];return mo?`${n[+mo-1]} ${y}`:""}
 
-(async()=>{ if(cfg){try{render(await load(cfg),false);return}catch(e){}} gate(); })();
+(async()=>{ try{render(await load(cfg),false);return}catch(e){ if(cfg!==DEFAULT_CFG){cfg=DEFAULT_CFG;try{render(await load(cfg),false);return}catch(e2){}} gate("Worker nicht erreichbar: "+e.message); } })();
 </script>
 </body>
 </html>
