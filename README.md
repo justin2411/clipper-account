@@ -57,5 +57,19 @@ Lokal entwickeln: `cd worker && npm ci && npm run migrate:local && npm run dev` 
 - Telegram informiert nur (Kampagne angelegt, Clip-Job fertig, Post live, Einreichliste, Kill-Switch); es gibt keine Freigabe-Schleife.
 - Kampagnen-Budget für das Dashboard: `campaigns.budget_total_usd` / `budget_used_usd` manuell pflegen (`PATCH /api/campaigns/:id`).
 
+## Vyro-Einreichung automatisch (Mac)
+`scripts/vyro_submit.py` reicht Post-URLs per Browser bei Vyro ein (kein Vyro-API). Läuft lokal auf dem Mac mit gespeichertem Login-Profil.
+```bash
+pip install playwright requests && playwright install chromium
+printf 'CLIPFORGE_API_URL=https://clipforge.clipforge-xy.workers.dev\nCLIPFORGE_API_KEY=…\n' > ~/.clipforge/env
+set -a; source ~/.clipforge/env; set +a
+python scripts/vyro_submit.py --check-api   # Worker erreichbar, offene Posts
+python scripts/vyro_submit.py --login       # einmalig: Browser öffnet sich, bei Vyro einloggen, Fenster schließen
+python scripts/vyro_submit.py --probe       # Buttons/Felder des Submit-Dialogs auflisten → scripts/vyro_selectors.json abgleichen
+python scripts/vyro_submit.py --dry-run     # alles bis zum Submit-Klick, Screenshots in ~/.clipforge/vyro-shots
+./scripts/install_vyro_launchd.sh           # erst nach erfolgreichem Dry-Run: täglich 21:30 lokal (launchd)
+```
+Worker-Endpunkte dafür (`x-api-key`): `GET /submissions/pending`, `POST /submissions/mark`, `POST /notify`. Nach 3 Fehlversuchen bleibt ein Post draußen (`posts.submit_attempts`), Telegram meldet Zusammenfassung und Stopps.
+
 ## Neue Plattform anbinden
 `platforms/base.py` implementieren: `parse_email()`, `campaign_rules()`, `caption()`, `submission_hint()`. Absender-Domain zusätzlich in `worker/src/scout.ts` (`SENDERS`) eintragen.

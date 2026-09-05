@@ -11,6 +11,10 @@
 //   POST /api/dispatch/:campaign/:account   Clip-Job (GitHub Actions) gezielt für einen Account starten
 //   GET  /api/blotato/accounts        verbundene Blotato-Accounts (IDs für config/accounts.yaml)
 //   POST /api/telegram/send           {text}  Info-Nachricht (Pipeline meldet z.B. "Clip-Job fertig")
+//   Für scripts/vyro_submit.py (Header x-api-key = CLIPFORGE_API_KEY):
+//   GET  /submissions/pending         offene Posts [{post_id, campaign_id, campaign_url, post_url, account, account_handle}]
+//   POST /submissions/mark            {post_id, status: submitted|failed, note}
+//   POST /notify                      {text} → Telegram
 import { Env, Row, db, json, logEvent, mediaUrl, nowIso, toCampaign } from "./shared";
 import { runScout, dispatchClipJob } from "./scout";
 import { runPublisher, publishClipNow } from "./publisher";
@@ -75,6 +79,46 @@ export async function handleRequest(req: Request, env: Env, ctx: ExecutionContex
   if (seg[0] === "media" && seg.length >= 2 && (req.method === "GET" || req.method === "HEAD"))
     return serveMedia(req, env, seg.slice(1).map(decodeURIComponent).join("/"));
   if (path === "/") return json({ service: "clipforge", ok: true });
+
+  // Einreich-Schnittstelle für scripts/vyro_submit.py
+  if (path === "/submissions/pending" || path === "/submissions/mark" || path === "/notify") {
+    if (!env.CLIPFORGE_API_KEY) return json({ error: "CLIPFORGE_API_KEY nicht gesetzt" }, 503);
+    if (!authorized(req, env)) return json({ error: "unauthorized" }, 401);
+    const accounts = (() => { try { return JSON.parse(env.ACCOUNTS_JSON || "{}"); } catch { return {}; } })() as Record<string, any>;
+    if (path === "/submissions/pending" && req.method === "GET") {
+      const rows = await db.all<any>(env,
+        `SELECT p.id AS post_id, c.campaign_id, ca.external_url AS campaign_url, p.post_url, c.account, p.submit_attempts
+         FROM posts p JOIN clips c ON c.id = p.clip_id JOIN campaigns ca ON ca.id = c.campaign_id
+         WHERE p.status = 'posted' AND p.post_url IS NOT NULL AND p.post_url != '' AND p.submitted_at IS NULL
+           AND ca.platform = 'vyro' AND ca.status IN ('active','joined') AND p.submit_attempts < 3
+         ORDER BY p.posted_at ASC`);
+      return json(rows.map((r) => ({ ...r, account_handle: accounts[r.account]?.handle ?? "" })));
+    }
+    if (path === "/submissions/mark" && req.method === "POST") {
+      const b = (await req.json().catch(() => ({}))) as Row;
+      const post = await db.first<any>(env, "SELECT * FROM posts WHERE id = ?", b.post_id);
+      if (!post) return json({ error: "post not found" }, 404);
+      const note = String(b.note ?? "").slice(0, 300);
+      if (b.status === "submitted") {
+        await db.run(env, "UPDATE posts SET submitted_at = ?, submit_note = ? WHERE id = ?", nowIso(), note, post.id);
+        const open = await db.first<{ n: number }>(env, "SELECT COUNT(*) AS n FROM posts WHERE clip_id = ? AND status = 'posted' AND submitted_at IS NULL", post.clip_id);
+        if (!open?.n) await db.run(env, "UPDATE clips SET status = 'submitted' WHERE id = ? AND status = 'posted'", post.clip_id);
+        await logEvent(env, `vyro_submitted post=${post.id}`, null);
+        return json({ ok: true, post_id: post.id, status: "submitted" });
+      }
+      if (b.status === "failed") {
+        await db.run(env, "UPDATE posts SET submit_note = ?, submit_attempts = submit_attempts + 1 WHERE id = ?", note, post.id);
+        await logEvent(env, `vyro_submit_failed post=${post.id} ${note.slice(0, 80)}`, null);
+        return json({ ok: true, post_id: post.id, status: "failed", attempts: (post.submit_attempts ?? 0) + 1 });
+      }
+      return json({ error: "status must be submitted|failed" }, 400);
+    }
+    if (path === "/notify" && req.method === "POST") {
+      const b = (await req.json().catch(() => ({}))) as Row;
+      return json({ sent: await telegram(env, String(b.text ?? "")) });
+    }
+    return json({ error: "method not allowed" }, 405);
+  }
   if (path === "/dashboard") {
     const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "x-api-key, content-type", "Access-Control-Allow-Methods": "GET, OPTIONS" };
     if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });

@@ -8,6 +8,7 @@ rate_per_1k_usd: 1.0          # $1.00 CPM, Pay type: Per View
 min_views: 5000               # Payout erst ab 5.000 Views pro Clip
 max_per_post_usd: 1000
 min_seconds: 20               # Minimum video length: 20 seconds
+pool_paid_out_pct: 5          # "% paid out" von der Vyro-Kampagnenseite (Budgets sind nicht öffentlich) → Dashboard-Pool-Balken
 footage:
   type: frameio
   url: "https://f.io/xLcpOoW9"   # → next.frame.io/share/af8eb848-…, 1 Datei, 610 MB

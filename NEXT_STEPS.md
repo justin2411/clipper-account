@@ -17,4 +17,6 @@ Telegram (neuer Token, Chat-ID), Gmail (OAuth, Refresh-Token) und GitHub-Token s
 
 9. [x] Dashboard: `dashboard/index.html` auf Cloudflare Pages (https://clipforge-dashboard-bh8.pages.dev), Worker `GET /dashboard` mit `DASHBOARD_READ_KEY` (2026-09-05).
 
+10. [~] Vyro-Einreichung automatisch: Worker-Endpunkte + `scripts/vyro_submit.py` fertig; auf dem Mac noch `--login`, `--probe`, `--dry-run`, dann `scripts/install_vyro_launchd.sh` (21:30).
+
 Offen für V2: Views-Quelle für Tracker/Dashboard (Blotato liefert keine), Telegram-Webhook für /footage und /submitted, Audio-Peak-Scoring, eigener Clipper.

@@ -1,0 +1,18 @@
+{
+  "_hint": "Aus dem Vyro-Frontend-Bundle (vy-index.*.js, Stand 2026-09-05) abgeleitet; mit `python scripts/vyro_submit.py --probe` gegen die echte Seite prüfen. Reihenfolge = Fallbacks.",
+  "logged_in_marker": ["text=/my campaigns|past campaigns|earnings|wallet|submit post/i"],
+  "open_button": ["role=button[name=/^submit post$/i]", "text=/^submit post$/i"],
+  "modal_title": ["role=dialog", "text=/^submit post$/i"],
+  "account_select": ["role=combobox", "role=button[name=/select (the )?social account|choose (an )?account|account/i]", "text=/select the social account/i"],
+  "account_option": ["role=option[name=/{handle}/i]", "text=/{handle}/i"],
+  "use_link": ["text=/use a link instead/i", "role=button[name=/use a link instead/i]"],
+  "url_input": ["role=textbox[name=/link|url|post/i]", "input[placeholder*='link' i]", "input[placeholder*='http' i]", "input[type='url']", "role=dialog >> input[type='text']"],
+  "rules_checkbox": ["role=checkbox[name=/my post follows/i]", "text=/my post follows/i"],
+  "continue_button": ["role=button[name=/^continue$/i]"],
+  "check_pass": ["text=/looks good|no collaborators or tagged accounts|no checks needed|ready to submit/i"],
+  "check_fail": ["text=/disclosure missing|video too short|remove the collaborator|post not submitted|not accepting submissions|already submitted|doesn't look like a valid|couldn't find this video|daily limit/i"],
+  "check_warn": ["text=/hashtags missing|couldn't verify|could not check/i"],
+  "submit_button": ["role=dialog >> role=button[name=/^submit post$/i]", "role=button[name=/^submit post$/i]"],
+  "success_marker": ["text=/your post has been submitted|submitted successfully/i"],
+  "dialog_close": ["role=button[name=/close/i]", "[aria-label='Close']", "role=button[name=/^back$/i]"]
+}
