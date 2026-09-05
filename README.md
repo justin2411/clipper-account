@@ -13,7 +13,7 @@ Footage lädt die Pipeline selbst: Frame.io-Share (ohne Login, `pipeline/frameio
   HTTP-API für Pipeline und Scripts, öffentliche Clip-Auslieferung unter `/media/<key>` (für Blotato). Läuft 24/7 im Free-Tier, keine Pausen.
 - `config/` – Alles, was sich ändert (Accounts, Kampagnen-Vorlagen, Regeln). Kein Wert im Code.
 - `.github/workflows/` – `clip.yml` (schwerer Schnitt-Job, per `workflow_dispatch` vom Scout gestartet), `deploy.yml` (Worker-Deploy bei Push auf `main`).
-- `dashboard/` – statisches Dashboard (Cloudflare Pages: https://clipforge-dashboard-bh8.pages.dev), liest `GET /dashboard` vom Worker mit dem Lese-Key `DASHBOARD_READ_KEY`. Deploy: `cd worker && npx wrangler pages deploy ../dashboard --project-name clipforge-dashboard --branch main`.
+- `dashboard/` – statisches Dashboard (Cloudflare Pages: https://clipforge-dashboard-bh8.pages.dev), liest `GET /dashboard` vom Worker mit dem Lese-Key `DASHBOARD_READ_KEY`. Kein Login: Worker-URL und Lese-Key stehen in der Seite (im Repo als Platzhalter). Deploy: `./scripts/deploy_dashboard.sh`.
 - `vendor/opensource-clipping` – gepinntes Submodule (Clipper).
 
 ## Setup (einmalig)
