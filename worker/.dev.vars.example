@@ -1,0 +1,10 @@
+# Lokale Secrets für `wrangler dev` (Datei .dev.vars ist gitignored). Werte aus SECRETS.local.md.
+CLIPFORGE_API_KEY=
+BLOTATO_API_KEY=
+TELEGRAM_BOT_TOKEN=
+TELEGRAM_CHAT_ID=
+GMAIL_CLIENT_ID=
+GMAIL_CLIENT_SECRET=
+GMAIL_REFRESH_TOKEN=
+GITHUB_TOKEN=
+ACCOUNTS_JSON={"A":{"slots":["12:00","15:00","18:00"],"blotato":{"tiktok":""}},"B":{"slots":["13:00","16:00","19:00"],"blotato":{"tiktok":""}}}

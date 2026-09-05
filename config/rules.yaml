@@ -1,0 +1,14 @@
+# Regeln für Tracker/Kill-Switch/Wochenauswertung. Werden in Edge Function `tracker` gelesen.
+min_views_to_count: 5000            # Vyro-Schwelle (aus Kampagne überschreibbar)
+kill_switch:
+  views_drop_ratio: 0.2             # Ø-Views eines Accounts fällt unter 20 % der Vorwoche → pausieren
+  rejection_reasons_stop: ["spam", "automation", "bot", "inauthentic"]
+  min_clips_before_judging: 10
+weekly:
+  min_clips_per_bucket: 30          # keine Gewichtungsänderung unter 30 Clips pro Hook-Typ
+  stop_campaign_if_profit_per_clip_below_usd: 0
+costs:
+  fixed_monthly_usd:
+    blotato: 29
+  per_clip_usd:
+    llm_moment_selection: 0.01

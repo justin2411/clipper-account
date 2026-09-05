@@ -1,0 +1,36 @@
+# ClipForge Worker: Cron (Scout/Publisher/Tracker/Notify) + API für Pipeline/Scripts + öffentliche Clip-Auslieferung (R2).
+name = "clipforge"
+main = "src/index.ts"
+compatibility_date = "2026-08-01"
+workers_dev = true
+
+[observability]
+enabled = true
+
+# Cron → Funktion (Zuordnung in src/index.ts). Zeiten UTC.
+[triggers]
+crons = [
+  "*/10 * * * *",   # scout
+  "*/30 * * * *",   # publisher
+  "0 */6 * * *",    # tracker
+  "0 19 * * *",     # notify – 21:00 Berlin (Sommer), 20:00 (Winter)
+]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "clipforge"
+database_id = "REPLACE_WITH_D1_ID"      # scripts/cf_bootstrap.sh trägt die ID nach `wrangler d1 create clipforge` ein
+migrations_dir = "migrations"
+
+[[r2_buckets]]
+binding = "CLIPS"
+bucket_name = "clips"
+
+# Nicht-geheime Konfiguration. Geheimnisse (BLOTATO_API_KEY, TELEGRAM_*, GMAIL_*, GITHUB_TOKEN, ACCOUNTS_JSON,
+# CLIPFORGE_API_KEY) kommen per `wrangler secret put` bzw. scripts/cf_bootstrap.sh aus .env.
+[vars]
+BLOTATO_DRAFT = "true"                  # Einlaufphase: Posts landen als TikTok-Entwurf → Sichtprüfung → auf "false"
+MAX_CLIPS_PER_DAY = "5"
+PLATFORM_GAP_MIN = "30"
+GITHUB_REPO = "justin2411/clipper-account"
+GITHUB_REF = "main"

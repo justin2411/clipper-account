@@ -1,0 +1,28 @@
+# Vorlage pro Kampagne. Scout legt aus der E-Mail einen Entwurf an; Pflichtfelder aus dem Briefing trägst du EINMAL ein.
+id: mrbeast-book-challenge
+platform: vyro
+name: "MrBeast's Book Challenge"
+rate_per_1k_usd: 2.0
+min_views: 5000
+max_per_post_usd: 1000
+min_seconds: 8
+footage:
+  type: frameio            # frameio | gdrive | url
+  url: ""                  # bei gdrive/url: automatisch; bei frameio: manuell → Drive-Ordner
+required:
+  overlay_text: "The Most Dangerous Games · $1,000,000 · First challenge Sept 14"
+  caption: |
+    MrBeast wrote a book with James Patterson and hid $1,000,000 in it 📖
+    The Most Dangerous Games is out now – buy it, scan the QR code inside and you're entered for the $1,000,000 giveaway. New riddles drop every week for 4 weeks and the book has all the answers. First challenge drops September 14.
+    Enter at themostdangerousgames.com
+  hashtags: ["#TheMostDangerousGames", "#MrBeastPartner"]
+  tiktok:
+    isBrandedContent: true
+    isYourBrand: false
+    privacyLevel: PUBLIC_TO_EVERYONE
+forbidden:
+  music: true
+  broll: true
+  collab_posts: true
+accounts: [A, B]
+platforms: [tiktok]

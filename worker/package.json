@@ -1,0 +1,17 @@
+{
+  "name": "clipforge-worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --local",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "migrate:local": "wrangler d1 migrations apply clipforge --local",
+    "migrate:remote": "wrangler d1 migrations apply clipforge --remote"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260905.1",
+    "typescript": "^5.9.0",
+    "wrangler": "^4.129.0"
+  }
+}
