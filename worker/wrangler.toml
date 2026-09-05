@@ -30,7 +30,7 @@ bucket_name = "clips"
 # CLIPFORGE_API_KEY) kommen per `wrangler secret put` bzw. scripts/cf_bootstrap.sh aus .env.
 [vars]
 BLOTATO_DRAFT = "false"                 # Sichtprüfung am 2026-09-05 bestanden → live. "true" = Posts nur als TikTok-Entwurf
-MAX_CLIPS_PER_DAY = "5"
+MAX_CLIPS_PER_DAY = "4"                 # 4 Posts/Account/Tag zu festen Slot-Zeiten (config/accounts.yaml)
 PLATFORM_GAP_MIN = "30"
 GITHUB_REPO = "justin2411/clipper-account"
 GITHUB_REF = "main"

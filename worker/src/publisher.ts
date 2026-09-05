@@ -131,16 +131,27 @@ export async function publishClipNow(env: Env, clipId: string, when: string | nu
 }
 
 /** Alle 'ready'-Clips einer Kampagne zeitversetzt posten: je Account der erste sofort, die weiteren alle `gapMin` Minuten.
- *  Nie zwei Posts eines Accounts gleichzeitig. */
+ *  Nie zwei Posts eines Accounts gleichzeitig; das Tageslimit MAX_CLIPS_PER_DAY gilt auch hier – der Rest wartet auf die Slots. */
 export async function publishCampaignSpaced(env: Env, campaignId: string, gapMin = 45) {
+  const MAX = Number(env.MAX_CLIPS_PER_DAY || 4);
+  const today = day(new Date());
   const clips = await db.all<any>(env, "SELECT id, account, seq FROM clips WHERE campaign_id = ? AND status = 'ready' ORDER BY account, seq, created_at", campaignId);
   const perAccount: Record<string, number> = {};
+  const budget: Record<string, number> = {};
   const out: unknown[] = [];
+  const skipped: string[] = [];
   for (const c of clips) {
+    if (budget[c.account] == null) {
+      const used = await db.first<{ n: number }>(env,
+        `SELECT COUNT(*) AS n FROM posts p JOIN clips x ON x.id = p.clip_id WHERE x.account = ? AND p.status IN ('scheduled','posted') AND substr(p.scheduled_at,1,10) = ?`, c.account, today);
+      budget[c.account] = Math.max(0, MAX - (used?.n ?? 0));
+    }
+    if (budget[c.account] <= 0) { skipped.push(`${c.account}#${c.seq}: Tageslimit ${MAX} erreicht → Slot-Plan`); continue; }
+    budget[c.account]--;
     const k = perAccount[c.account] ?? 0;
     const when = k === 0 ? null : new Date(Date.now() + k * gapMin * 60000).toISOString();
     out.push(await publishClipNow(env, c.id, when));
     perAccount[c.account] = k + 1;
   }
-  return { campaign: campaignId, gap_min: gapMin, posted: out };
+  return { campaign: campaignId, gap_min: gapMin, max_per_day: MAX, posted: out, skipped };
 }
