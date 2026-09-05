@@ -1,0 +1,28 @@
+# Vyro-Kampagne "We Survived The Most Extreme Places on Earth" – Pflichtfelder aus dem Briefing eintragen, dann:
+# python scripts/set_footage.py vyro-extreme-places <frameio_share_url> config/campaigns/vyro-extreme-places.yaml
+id: vyro-extreme-places
+platform: vyro
+name: "We Survived The Most Extreme Places on Earth"
+external_url: ""              # https://vyro.com/campaigns/... (für die Telegram-Erinnerung)
+rate_per_1k_usd: 2.0          # aus dem Briefing prüfen
+min_views: 5000               # aus dem Briefing prüfen
+max_per_post_usd: 1000        # aus dem Briefing prüfen
+min_seconds: 8                # aus dem Briefing prüfen
+footage:
+  type: frameio
+  url: ""                     # Frame.io-Share-Link
+required:
+  overlay_text: ""            # Pflicht-Overlay aus dem Briefing (Zeilen mit " · " trennen)
+  caption: |
+                              # Pflicht-Caption aus dem Briefing
+  hashtags: []                # z.B. ["#MrBeastPartner"]
+  tiktok:
+    isBrandedContent: true
+    isYourBrand: false
+    privacyLevel: PUBLIC_TO_EVERYONE
+forbidden:
+  music: true
+  broll: true
+  collab_posts: true
+accounts: [A, B]
+platforms: [tiktok]
