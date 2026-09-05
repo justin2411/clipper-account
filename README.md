@@ -47,6 +47,7 @@ python scripts/set_footage.py <id> <drive_url> config/campaign_template.yaml   #
 python scripts/run_fn.py scout                    # Clip-Jobs sofort starten (statt auf Cron zu warten)
 python scripts/run_fn.py publisher|tracker|notify # Funktionen manuell auslösen
 python scripts/run_fn.py overview                 # Status aller Tabellen
+python scripts/run_fn.py publish_campaign <id> [gap]  # alle fertigen Clips zeitversetzt (erster je Account sofort, dann alle 45 min)
 python scripts/mark_submitted.py <id>             # nach dem Einreichen bei Vyro
 ```
 Lokal entwickeln: `cd worker && npm ci && npm run migrate:local && npm run dev` (Secrets in `worker/.dev.vars`, Vorlage `.dev.vars.example`).

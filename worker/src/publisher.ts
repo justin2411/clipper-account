@@ -100,8 +100,8 @@ export async function runPublisher(env: Env) {
   return stats;
 }
 
-/** Einen 'ready'-Clip sofort posten (alle Plattformen der Kampagne, ohne Slot). Nutzt dieselben Regeln wie der Cron-Lauf. */
-export async function publishClipNow(env: Env, clipId: string) {
+/** Einen 'ready'-Clip posten – sofort oder zu `when` (ISO). Nutzt dieselben Regeln wie der Cron-Lauf. */
+export async function publishClipNow(env: Env, clipId: string, when: string | null = null) {
   const DRAFT = (env.BLOTATO_DRAFT ?? "true") === "true";
   const c = await db.first<any>(env, "SELECT * FROM clips WHERE id = ?", clipId);
   if (!c) return { error: "clip not found" };
@@ -117,15 +117,30 @@ export async function publishClipNow(env: Env, clipId: string) {
     const accountId = cfg.blotato?.[platform];
     if (!accountId) { results.push({ platform, error: "no Blotato account id" }); continue; }
     const target = buildTarget(platform, c.caption ?? "", DRAFT, camp.required?.tiktok ?? {});
-    const res = await blotatoPost(env, accountId, platform, c.media_url, c.caption ?? "", null, target);
-    const now = new Date().toISOString();
+    const res = await blotatoPost(env, accountId, platform, c.media_url, c.caption ?? "", DRAFT ? null : when, target);
+    const at = when ?? new Date().toISOString();
     await db.run(env,
       "INSERT INTO posts (clip_id, platform, blotato_submission_id, scheduled_at, status, rejection_reason) VALUES (?, ?, ?, ?, ?, ?)",
-      c.id, platform, res.id ?? null, now, res.id ? (DRAFT ? "draft" : "scheduled") : "error", res.id ? null : String(res.error ?? res.status));
+      c.id, platform, res.id ?? null, at, res.id ? (DRAFT ? "draft" : "scheduled") : "error", res.id ? null : String(res.error ?? res.status));
     if (res.id) anyOk = true;
     results.push({ platform, accountId, submission: res.id ?? null, error: res.error ?? null });
   }
   if (anyOk) await db.run(env, "UPDATE clips SET status = ? WHERE id = ?", DRAFT ? "drafted" : "scheduled", c.id);
-  await logEvent(env, `publish_now clip=${c.id} account=${c.account} draft=${DRAFT}`, c.campaign_id);
-  return { clip: c.id, account: c.account, draft: DRAFT, results };
+  await logEvent(env, `publish_now clip=${c.id} account=${c.account} at=${when ?? "now"} draft=${DRAFT}`, c.campaign_id);
+  return { clip: c.id, account: c.account, at: when ?? "now", draft: DRAFT, results };
+}
+
+/** Alle 'ready'-Clips einer Kampagne zeitversetzt posten: je Account der erste sofort, die weiteren alle `gapMin` Minuten.
+ *  Nie zwei Posts eines Accounts gleichzeitig. */
+export async function publishCampaignSpaced(env: Env, campaignId: string, gapMin = 45) {
+  const clips = await db.all<any>(env, "SELECT id, account, seq FROM clips WHERE campaign_id = ? AND status = 'ready' ORDER BY account, seq, created_at", campaignId);
+  const perAccount: Record<string, number> = {};
+  const out: unknown[] = [];
+  for (const c of clips) {
+    const k = perAccount[c.account] ?? 0;
+    const when = k === 0 ? null : new Date(Date.now() + k * gapMin * 60000).toISOString();
+    out.push(await publishClipNow(env, c.id, when));
+    perAccount[c.account] = k + 1;
+  }
+  return { campaign: campaignId, gap_min: gapMin, posted: out };
 }

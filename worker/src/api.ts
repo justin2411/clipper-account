@@ -17,7 +17,7 @@
 //   POST /notify                      {text} → Telegram
 import { Env, Row, db, json, logEvent, mediaUrl, nowIso, toCampaign } from "./shared";
 import { runScout, dispatchClipJob } from "./scout";
-import { runPublisher, publishClipNow } from "./publisher";
+import { runPublisher, publishClipNow, publishCampaignSpaced } from "./publisher";
 import { runTracker } from "./tracker";
 import { runNotify } from "./notify";
 import { buildDashboard } from "./dashboard";
@@ -240,9 +240,13 @@ export async function handleRequest(req: Request, env: Env, ctx: ExecutionContex
       return json({ fn: rest[1], result: await fn(env) });
     }
 
-    // einen 'ready'-Clip sofort veröffentlichen (statt auf den nächsten Slot zu warten)
+    // einen 'ready'-Clip sofort veröffentlichen (statt auf den nächsten Slot zu warten); ?at=<ISO> für einen festen Zeitpunkt
     if (rest[0] === "publish_now" && rest[1] && req.method === "POST") {
-      return json(await publishClipNow(env, rest[1]));
+      return json(await publishClipNow(env, rest[1], url.searchParams.get("at")));
+    }
+    // alle 'ready'-Clips einer Kampagne zeitversetzt (erster je Account sofort, dann alle ?gap=45 Minuten)
+    if (rest[0] === "publish_campaign" && rest[1] && req.method === "POST") {
+      return json(await publishCampaignSpaced(env, rest[1], Number(url.searchParams.get("gap") || 45)));
     }
 
     // go live: Entwurfs-Clips wieder freigeben (nach Sichtprüfung, BLOTATO_DRAFT=false deployen)
