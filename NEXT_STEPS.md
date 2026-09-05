@@ -10,7 +10,7 @@ Stand 2026-09-05 – umgebaut auf Cloudflare (Workers + D1 + R2), Pipeline bleib
 4. [x] Blotato aktiv, API-Key im Worker. Beide TikTok-Accounts verbunden: A @mrbeastfire0 (58583), B @beastcrewclips (58594).
 5. [x] GitHub-Secrets gesetzt (CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, CLIPFORGE_API_URL, CLIPFORGE_API_KEY, GOOGLE_API_KEY) – deploy.yml auf main ist grün (Run #2).
 6. [x] Erste Kampagne `mrbeast-book-challenge` angelegt (Vyro-Briefing bestätigt), Footage = Frame.io-Share. Allgemein: `config/campaign_template.yaml` ausfüllen → `python scripts/set_footage.py <id> <drive_url> config/campaign_template.yaml` → `python scripts/run_fn.py scout`.
-7. [ ] Erster Lauf mit `BLOTATO_DRAFT = "true"` (bereits gesetzt in `worker/wrangler.toml`) → Sichtprüfung der TikTok-Entwürfe → auf `"false"` → Push auf main deployt.
+7. [x] Erster Lauf im Draft-Modus (6 Entwürfe, Sichtprüfung ok; Caption kommt bei TikTok-Entwürfen technisch nie mit) → privater Testpost mit voller Caption ok → `BLOTATO_DRAFT = "false"` seit 2026-09-05 20:28 UTC. Erste Live-Posts je Account sofort, Rest über Slots (`python scripts/run_fn.py publish_now <clip_id>` / `go_live`).
 8. [ ] Nach der ersten echten Vyro-Mail: Absender/Betreff in `platforms/vyro.py` und `worker/src/scout.ts` kalibrieren.
 
 Telegram (neuer Token, Chat-ID), Gmail (OAuth, Refresh-Token) und GitHub-Token sind im Worker gesetzt (`python scripts/run_fn.py health` zeigt alles true).

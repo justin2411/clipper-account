@@ -12,7 +12,7 @@
 //   POST /api/telegram/test           {text}
 import { Env, Row, db, json, logEvent, mediaUrl, nowIso, toCampaign } from "./shared";
 import { runScout, dispatchClipJob } from "./scout";
-import { runPublisher } from "./publisher";
+import { runPublisher, publishClipNow } from "./publisher";
 import { runTracker } from "./tracker";
 import { runNotify } from "./notify";
 import { BLOTATO, blotatoHeaders, telegram } from "./shared";
@@ -169,6 +169,11 @@ export async function handleRequest(req: Request, env: Env, ctx: ExecutionContex
       const fn = FUNCTIONS[rest[1]];
       if (!fn) return json({ error: `unbekannt: ${rest[1]}` }, 404);
       return json({ fn: rest[1], result: await fn(env) });
+    }
+
+    // einen 'ready'-Clip sofort veröffentlichen (statt auf den nächsten Slot zu warten)
+    if (rest[0] === "publish_now" && rest[1] && req.method === "POST") {
+      return json(await publishClipNow(env, rest[1]));
     }
 
     // go live: Entwurfs-Clips wieder freigeben (nach Sichtprüfung, BLOTATO_DRAFT=false deployen)
