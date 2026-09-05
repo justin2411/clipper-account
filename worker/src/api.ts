@@ -171,6 +171,13 @@ export async function handleRequest(req: Request, env: Env, ctx: ExecutionContex
       return json({ fn: rest[1], result: await fn(env) });
     }
 
+    // go live: Entwurfs-Clips wieder freigeben (nach Sichtprüfung, BLOTATO_DRAFT=false deployen)
+    if (rest[0] === "go_live" && req.method === "POST") {
+      const r = await db.run(env, "UPDATE clips SET status = 'ready' WHERE status = 'drafted'");
+      await logEvent(env, `go_live: ${r.meta.changes} drafted clips → ready`);
+      return json({ released: r.meta.changes, draft_mode_now: (env.BLOTATO_DRAFT ?? "true") === "true" });
+    }
+
     // manual clip job dispatch for one account
     if (rest[0] === "dispatch" && rest[1] && rest[2] && req.method === "POST") {
       const camp = await db.first(env, "SELECT id FROM campaigns WHERE id = ?", rest[1]);

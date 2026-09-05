@@ -81,12 +81,14 @@ export async function runPublisher(env: Env) {
         const target = buildTarget(platform, c.caption ?? "", DRAFT, camp.required?.tiktok ?? {});
         // Draft-Modus: sofort als Entwurf anlegen (nicht öffentlich) statt auf den Slot zu warten → schnelle Sichtprüfung
         const res = await blotatoPost(env, accountId, platform, c.media_url, c.caption ?? "", DRAFT ? null : when, target);
+        // Draft-Modus: Zeilen als 'draft'/'drafted' führen – zählen nicht als Slot, Tracker/Notify ignorieren sie,
+        // beim Umschalten auf Live werden 'drafted'-Clips wieder auf 'ready' gesetzt (scripts/run_fn.py go_live).
         await db.run(env,
           "INSERT INTO posts (clip_id, platform, blotato_submission_id, scheduled_at, status, rejection_reason) VALUES (?, ?, ?, ?, ?, ?)",
-          c.id, platform, res.id ?? null, when, res.id ? "scheduled" : "error", res.id ? null : String(res.error ?? res.status));
+          c.id, platform, res.id ?? null, when, res.id ? (DRAFT ? "draft" : "scheduled") : "error", res.id ? null : String(res.error ?? res.status));
         if (res.id) { anyOk = true; stats.scheduled++; } else stats.errors++;
       }
-      if (anyOk) await db.run(env, "UPDATE clips SET status = 'scheduled' WHERE id = ?", c.id);
+      if (anyOk) await db.run(env, "UPDATE clips SET status = ? WHERE id = ?", DRAFT ? "drafted" : "scheduled", c.id);
       else {
         // Dauerfehler (z.B. Blotato lehnt Medium ab): nach 3 Fehlversuchen nicht mehr retryen
         const fails = await db.first<{ n: number }>(env, "SELECT COUNT(*) AS n FROM posts WHERE clip_id = ? AND status = 'error'", c.id);
