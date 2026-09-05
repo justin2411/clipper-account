@@ -6,6 +6,7 @@ rate_per_1k_usd: 2.0
 min_views: 5000
 max_per_post_usd: 1000
 min_seconds: 8
+pool_paid_out_pct: 0         # "% paid out" von der Vyro-Kampagnenseite (manuell pflegen, Budgets sind nicht öffentlich)
 footage:
   type: frameio            # frameio | gdrive | url – alle drei lädt die Pipeline selbst (Frame.io-Share ohne Login)
   url: ""                  # z.B. https://next.frame.io/share/<id>/ oder Drive-Ordner „Jeder mit dem Link“

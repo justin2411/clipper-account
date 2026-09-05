@@ -16,6 +16,8 @@ if len(sys.argv) > 3:
     t = yaml.safe_load(open(sys.argv[3]))
     body.update({k: t[k] for k in ("platform", "name", "external_url", "rate_per_1k_usd", "min_views", "max_per_post_usd",
                                    "min_seconds", "required", "forbidden", "accounts", "platforms") if k in t})
+if len(sys.argv) > 3 and "pool_paid_out_pct" in t:
+    body["budget_used_usd"], body["budget_total_usd"] = float(t["pool_paid_out_pct"] or 0), 100   # Dashboard-Pool in Prozent ("% paid out" bei Vyro)
 body["id"] = cid
 if "platform" not in body or "name" not in body:
     existing = db.get_campaign(cid)  # bricht ab, wenn Kampagne unbekannt und keine Vorlage angegeben
