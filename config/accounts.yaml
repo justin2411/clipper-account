@@ -11,7 +11,7 @@ accounts:
     clipper_flags: "--clips 3 --hook-v2 --font-style CINEMATIC --no-broll --no-bgm --whisper-model small --whisper-device cpu --whisper-compute-type int8"
     slots_utc: ["13:00", "16:00", "19:00"]
     blotato:
-      tiktok: ""
+      tiktok: "58594"  # @beastcrewclips (Blotato accountId)
 
 max_clips_per_source: 3      # harte Obergrenze pro Quellvideo (pipeline/clipper.py kappt --clips darauf)
 # Vertikale Quellen (Höhe > Breite) werden automatisch ohne Face-Tracking geschnitten (ffprobe in pipeline/clipper.py).
