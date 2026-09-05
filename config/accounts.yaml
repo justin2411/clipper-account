@@ -2,16 +2,18 @@
 accounts:
   - id: A
     style: moments            # krasse Szenen, kurz, Textfrage-Hook, keine Untertitel
-    clipper_flags: "--clips 8 --hook-v2 --no-subs --no-broll --no-bgm --whisper-model small --whisper-device cpu --whisper-compute-type int8"
+    clipper_flags: "--clips 3 --hook-v2 --no-subs --no-broll --no-bgm --whisper-model small --whisper-device cpu --whisper-compute-type int8"
     slots_utc: ["12:00", "15:00", "18:00"]        # Berlin 14/17/20
     blotato:
       tiktok: "58583"  # @mrbeastfire0 (Blotato accountId)
   - id: B
     style: reactions          # Reaktionen/Comedy, Untertitel, cinematic
-    clipper_flags: "--clips 8 --hook-v2 --font-style CINEMATIC --no-broll --no-bgm --whisper-model small --whisper-device cpu --whisper-compute-type int8"
+    clipper_flags: "--clips 3 --hook-v2 --font-style CINEMATIC --no-broll --no-bgm --whisper-model small --whisper-device cpu --whisper-compute-type int8"
     slots_utc: ["13:00", "16:00", "19:00"]
     blotato:
       tiktok: ""
 
+max_clips_per_source: 3      # harte Obergrenze pro Quellvideo (pipeline/clipper.py kappt --clips darauf)
+# Vertikale Quellen (Höhe > Breite) werden automatisch ohne Face-Tracking geschnitten (ffprobe in pipeline/clipper.py).
 platform_gap_minutes: 30      # nur relevant, wenn später weitere Plattformen aktiviert werden
 max_clips_per_account_per_day: 5

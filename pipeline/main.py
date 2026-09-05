@@ -20,7 +20,9 @@ def main():
     a = ap.parse_args()
 
     campaign = db.get_campaign(a.campaign)
-    acct = next(x for x in load_yaml(ROOT / "config/accounts.yaml")["accounts"] if x["id"] == a.account)
+    accounts_cfg = load_yaml(ROOT / "config/accounts.yaml")
+    acct = next(x for x in accounts_cfg["accounts"] if x["id"] == a.account)
+    max_clips = int(accounts_cfg.get("max_clips_per_source", clipper.DEFAULT_MAX_CLIPS))
     platform = REGISTRY[campaign["platform"]]
     rules = platform.rules(campaign)
 
@@ -32,7 +34,8 @@ def main():
     raw_clips: list[tuple[int, Path]] = []            # (Quell-Index, Clip)
     for i, src in enumerate(sources):
         try:
-            clips = clipper.run(src, acct["clipper_flags"], WORK / a.account / f"src{i}", label_url=campaign["footage"].get("url", ""))
+            clips = clipper.run(src, acct["clipper_flags"], WORK / a.account / f"src{i}",
+                                label_url=campaign["footage"].get("url", ""), max_clips=max_clips)
         except Exception as e:                        # eine kaputte Quelle bricht den Job nicht ab
             db.log(a.campaign, f"clipper_error account={a.account} src={src.name} err={str(e)[:120]}"); continue
         db.log(a.campaign, f"clipper_done account={a.account} src={src.name} raw={len(clips)}")
