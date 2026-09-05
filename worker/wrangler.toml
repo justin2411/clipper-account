@@ -19,7 +19,7 @@ crons = [
 [[d1_databases]]
 binding = "DB"
 database_name = "clipforge"
-database_id = "REPLACE_WITH_D1_ID"      # scripts/cf_bootstrap.sh trägt die ID nach `wrangler d1 create clipforge` ein
+database_id = "f699e8de-fb2c-4cac-b675-28f6906b7a28"      # scripts/cf_bootstrap.sh trägt die ID nach `wrangler d1 create clipforge` ein
 migrations_dir = "migrations"
 
 [[r2_buckets]]
