@@ -1,3 +1,4 @@
 [submodule "vendor/opensource-clipping"]
 	path = vendor/opensource-clipping
 	url = https://github.com/NaufalRizqullah/opensource-clipping
+	ignore = dirty

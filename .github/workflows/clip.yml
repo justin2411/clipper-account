@@ -43,7 +43,8 @@ jobs:
           path: ~/.cache/huggingface
           key: hf-models-${{ hashFiles('config/accounts.yaml') }}
           restore-keys: hf-models-
-      - run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-dejavu-core
+      # libegl1/libgles2/libgl1: MediaPipe (Face-Tracking) lädt libEGL/libGLESv2 auch ohne GPU
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-dejavu-core libegl1 libgles2 libgl1 libopengl0 libglib2.0-0
       # CPU-Torch (kein CUDA, spart ~2 GB); pyannote/HF nur bei --split-screen nötig
       - run: pip install --extra-index-url https://download.pytorch.org/whl/cpu -r pipeline/requirements.txt -r vendor/opensource-clipping/requirements.txt
       - run: python -m pipeline.main --campaign "${{ inputs.campaign }}" --account "${{ inputs.account }}"
