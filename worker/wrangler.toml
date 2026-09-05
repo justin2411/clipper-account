@@ -29,7 +29,7 @@ bucket_name = "clips"
 # Nicht-geheime Konfiguration. Geheimnisse (BLOTATO_API_KEY, TELEGRAM_*, GMAIL_*, GITHUB_TOKEN, ACCOUNTS_JSON,
 # CLIPFORGE_API_KEY) kommen per `wrangler secret put` bzw. scripts/cf_bootstrap.sh aus .env.
 [vars]
-BLOTATO_DRAFT = "true"                  # Einlaufphase: Posts landen als TikTok-Entwurf → Sichtprüfung → auf "false"
+BLOTATO_DRAFT = "false"                 # Sichtprüfung am 2026-09-05 bestanden → live. "true" = Posts nur als TikTok-Entwurf
 MAX_CLIPS_PER_DAY = "5"
 PLATFORM_GAP_MIN = "30"
 GITHUB_REPO = "justin2411/clipper-account"

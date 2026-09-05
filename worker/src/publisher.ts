@@ -99,3 +99,33 @@ export async function runPublisher(env: Env) {
   if (stats.scheduled) await logEvent(env, `publisher scheduled=${stats.scheduled} draft=${DRAFT}`);
   return stats;
 }
+
+/** Einen 'ready'-Clip sofort posten (alle Plattformen der Kampagne, ohne Slot). Nutzt dieselben Regeln wie der Cron-Lauf. */
+export async function publishClipNow(env: Env, clipId: string) {
+  const DRAFT = (env.BLOTATO_DRAFT ?? "true") === "true";
+  const c = await db.first<any>(env, "SELECT * FROM clips WHERE id = ?", clipId);
+  if (!c) return { error: "clip not found" };
+  if (c.status !== "ready") return { error: `clip status is ${c.status}, not ready` };
+  const campRow = await db.first(env, "SELECT * FROM campaigns WHERE id = ?", c.campaign_id);
+  if (!campRow) return { error: "campaign not found" };
+  const camp = toCampaign(campRow);
+  const cfg = accountsOf(env)[c.account];
+  if (!cfg) return { error: `account ${c.account} not in ACCOUNTS_JSON` };
+  const results: unknown[] = [];
+  let anyOk = false;
+  for (const platform of camp.platforms.length ? camp.platforms : ["tiktok"]) {
+    const accountId = cfg.blotato?.[platform];
+    if (!accountId) { results.push({ platform, error: "no Blotato account id" }); continue; }
+    const target = buildTarget(platform, c.caption ?? "", DRAFT, camp.required?.tiktok ?? {});
+    const res = await blotatoPost(env, accountId, platform, c.media_url, c.caption ?? "", null, target);
+    const now = new Date().toISOString();
+    await db.run(env,
+      "INSERT INTO posts (clip_id, platform, blotato_submission_id, scheduled_at, status, rejection_reason) VALUES (?, ?, ?, ?, ?, ?)",
+      c.id, platform, res.id ?? null, now, res.id ? (DRAFT ? "draft" : "scheduled") : "error", res.id ? null : String(res.error ?? res.status));
+    if (res.id) anyOk = true;
+    results.push({ platform, accountId, submission: res.id ?? null, error: res.error ?? null });
+  }
+  if (anyOk) await db.run(env, "UPDATE clips SET status = ? WHERE id = ?", DRAFT ? "drafted" : "scheduled", c.id);
+  await logEvent(env, `publish_now clip=${c.id} account=${c.account} draft=${DRAFT}`, c.campaign_id);
+  return { clip: c.id, account: c.account, draft: DRAFT, results };
+}
