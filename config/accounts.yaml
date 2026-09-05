@@ -18,4 +18,4 @@ accounts:
 max_clips_per_source: 3      # harte Obergrenze pro Quellvideo (pipeline/clipper.py kappt --clips darauf)
 # Vertikale Quellen (Höhe > Breite) werden automatisch ohne Face-Tracking geschnitten (ffprobe in pipeline/clipper.py).
 platform_gap_minutes: 30      # nur relevant, wenn später weitere Plattformen aktiviert werden
-max_clips_per_account_per_day: 5   # 3–5 Posts/Tag; effektiv begrenzt durch die 4 Slots
+max_clips_per_account_per_day: 4   # feste Zeiten: genau die 4 Slots je Account (Worker-Var MAX_CLIPS_PER_DAY)
