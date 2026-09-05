@@ -19,10 +19,10 @@ export function buildTarget(platform: string, caption: string, draft: boolean, t
   return target;
 }
 
-async function blotatoPost(env: Env, accountId: string, platform: string, mediaUrl: string, caption: string, when: string, target: Record<string, unknown>) {
+async function blotatoPost(env: Env, accountId: string, platform: string, mediaUrl: string, caption: string, when: string | null, target: Record<string, unknown>) {
   const r = await fetch(`${BLOTATO}/posts`, {
     method: "POST", headers: blotatoHeaders(env),
-    body: JSON.stringify({ post: { accountId, content: { text: caption, mediaUrls: [mediaUrl], platform }, target }, scheduledTime: when }),
+    body: JSON.stringify({ post: { accountId, content: { text: caption, mediaUrls: [mediaUrl], platform }, target }, ...(when ? { scheduledTime: when } : {}) }),
   });
   const body: any = await r.json().catch(() => ({}));
   if (!r.ok) console.log("[publisher] blotato", r.status, JSON.stringify(body).slice(0, 300));
@@ -79,7 +79,8 @@ export async function runPublisher(env: Env) {
         if (!accountId) { stats.skipped.push(`${acc}/${platform}: keine Blotato-Account-ID`); continue; }
         const when = new Date(new Date(slot).getTime() + k++ * GAP * 60000).toISOString();
         const target = buildTarget(platform, c.caption ?? "", DRAFT, camp.required?.tiktok ?? {});
-        const res = await blotatoPost(env, accountId, platform, c.media_url, c.caption ?? "", when, target);
+        // Draft-Modus: sofort als Entwurf anlegen (nicht öffentlich) statt auf den Slot zu warten → schnelle Sichtprüfung
+        const res = await blotatoPost(env, accountId, platform, c.media_url, c.caption ?? "", DRAFT ? null : when, target);
         await db.run(env,
           "INSERT INTO posts (clip_id, platform, blotato_submission_id, scheduled_at, status, rejection_reason) VALUES (?, ?, ?, ?, ?, ?)",
           c.id, platform, res.id ?? null, when, res.id ? "scheduled" : "error", res.id ? null : String(res.error ?? res.status));
