@@ -11,6 +11,7 @@ export interface Env {
   GITHUB_REF?: string;
   // secrets
   CLIPFORGE_API_KEY?: string;
+  DASHBOARD_READ_KEY?: string;
   BLOTATO_API_KEY?: string;
   TELEGRAM_BOT_TOKEN?: string;
   TELEGRAM_CHAT_ID?: string;

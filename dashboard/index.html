@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ClipForge</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&display=swap" rel="stylesheet">
+<style>
+/*
+  DATENVERTRAG – Claude Code liefert GET {apiUrl}/dashboard mit Header "x-api-key".
+  Antwort (JSON):
+  {
+    "month": "2026-09", "currency": "USD", "eur_rate": 0.92,
+    "totals": { "revenue": 412, "costs": 31, "pending": 96, "week_delta": 138 },
+    "history": [ { "week": "KW34", "revenue": 40 }, ... ],                 // letzte 8 Wochen
+    "campaigns": [ { "id": "...", "name": "...", "platform": "vyro", "status": "active|ended|joined|paused",
+                     "rate_per_1k": 2, "clips": 18, "views": 142000, "qualified": 9, "earned": 231,
+                     "budget_used": 30000, "budget_total": 105000 } ],
+    "accounts": [ { "id": "A", "handle": "@mrbeastfire0", "niche": "Momente", "followers": 4200,
+                    "avg_views": 7900, "paused": false, "reason": null } ],
+    "insights": { "best_hook": "Textfrage im Overlay", "best_slot": "20:00", "qualified_rate": 0.34 },
+    "tasks": [ { "type": "submit|join|review", "text": "...", "url": "..." } ],
+    "goal_monthly": 2000,                                                    // optional, Standard 2000
+    "forecast": { "month_end": 640, "next_month": 980, "days_left": 25 }     // optional – fehlt es, rechnet das Dashboard selbst
+  }
+*/
+:root{
+  --bg:#0E0F14; --panel:#15171F; --line:#252833; --ink:#F2F1EC; --ink-2:#A9ABB6; --ink-3:#6B6E7B;
+  --flame:#FF5A1F; --violet:#8B5CF6; --gold:#FACC15; --ok:#3DD68C; --warn:#F5A524; --bad:#F0564A;
+  --r:14px; --font:"Manrope",system-ui,sans-serif;
+}
+@media (prefers-color-scheme: light){
+  :root:not([data-theme="dark"]){ --bg:#F6F5F1; --panel:#FFFFFF; --line:#E4E2DB; --ink:#16171C; --ink-2:#5B5E6B; --ink-3:#8E909B; }
+}
+:root[data-theme="light"]{ --bg:#F6F5F1; --panel:#FFFFFF; --line:#E4E2DB; --ink:#16171C; --ink-2:#5B5E6B; --ink-3:#8E909B; }
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font);font-weight:500;line-height:1.5}
+a{color:inherit}
+.wrap{max-width:1040px;margin:0 auto;padding:20px 16px 60px}
+header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:6px 0 18px}
+.brand{display:flex;align-items:center;gap:10px;font-weight:800;font-size:18px;letter-spacing:-.01em}
+.brand i{width:26px;height:26px;border-radius:8px;background:var(--flame);display:inline-block;position:relative}
+.brand i:after{content:"";position:absolute;inset:7px 9px;background:var(--bg);clip-path:polygon(60% 0,20% 55%,48% 55%,35% 100%,80% 40%,52% 40%)}
+.meta{color:var(--ink-3);font-size:13px;display:flex;gap:10px;align-items:center}
+.meta button{font:inherit;color:var(--ink-2);background:transparent;border:1px solid var(--line);border-radius:999px;padding:6px 12px;cursor:pointer}
+/* hero: money bar */
+.hero{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:20px 22px;margin-bottom:14px}
+.hero-top{display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:12px}
+.profit{font-size:44px;font-weight:800;letter-spacing:-.03em;line-height:1}
+.profit small{font-size:15px;font-weight:700;color:var(--ink-2);margin-left:8px;letter-spacing:0}
+.delta{color:var(--ok);font-size:14px;font-weight:700}
+.delta.neg{color:var(--bad)}
+.split{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:16px}
+.split div{padding:10px 12px;border-radius:10px;background:color-mix(in srgb,var(--panel) 70%,var(--bg))}
+.split b{display:block;font-size:20px;font-weight:800;letter-spacing:-.02em}
+.split span{font-size:12px;color:var(--ink-3)}
+.bars{display:flex;align-items:flex-end;gap:6px;height:64px;margin-top:18px}
+.bars div{flex:1;background:var(--line);border-radius:4px 4px 0 0;position:relative;min-height:3px}
+.bars div.cur{background:var(--flame)}
+.bars div:after{content:attr(data-w);position:absolute;top:100%;left:0;right:0;text-align:center;font-size:10px;color:var(--ink-3);margin-top:4px}
+/* forecast */
+.fc{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.fc div{padding:12px 14px;border-radius:10px;border:1px dashed var(--line)}
+.fc b{display:block;font-size:22px;font-weight:800;letter-spacing:-.02em}
+.fc span{font-size:12px;color:var(--ink-3)}
+.goal{margin-top:14px}
+.goal .track{height:8px;background:var(--line);border-radius:4px;overflow:hidden}
+.goal .track i{display:block;height:100%;background:var(--flame)}
+.goal p{font-size:13px;color:var(--ink-2);margin:8px 0 0}
+@media (max-width:720px){.fc{grid-template-columns:1fr}}
+/* sections */
+section{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:16px 18px;margin-bottom:14px}
+h2{font-size:15px;font-weight:800;margin:0 0 10px;letter-spacing:-.01em;display:flex;justify-content:space-between;align-items:baseline}
+h2 span{font-size:12px;font-weight:500;color:var(--ink-3)}
+.row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 14px;padding:11px 0;border-top:1px solid var(--line);align-items:center}
+.row:first-of-type{border-top:0}
+.name{font-weight:700;font-size:14px}
+.sub{font-size:12px;color:var(--ink-3);margin-top:2px}
+.pill{font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;margin-left:6px;vertical-align:1px}
+.pill.active{background:color-mix(in srgb,var(--ok) 18%,transparent);color:var(--ok)}
+.pill.ended,.pill.joined{background:var(--line);color:var(--ink-2)}
+.pill.paused{background:color-mix(in srgb,var(--warn) 18%,transparent);color:var(--warn)}
+.stat{text-align:right;font-weight:800;font-size:16px;letter-spacing:-.01em}
+.stat small{display:block;font-weight:500;font-size:11px;color:var(--ink-3)}
+.track{grid-column:1/-1;height:6px;border-radius:3px;background:var(--line);overflow:hidden}
+.track i{display:block;height:100%;background:var(--violet)}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media (max-width:720px){.two{grid-template-columns:1fr}.split{grid-template-columns:1fr 1fr}.profit{font-size:36px}}
+.kv{display:flex;justify-content:space-between;padding:9px 0;border-top:1px solid var(--line);font-size:14px}
+.kv:first-of-type{border-top:0}
+.kv span{color:var(--ink-2)}
+.task{display:flex;gap:12px;align-items:center;padding:11px 0;border-top:1px solid var(--line);font-size:14px}
+.task:first-of-type{border-top:0}
+.task b{width:8px;height:8px;border-radius:50%;flex:none;background:var(--flame)}
+.task.join b{background:var(--gold)}.task.review b{background:var(--warn)}
+.task a{color:var(--ink-2);font-size:12px;margin-left:auto;text-decoration:none;white-space:nowrap}
+.empty{color:var(--ink-3);font-size:14px;padding:8px 0}
+/* setup gate */
+.gate{max-width:420px;margin:60px auto;background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:24px}
+.gate h1{font-size:20px;margin:0 0 6px;font-weight:800}
+.gate p{color:var(--ink-2);font-size:14px;margin:0 0 16px}
+.gate label{display:block;font-size:12px;color:var(--ink-3);margin:12px 0 4px}
+.gate input{width:100%;font:inherit;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink)}
+.gate button{margin-top:16px;width:100%;font:inherit;font-weight:800;padding:11px;border-radius:10px;border:0;background:var(--flame);color:#fff;cursor:pointer}
+.err{color:var(--bad);font-size:13px;margin-top:8px;min-height:18px}
+.banner{font-size:12px;color:var(--ink-3);text-align:center;margin:-6px 0 12px}
+</style>
+</head>
+<body>
+<div class="wrap" id="app"></div>
+<script>
+const DEMO = {
+  month:"2026-09",currency:"USD",eur_rate:0.92,
+  totals:{revenue:412,costs:31,pending:96,week_delta:138},
+  history:[{week:"KW30",revenue:0},{week:"KW31",revenue:12},{week:"KW32",revenue:38},{week:"KW33",revenue:51},{week:"KW34",revenue:64},{week:"KW35",revenue:109},{week:"KW36",revenue:138}],
+  campaigns:[
+    {id:"mrbeast-book-challenge",name:"MrBeast Book Challenge",platform:"vyro",status:"active",rate_per_1k:2,clips:18,views:142000,qualified:9,earned:231,budget_used:38000,budget_total:120000},
+    {id:"tft-set-18",name:"TFT Set 18",platform:"vyro",status:"active",rate_per_1k:2,clips:11,views:88000,qualified:6,earned:154,budget_used:61000,budget_total:80000},
+    {id:"cod-mw4",name:"COD MW4 Beta",platform:"whop",status:"ended",rate_per_1k:1.75,clips:6,views:21000,qualified:2,earned:27,budget_used:105000,budget_total:105000}],
+  accounts:[
+    {id:"A",handle:"@mrbeastfire0",niche:"Momente",followers:4200,avg_views:7900,paused:false},
+    {id:"B",handle:"@beastcrewclips",niche:"Reaktionen",followers:1100,avg_views:3100,paused:false},
+    {id:"C",handle:"@…",niche:"Gaming",followers:600,avg_views:900,paused:true,reason:"Views-Einbruch"}],
+  insights:{best_hook:"Textfrage im Overlay",best_slot:"20:00",qualified_rate:0.34},
+  tasks:[
+    {type:"submit",text:"6 Post-Links bei Vyro einreichen – Book Challenge",url:"https://app.vyro.com"},
+    {type:"join",text:"Neue Kampagne wartet auf Join – Beast Games S3, 2 $/1k",url:"https://app.vyro.com"},
+    {type:"review",text:"Account C prüfen und wieder freigeben"}]
+};
+const $=(s)=>document.querySelector(s);
+const fmt=(n)=>Math.round(n).toLocaleString("de-DE");
+const money=(n,c="$")=>fmt(n)+" "+c;
+const k=(n)=>n>=1e6?(n/1e6).toFixed(1)+"M":n>=1000?Math.round(n/1000)+"k":fmt(n);
+const cfgKey="clipforge.cfg";
+let cfg=null; try{cfg=JSON.parse(localStorage.getItem(cfgKey)||"null")}catch(e){cfg=null}
+
+function gate(msg=""){
+  $("#app").innerHTML=`<div class="gate"><h1>ClipForge</h1><p>Verbinde das Dashboard mit deinem Worker. Worker-URL und DASHBOARD_READ_KEY stehen in SECRETS.local.md.</p>
+  <label>Worker-URL</label><input id="u" placeholder="https://clipforge.xyz.workers.dev" value="${cfg?.apiUrl||""}">
+  <label>Lese-Key</label><input id="p" type="password" placeholder="DASHBOARD_READ_KEY">
+  <div class="err" id="e">${msg}</div><button id="go">Öffnen</button>
+  <div class="banner" style="margin-top:14px"><a href="#" id="demo">Mit Beispieldaten ansehen</a></div></div>`;
+  $("#go").onclick=async()=>{const apiUrl=$("#u").value.trim().replace(/\/$/,""),apiKey=$("#p").value.trim();
+    if(!apiUrl||!apiKey){$("#e").textContent="URL und Key eingeben.";return}
+    try{const d=await load({apiUrl,apiKey});localStorage.setItem(cfgKey,JSON.stringify({apiUrl,apiKey}));cfg={apiUrl,apiKey};render(d,false)}
+    catch(err){$("#e").textContent="Keine Verbindung: "+err.message}};
+  $("#demo").onclick=(e)=>{e.preventDefault();render(DEMO,true)};
+}
+async function load(c){const r=await fetch(c.apiUrl+"/dashboard",{headers:{"x-api-key":c.apiKey}});if(!r.ok)throw new Error("HTTP "+r.status);return r.json()}
+
+function render(d,demo){
+  const t=d.totals,profit=t.revenue-t.costs,eur=Math.round(profit*(d.eur_rate||0.92));
+  const max=Math.max(1,...d.history.map(h=>h.revenue));
+  const cur=d.campaigns.filter(c=>c.status!=="ended").length;
+  const fc=forecast(d);
+  $("#app").innerHTML=`
+  <header><div class="brand"><i></i>ClipForge</div>
+    <div class="meta">${monthLabel(d.month)} · ${d.accounts.length} Accounts · ${cur} aktiv <button id="rf">${demo?"Verbinden":"Aktualisieren"}</button></div></header>
+  ${demo?`<div class="banner">Beispieldaten – noch nicht mit dem Worker verbunden</div>`:""}
+  <div class="hero"><div class="hero-top"><div><div class="profit">${money(profit)}<small>≈ ${fmt(eur)} € Gewinn</small></div></div>
+    <div class="delta ${t.week_delta<0?"neg":""}">${t.week_delta>=0?"+":""}${money(t.week_delta)} diese Woche</div></div>
+    <div class="split"><div><b>${money(t.revenue)}</b><span>Umsatz ausgezahlt</span></div><div><b>${money(t.costs)}</b><span>Kosten</span></div><div><b>${money(t.pending)}</b><span>offen bei Vyro</span></div></div>
+    <div class="bars">${d.history.map((h,i)=>`<div class="${i===d.history.length-1?"cur":""}" style="height:${Math.max(4,h.revenue/max*100)}%" data-w="${h.week}" title="${money(h.revenue)}"></div>`).join("")}</div>
+    <div style="height:18px"></div></div>
+
+  <section><h2>Prognose <span>bei aktuellem Tempo</span></h2>
+    <div class="fc">
+      <div><b>${money(fc.month_end)}</b><span>Monatsende (noch ${fc.left} Tage)</span></div>
+      <div><b>${money(fc.next_month)}</b><span>nächster Monat (Trend ×${fc.growth.toFixed(1)})</span></div>
+      <div><b>${fc.camp.length?fc.camp.map(c=>money(c.rest)).join(" + "):"–"}</b><span>${fc.camp.length?"noch drin: "+fc.camp.map(c=>c.name).join(", "):"keine aktive Kampagne"}</span></div>
+    </div>
+    <div class="goal"><div class="track"><i style="width:${Math.min(100,fc.month_end/fc.goal*100)}%"></i></div>
+      <p>${fc.gap>0?`Ziel ${money(fc.goal)}: es fehlen ${money(fc.gap)} – das sind ≈ ${k(fc.views_per_day)} zählbare Views pro Tag zusätzlich.`:`Ziel ${money(fc.goal)} wird bei diesem Tempo erreicht.`}</p></div>
+  </section>
+
+  <section><h2>Kampagnen <span>Clips · Views · verdient</span></h2>
+    ${d.campaigns.length?d.campaigns.map(c=>`<div class="row"><div><div class="name">${c.name}<span class="pill ${c.status}">${status(c.status)}</span></div>
+      <div class="sub">${c.platform} · ${c.rate_per_1k} $/1k · ${c.clips} Clips · ${k(c.views)} Views · ${c.qualified} über Schwelle</div></div>
+      <div class="stat">${money(c.earned)}<small>Pool ${Math.round(c.budget_used/Math.max(1,c.budget_total)*100)} % verbraucht</small></div>
+      <div class="track"><i style="width:${Math.min(100,c.budget_used/Math.max(1,c.budget_total)*100)}%"></i></div></div>`).join(""):`<div class="empty">Noch keine Kampagne – der Scout meldet die nächste per Telegram.</div>`}
+  </section>
+
+  <div class="two">
+    <section><h2>Accounts</h2>${d.accounts.map(a=>`<div class="kv"><div><div class="name">${a.id} · ${a.niche}${a.paused?`<span class="pill paused">pausiert</span>`:""}</div><div class="sub">${a.handle}${a.paused&&a.reason?" · "+a.reason:""}</div></div>
+      <span style="text-align:right">${k(a.followers)} Follower<br><small>Ø ${k(a.avg_views)} Views</small></span></div>`).join("")}</section>
+    <section><h2>Diese Woche gelernt</h2>
+      <div class="kv">Bester Hook<span>${d.insights.best_hook||"–"}</span></div>
+      <div class="kv">Beste Uhrzeit<span>${d.insights.best_slot||"–"}</span></div>
+      <div class="kv">Über Schwelle<span>${Math.round((d.insights.qualified_rate||0)*100)} % der Clips</span></div>
+    </section>
+  </div>
+
+  <section><h2>Offene Aufgaben</h2>
+    ${d.tasks.length?d.tasks.map(x=>`<div class="task ${x.type}"><b></b>${x.text}${x.url?`<a href="${x.url}" target="_blank" rel="noopener">Öffnen</a>`:""}</div>`).join(""):`<div class="empty">Nichts offen.</div>`}
+  </section>`;
+  $("#rf").onclick=async()=>{if(demo||!cfg){gate();return}try{render(await load(cfg),false)}catch(err){gate("Verbindung verloren: "+err.message)}};
+}
+function forecast(d){
+  const now=new Date(), y=now.getFullYear(), m=now.getMonth();
+  const dim=new Date(y,m+1,0).getDate(), day=Math.max(1,now.getDate()), left=dim-day;
+  const f=d.forecast||{};
+  const pace=d.totals.revenue/day;
+  const month_end=f.month_end??Math.round(d.totals.revenue+pace*left);
+  const h=d.history||[], last4=h.slice(-4).map(x=>x.revenue), prev4=h.slice(-8,-4).map(x=>x.revenue);
+  const sum=a=>a.reduce((x,y)=>x+y,0);
+  const growth=prev4.length&&sum(prev4)>0?Math.min(2.5,Math.max(0.5,sum(last4)/sum(prev4))):1.3;
+  const next_month=f.next_month??Math.round(month_end*growth);
+  const goal=d.goal_monthly||2000;
+  const rate=d.campaigns.length?d.campaigns.reduce((a,c)=>a+c.rate_per_1k,0)/d.campaigns.length:2;
+  const gap=Math.max(0,goal-month_end);
+  const views_per_day=Math.round(gap/rate*1000/Math.max(1,left));
+  const camp=d.campaigns.filter(c=>c.status==="active").map(c=>{
+    const remain=Math.max(0,c.budget_total-c.budget_used);
+    const daily=c.earned/day;
+    return {name:c.name,rest:Math.round(Math.min(remain, daily*left))};
+  });
+  return {month_end,next_month,goal,gap,views_per_day,left:f.days_left??left,growth,camp};
+}
+function status(s){return {active:"aktiv",ended:"beendet",joined:"beigetreten",paused:"pausiert"}[s]||s}
+function monthLabel(m){const [y,mo]=(m||"").split("-");const n=["Januar","Februar","März","April","Mai","Juni","Juli","August","September","Oktober","November","Dezember"];return mo?`${n[+mo-1]} ${y}`:""}
+
+(async()=>{ if(cfg){try{render(await load(cfg),false);return}catch(e){}} gate(); })();
+</script>
+</body>
+</html>

@@ -15,5 +15,6 @@ Stand 2026-09-05 – umgebaut auf Cloudflare (Workers + D1 + R2), Pipeline bleib
 
 Telegram (neuer Token, Chat-ID), Gmail (OAuth, Refresh-Token) und GitHub-Token sind im Worker gesetzt (`python scripts/run_fn.py health` zeigt alles true).
 
-Offen für V2: Telegram-Webhook für /footage und /submitted (Worker-Route), Dashboard (Cloudflare Pages auf D1-Views), Views-Quelle für den Tracker,
-Audio-Peak-Scoring, eigener Clipper.
+9. [x] Dashboard: `dashboard/index.html` auf Cloudflare Pages (https://clipforge-dashboard-bh8.pages.dev), Worker `GET /dashboard` mit `DASHBOARD_READ_KEY` (2026-09-05).
+
+Offen für V2: Views-Quelle für Tracker/Dashboard (Blotato liefert keine), Telegram-Webhook für /footage und /submitted, Audio-Peak-Scoring, eigener Clipper.
