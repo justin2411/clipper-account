@@ -7,7 +7,7 @@ Stand 2026-09-05 – umgebaut auf Cloudflare (Workers + D1 + R2), Pipeline bleib
        Deploy, Worker-Secrets: CLIPFORGE_API_KEY, BLOTATO_API_KEY, TELEGRAM_*, GMAIL_*, GITHUB_TOKEN, ACCOUNTS_JSON).
        D1 `f699e8de…` angelegt, migriert; Worker live unter https://clipforge.clipforge-xy.workers.dev (2026-09-05). Cron läuft über `[triggers]` in `wrangler.toml`.
 3. [x] Storage: R2-Bucket `clips` wird vom Bootstrap angelegt; öffentliche Auslieferung über den Worker (`/media/<key>`), kein Custom-Domain nötig.
-4. [~] Blotato aktiv, API-Key im Worker. Verbunden: nur Account A (@mrbeastfire0, ID 58583). Zweiter TikTok-Account später: in Blotato verbinden → ID in `config/accounts.yaml` → `./scripts/cf_bootstrap.sh secrets` → `accounts: [A, B]` in der Kampagne.
+4. [x] Blotato aktiv, API-Key im Worker. Beide TikTok-Accounts verbunden: A @mrbeastfire0 (58583), B @beastcrewclips (58594).
 5. [x] GitHub-Secrets gesetzt (CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, CLIPFORGE_API_URL, CLIPFORGE_API_KEY, GOOGLE_API_KEY) – deploy.yml auf main ist grün (Run #2).
 6. [x] Erste Kampagne `mrbeast-book-challenge` angelegt (Vyro-Briefing bestätigt), Footage = Frame.io-Share. Allgemein: `config/campaign_template.yaml` ausfüllen → `python scripts/set_footage.py <id> <drive_url> config/campaign_template.yaml` → `python scripts/run_fn.py scout`.
 7. [ ] Erster Lauf mit `BLOTATO_DRAFT = "true"` (bereits gesetzt in `worker/wrangler.toml`) → Sichtprüfung der TikTok-Entwürfe → auf `"false"` → Push auf main deployt.
