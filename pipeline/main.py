@@ -8,7 +8,7 @@ from pipeline import download, overlay, checks, storage, db, clipper
 from platforms import REGISTRY
 
 ROOT = Path(__file__).resolve().parent.parent
-WORK = Path("work"); WORK.mkdir(exist_ok=True)
+WORK = Path("work").resolve(); WORK.mkdir(exist_ok=True)
 
 
 def load_yaml(p): return yaml.safe_load(Path(p).read_text())
