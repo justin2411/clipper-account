@@ -58,8 +58,30 @@ def _cap_clips(argv: list[str], max_clips: int) -> list[str]:
     return out
 
 
+def hooks_of(work_dir: Path) -> dict[str, str]:
+    """rank → Hook-Satz (englischer Titel aus dem Clipper-Manifest bzw. gemini_response.json)."""
+    out: dict[str, str] = {}
+    for f in ("render_manifest.json", "gemini_response.json"):
+        fp = work_dir / "outputs" / f
+        if not fp.is_file():
+            continue
+        try:
+            data = json.loads(fp.read_text())
+        except Exception:
+            continue
+        items = data if isinstance(data, list) else data.get("clips") or data.get("highlights") or []
+        for m in items:
+            if not isinstance(m, dict) or "rank" not in m:
+                continue
+            hook = m.get("title_inggris") or m.get("youtube_title_final") or m.get("thumbnail_text") or m.get("title") or ""
+            if hook and str(m["rank"]) not in out:
+                out[str(m["rank"])] = str(hook).strip()
+    return out
+
+
 def run(source: Path, flags: str, work_dir: Path, label_url: str = "", max_clips: int = DEFAULT_MAX_CLIPS) -> list[Path]:
-    """Schneidet `source` mit den Account-Flags. Rückgabe: fertige Clips (outputs/highlight_rank_N_ready.mp4)."""
+    """Schneidet `source` mit den Account-Flags. Rückgabe: fertige Clips (outputs/highlight_rank_N_ready.mp4).
+    Hook-Sätze dazu: hooks_of(work_dir)[rank]."""
     source = source.resolve()                          # VOR dem chdir absolut machen
     work_dir = work_dir.resolve()
     work_dir.mkdir(parents=True, exist_ok=True)

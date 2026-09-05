@@ -20,6 +20,8 @@ export async function runTracker(env: Env) {
       if (s?.status === "published" && !p.post_url) {
         sets.push("post_url = ?", "posted_at = ?", "status = 'posted'"); vals.push(url ?? "", nowIso()); stats.posted++;
         await db.run(env, "UPDATE clips SET status = 'posted' WHERE id = ? AND status = 'scheduled'", p.clip_id);
+        const c = await db.first<any>(env, "SELECT c.seq, c.account, c.duration_s, c.hook, c.campaign_id, ca.name FROM clips c JOIN campaigns ca ON ca.id = c.campaign_id WHERE c.id = ?", p.clip_id);
+        if (c) await telegram(env, `📤 Gepostet: ${c.name} #${c.seq ?? "?"} (${c.account}, ${c.duration_s ? Math.round(c.duration_s) + "s" : "?"})\n${c.hook ?? ""}\n${url ?? ""}`);
       }
       if (typeof s?.views === "number" && p.posted_at) {
         const age = (Date.now() - new Date(p.posted_at).getTime()) / 36e5;

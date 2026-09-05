@@ -9,7 +9,7 @@
 //   POST /api/run/:fn                 scout | publisher | tracker | notify manuell starten
 //   POST /api/dispatch/:campaign/:account   Clip-Job (GitHub Actions) gezielt für einen Account starten
 //   GET  /api/blotato/accounts        verbundene Blotato-Accounts (IDs für config/accounts.yaml)
-//   POST /api/telegram/test           {text}
+//   POST /api/telegram/send           {text}  Info-Nachricht (Pipeline meldet z.B. "Clip-Job fertig")
 import { Env, Row, db, json, logEvent, mediaUrl, nowIso, toCampaign } from "./shared";
 import { runScout, dispatchClipJob } from "./scout";
 import { runPublisher, publishClipNow } from "./publisher";
@@ -73,6 +73,7 @@ export async function handleRequest(req: Request, env: Env, ctx: ExecutionContex
   if (seg[0] === "media" && seg.length >= 2 && (req.method === "GET" || req.method === "HEAD"))
     return serveMedia(req, env, seg.slice(1).map(decodeURIComponent).join("/"));
   if (path === "/") return json({ service: "clipforge", ok: true });
+
   if (seg[0] !== "api") return new Response("not found", { status: 404 });
 
   if (!env.CLIPFORGE_API_KEY) return json({ error: "CLIPFORGE_API_KEY nicht gesetzt (wrangler secret put CLIPFORGE_API_KEY)" }, 503);
@@ -142,9 +143,14 @@ export async function handleRequest(req: Request, env: Env, ctx: ExecutionContex
         const b = await body();
         if (!b.campaign_id || !b.account || !b.media_url) return json({ error: "campaign_id, account, media_url erforderlich" }, 400);
         const id = crypto.randomUUID().replace(/-/g, "");
-        await db.run(env, "INSERT INTO clips (id, campaign_id, account, media_url, caption, hook_type, status, note) VALUES (?,?,?,?,?,?,?,?)",
-          id, b.campaign_id, b.account, b.media_url, b.caption ?? null, b.hook_type ?? null, b.status ?? "ready", b.note ?? null);
-        return json({ id }, 201);
+        // seq = laufende Nummer je Kampagne (atomar im INSERT); Standardstatus 'ready' → Publisher postet zu den Slots
+        await db.run(env,
+          `INSERT INTO clips (id, campaign_id, account, media_url, caption, hook_type, status, note, seq, duration_s, hook)
+           SELECT ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(MAX(seq), 0) + 1, ?, ? FROM clips WHERE campaign_id = ?`,
+          id, b.campaign_id, b.account, b.media_url, b.caption ?? null, b.hook_type ?? null, b.status ?? "ready", b.note ?? null,
+          b.duration_s ?? null, b.hook ?? null, b.campaign_id);
+        const row = await db.first<{ seq: number }>(env, "SELECT seq FROM clips WHERE id = ?", id);
+        return json({ id, seq: row?.seq ?? null }, 201);
       }
     }
 
@@ -204,8 +210,8 @@ export async function handleRequest(req: Request, env: Env, ctx: ExecutionContex
       return json(await r.json().catch(() => ({ status: r.status })), r.status);
     }
 
-    // telegram test
-    if (rest[0] === "telegram" && rest[1] === "test" && req.method === "POST") {
+    // telegram info message
+    if (rest[0] === "telegram" && (rest[1] === "send" || rest[1] === "test") && req.method === "POST") {
       const b = await body();
       return json({ sent: await telegram(env, String(b.text ?? "ClipForge: Telegram-Test ✅")) });
     }
