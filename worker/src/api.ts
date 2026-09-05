@@ -7,10 +7,11 @@
 //   POST /api/events
 //   PUT  /api/media/<key>             Upload nach R2 → {url}
 //   POST /api/run/:fn                 scout | publisher | tracker | notify manuell starten
+//   POST /api/dispatch/:campaign/:account   Clip-Job (GitHub Actions) gezielt für einen Account starten
 //   GET  /api/blotato/accounts        verbundene Blotato-Accounts (IDs für config/accounts.yaml)
 //   POST /api/telegram/test           {text}
 import { Env, Row, db, json, logEvent, mediaUrl, nowIso, toCampaign } from "./shared";
-import { runScout } from "./scout";
+import { runScout, dispatchClipJob } from "./scout";
 import { runPublisher } from "./publisher";
 import { runTracker } from "./tracker";
 import { runNotify } from "./notify";
@@ -168,6 +169,15 @@ export async function handleRequest(req: Request, env: Env, ctx: ExecutionContex
       const fn = FUNCTIONS[rest[1]];
       if (!fn) return json({ error: `unbekannt: ${rest[1]}` }, 404);
       return json({ fn: rest[1], result: await fn(env) });
+    }
+
+    // manual clip job dispatch for one account
+    if (rest[0] === "dispatch" && rest[1] && rest[2] && req.method === "POST") {
+      const camp = await db.first(env, "SELECT id FROM campaigns WHERE id = ?", rest[1]);
+      if (!camp) return json({ error: `campaign ${rest[1]} not found` }, 404);
+      const status = await dispatchClipJob(env, rest[1], rest[2]);
+      if (status === 204) await logEvent(env, `clip_job_dispatched account=${rest[2]} (manual)`, rest[1]);
+      return json({ campaign: rest[1], account: rest[2], github_status: status, ok: status === 204 }, status === 204 ? 200 : 502);
     }
 
     // blotato accounts
