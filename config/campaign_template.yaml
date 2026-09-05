@@ -24,5 +24,5 @@ forbidden:
   music: true
   broll: true
   collab_posts: true
-accounts: [A, B]
+accounts: [A]            # Phase 1: nur Account A (@mrbeastfire0); B ergänzen, sobald in Blotato verbunden
 platforms: [tiktok]
