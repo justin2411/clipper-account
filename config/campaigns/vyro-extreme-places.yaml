@@ -1,28 +1,30 @@
-# Vyro-Kampagne "We Survived The Most Extreme Places on Earth" – Pflichtfelder aus dem Briefing eintragen, dann:
-# python scripts/set_footage.py vyro-extreme-places <frameio_share_url> config/campaigns/vyro-extreme-places.yaml
+# Vyro-Kampagne "We Survived The Most Extreme Places on Earth" (Briefing vom 2026-09-05, endet in 13 Tagen)
+# python scripts/set_footage.py vyro-extreme-places https://f.io/xLcpOoW9 config/campaigns/vyro-extreme-places.yaml
 id: vyro-extreme-places
 platform: vyro
 name: "We Survived The Most Extreme Places on Earth"
 external_url: ""              # https://vyro.com/campaigns/... (für die Telegram-Erinnerung)
-rate_per_1k_usd: 2.0          # aus dem Briefing prüfen
-min_views: 5000               # aus dem Briefing prüfen
-max_per_post_usd: 1000        # aus dem Briefing prüfen
-min_seconds: 8                # aus dem Briefing prüfen
+rate_per_1k_usd: 1.0          # $1.00 CPM, Pay type: Per View
+min_views: 5000               # Payout erst ab 5.000 Views pro Clip
+max_per_post_usd: 1000
+min_seconds: 20               # Minimum video length: 20 seconds
 footage:
   type: frameio
-  url: ""                     # Frame.io-Share-Link
+  url: "https://f.io/xLcpOoW9"   # → next.frame.io/share/af8eb848-…, 1 Datei, 610 MB
 required:
-  overlay_text: ""            # Pflicht-Overlay aus dem Briefing (Zeilen mit " · " trennen)
+  overlay_text: ""            # kein Pflicht-Overlay; Briefing verbietet fremde Logos/Text → kein Overlay
   caption: |
-                              # Pflicht-Caption aus dem Briefing
-  hashtags: []                # z.B. ["#MrBeastPartner"]
+    We Survived The Most Extreme Places on Earth 🌍
+  hashtags: ["#mrbeast", "#paidpartner"]   # REQUIRED #mrbeast + FTC #paidpartner; keine weiteren Hashtags erlaubt
   tiktok:
-    isBrandedContent: true
+    isBrandedContent: true    # bezahlte Partnerschaft (FTC)
     isYourBrand: false
     privacyLevel: PUBLIC_TO_EVERYONE
+    disabledComments: false   # Likes & Kommentare müssen an sein
 forbidden:
   music: true
   broll: true
-  collab_posts: true
+  collab_posts: true          # Collab & Story-Posts nicht erlaubt, keine Tags anderer Accounts
+  paid_ads: true              # Boosten/Promoten wird abgelehnt
 accounts: [A, B]
 platforms: [tiktok]
