@@ -1,5 +1,6 @@
 // HTTP-API des Workers.
 //   GET  /media/<key>                 öffentlich: Clip aus R2 (für Blotato/TikTok)
+//   GET  /dashboard                   Dashboard-JSON, Header x-api-key = DASHBOARD_READ_KEY (nur lesen; CORS für Pages)
 //   alles unter /api/* braucht  Authorization: Bearer <CLIPFORGE_API_KEY>
 //   GET  /api/health | /api/overview
 //   GET  /api/campaigns[/:id] | POST /api/campaigns (upsert) | PATCH /api/campaigns/:id | POST /api/campaigns/:id/submitted
@@ -15,13 +16,14 @@ import { runScout, dispatchClipJob } from "./scout";
 import { runPublisher, publishClipNow } from "./publisher";
 import { runTracker } from "./tracker";
 import { runNotify } from "./notify";
+import { buildDashboard } from "./dashboard";
 import { BLOTATO, blotatoHeaders, telegram } from "./shared";
 
 export const FUNCTIONS: Record<string, (env: Env) => Promise<unknown>> = {
   scout: runScout, publisher: runPublisher, tracker: runTracker, notify: runNotify,
 };
 
-const CAMPAIGN_FIELDS = ["platform", "name", "external_url", "status", "rate_per_1k_usd", "min_views", "max_per_post_usd", "min_seconds", "footage", "required", "forbidden", "accounts", "platforms"];
+const CAMPAIGN_FIELDS = ["platform", "name", "external_url", "status", "rate_per_1k_usd", "min_views", "max_per_post_usd", "min_seconds", "footage", "required", "forbidden", "accounts", "platforms", "budget_total_usd", "budget_used_usd"];
 const JSON_FIELDS = new Set(["footage", "required", "forbidden", "accounts", "platforms"]);
 const enc = (k: string, v: unknown) => (JSON_FIELDS.has(k) ? JSON.stringify(v ?? (k === "accounts" || k === "platforms" ? [] : {})) : v ?? null);
 
@@ -73,6 +75,19 @@ export async function handleRequest(req: Request, env: Env, ctx: ExecutionContex
   if (seg[0] === "media" && seg.length >= 2 && (req.method === "GET" || req.method === "HEAD"))
     return serveMedia(req, env, seg.slice(1).map(decodeURIComponent).join("/"));
   if (path === "/") return json({ service: "clipforge", ok: true });
+  if (path === "/dashboard") {
+    const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "x-api-key, content-type", "Access-Control-Allow-Methods": "GET, OPTIONS" };
+    if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
+    const key = env.DASHBOARD_READ_KEY ?? "", given = req.headers.get("x-api-key") ?? "";
+    let diff = key.length ^ given.length;
+    for (let i = 0; i < key.length && i < given.length; i++) diff |= key.charCodeAt(i) ^ given.charCodeAt(i);
+    if (!key || diff !== 0) return new Response(JSON.stringify({ error: "unauthorized" }), { status: 401, headers: { "Content-Type": "application/json", ...cors } });
+    try {
+      return new Response(JSON.stringify(await buildDashboard(env)), { headers: { "Content-Type": "application/json", "Cache-Control": "no-store", ...cors } });
+    } catch (e: any) {
+      return new Response(JSON.stringify({ error: String(e?.message ?? e) }), { status: 500, headers: { "Content-Type": "application/json", ...cors } });
+    }
+  }
 
   if (seg[0] !== "api") return new Response("not found", { status: 404 });
 

@@ -25,7 +25,7 @@ fi
 echo "→ Secrets aus .env"
 python3 - <<'PY' > /tmp/secrets.json
 import json, os
-keys = ["CLIPFORGE_API_KEY","BLOTATO_API_KEY","TELEGRAM_BOT_TOKEN","TELEGRAM_CHAT_ID","GMAIL_CLIENT_ID","GMAIL_CLIENT_SECRET","GMAIL_REFRESH_TOKEN","GITHUB_TOKEN"]
+keys = ["CLIPFORGE_API_KEY","DASHBOARD_READ_KEY","BLOTATO_API_KEY","TELEGRAM_BOT_TOKEN","TELEGRAM_CHAT_ID","GMAIL_CLIENT_ID","GMAIL_CLIENT_SECRET","GMAIL_REFRESH_TOKEN","GITHUB_TOKEN"]
 d = {k: os.environ[k] for k in keys if os.environ.get(k)}
 import subprocess; d["ACCOUNTS_JSON"] = subprocess.check_output(["python3","scripts/accounts_json.py"], text=True).strip()
 print(json.dumps(d)); print("gesetzt:", sorted(d), file=__import__("sys").stderr)

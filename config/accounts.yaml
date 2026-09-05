@@ -1,12 +1,14 @@
 # Zwei Accounts, unterschiedliche Schnittstile. Jeder Clip läuft nur auf EINEM Account.
 accounts:
   - id: A
+    handle: "@mrbeastfire0"
     style: moments            # krasse Szenen, kurz, Textfrage-Hook, keine Untertitel
     clipper_flags: "--clips 3 --hook-v2 --no-subs --no-broll --no-bgm --whisper-model small --whisper-device cpu --whisper-compute-type int8"
     slots_utc: ["12:00", "15:00", "18:00", "22:30"]   # Berlin 14/17/20/00:30 (Sommer)
     blotato:
       tiktok: "58583"  # @mrbeastfire0 (Blotato accountId)
   - id: B
+    handle: "@beastcrewclips"
     style: reactions          # Reaktionen/Comedy, Untertitel, cinematic
     clipper_flags: "--clips 3 --hook-v2 --font-style CINEMATIC --no-broll --no-bgm --whisper-model small --whisper-device cpu --whisper-compute-type int8"
     slots_utc: ["13:00", "16:00", "19:00", "22:30"]

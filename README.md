@@ -13,6 +13,7 @@ Footage lädt die Pipeline selbst: Frame.io-Share (ohne Login, `pipeline/frameio
   HTTP-API für Pipeline und Scripts, öffentliche Clip-Auslieferung unter `/media/<key>` (für Blotato). Läuft 24/7 im Free-Tier, keine Pausen.
 - `config/` – Alles, was sich ändert (Accounts, Kampagnen-Vorlagen, Regeln). Kein Wert im Code.
 - `.github/workflows/` – `clip.yml` (schwerer Schnitt-Job, per `workflow_dispatch` vom Scout gestartet), `deploy.yml` (Worker-Deploy bei Push auf `main`).
+- `dashboard/` – statisches Dashboard (Cloudflare Pages: https://clipforge-dashboard-bh8.pages.dev), liest `GET /dashboard` vom Worker mit dem Lese-Key `DASHBOARD_READ_KEY`. Deploy: `cd worker && npx wrangler pages deploy ../dashboard --project-name clipforge-dashboard --branch main`.
 - `vendor/opensource-clipping` – gepinntes Submodule (Clipper).
 
 ## Setup (einmalig)
@@ -36,7 +37,7 @@ Alle Secrets stehen lokal in `SECRETS.local.md` (gitignored). Nach jeder Änderu
 | Clips → R2, Zeilen in `clips` | Pipeline | Job-Ende |
 | Publisher schedult Slots bei Blotato (`BLOTATO_DRAFT=true` → TikTok-Entwürfe) | Worker `publisher` | Cron 30 min |
 | 21:00 Telegram mit Post-URLs zum Einreichen | Worker `notify` | Cron täglich |
-| Tracker zieht Post-Status/URLs, prüft Kill-Switch, löscht eingereichte Clips aus R2 | Worker `tracker` | Cron 6 h |
+| Tracker zieht Post-Status/URLs, meldet jeden Live-Post per Telegram, prüft Kill-Switch, löscht eingereichte Clips aus R2 | Worker `tracker` | Cron 6 h |
 
 ## Bedienung
 ```bash
@@ -52,7 +53,9 @@ Lokal entwickeln: `cd worker && npm ci && npm run migrate:local && npm run dev` 
 
 ## Hinweise
 - **Blotato liefert keine Views.** `views_*` in `posts` bleiben leer, bis eine Quelle angebunden ist (V2). Der Views-Kill-Switch greift erst dann; der Ablehnungs-Kill-Switch (Spam/Automation) funktioniert sofort.
-- Cron-Zeiten sind UTC (`worker/wrangler.toml`); Slots in `config/accounts.yaml` ebenfalls.
+- Cron-Zeiten sind UTC (`worker/wrangler.toml`); Slots in `config/accounts.yaml` ebenfalls (4 Slots/Account/Tag, 22:30 als letzter).
+- Telegram informiert nur (Kampagne angelegt, Clip-Job fertig, Post live, Einreichliste, Kill-Switch); es gibt keine Freigabe-Schleife.
+- Kampagnen-Budget für das Dashboard: `campaigns.budget_total_usd` / `budget_used_usd` manuell pflegen (`PATCH /api/campaigns/:id`).
 
 ## Neue Plattform anbinden
 `platforms/base.py` implementieren: `parse_email()`, `campaign_rules()`, `caption()`, `submission_hint()`. Absender-Domain zusätzlich in `worker/src/scout.ts` (`SENDERS`) eintragen.
