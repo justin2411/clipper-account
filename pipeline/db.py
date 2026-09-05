@@ -25,9 +25,18 @@ def upsert_campaign(body):
     return _req("POST", "/campaigns", json=body)
 
 
-def insert_clip(campaign_id, account, url, status, caption=None, note=None, hook_type=None):
+def insert_clip(campaign_id, account, url, status, caption=None, note=None, hook_type=None, duration_s=None, hook=None):
     return _req("POST", "/clips", json={"campaign_id": campaign_id, "account": account, "media_url": url,
-                                       "status": status, "caption": caption, "note": note, "hook_type": hook_type})
+                                       "status": status, "caption": caption, "note": note, "hook_type": hook_type,
+                                       "duration_s": duration_s, "hook": hook})
+
+
+def notify(text):
+    """Info-Nachricht per Telegram (schlägt nie hart fehl)."""
+    try:
+        return _req("POST", "/telegram/send", json={"text": text})
+    except SystemExit as e:
+        print("notify failed:", e); return None
 
 
 def log(campaign_id, event):

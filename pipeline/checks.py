@@ -9,6 +9,13 @@ def probe(p: Path) -> dict:
     return json.loads(r.stdout)
 
 
+def duration_of(p: Path) -> float | None:
+    try:
+        return round(float(probe(p)["format"]["duration"]), 1)
+    except Exception:
+        return None
+
+
 def validate(p: Path, rules, forbidden: dict) -> tuple[bool, str]:
     info = probe(p)
     dur = float(info["format"]["duration"])
