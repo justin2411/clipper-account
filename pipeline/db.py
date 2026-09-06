@@ -66,6 +66,10 @@ def notify(text):
 
 
 def log(campaign_id, event):
+    """Ereignis in D1; in GitHub Actions mit run=<id>, damit das Ereignis-Log auf den Lauf verlinken kann."""
+    run = os.environ.get("GITHUB_RUN_ID")
+    if run and "run=" not in event:
+        event = f"{event} run={run}"
     return _req("POST", "/events", json={"campaign_id": campaign_id, "event": event})
 
 
