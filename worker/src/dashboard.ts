@@ -2,6 +2,7 @@
 // Views kommen erst, wenn eine Views-Quelle angebunden ist (Blotato liefert keine) → views/qualified/earned
 // rechnen mit dem jeweils neuesten vorhandenen Wert (views_7d → views_72h → views_24h), sonst 0.
 import { Env, db, nichesOf, tiktokProfileCached } from "./shared";
+import { jobProgress } from "./progress";
 import { accountsOf } from "./publisher";
 import { getSettings, listVersions } from "./settings";
 import { listTasks, syncTasks } from "./tasks";
@@ -323,6 +324,9 @@ export async function buildSources(env: Env, camps: any[], cfg: Record<string, a
             SUM(qa IS NOT NULL) AS qa
      FROM clips WHERE workspace_id = ? AND status NOT IN ('superseded','test_private') GROUP BY campaign_id`, ws);
   const uploads = await db.all<any>(env, "SELECT * FROM uploads WHERE workspace_id = ? ORDER BY created_at DESC LIMIT 100", ws);
+  const live = await jobProgress(env, ws).catch(() => ({ jobs: [] as any[] }));    // Fortschritt, Lebenszeichen, „hängt"
+  const jobOf = (cid: string | null, uid: string | null) =>
+    live.jobs.find((j: any) => (cid && j.campaign_id === cid) || (uid && j.upload_id === uid)) ?? null;
   const out: any[] = [];
   const stageOf = (cid: string, kind: string, up: any | null) => {
     const e = ev.filter((x) => x.campaign_id === cid);
@@ -348,7 +352,8 @@ export async function buildSources(env: Env, camps: any[], cfg: Record<string, a
     if (c.kind === "fan") continue;
     const foot = (() => { try { return JSON.parse(c.footage || "{}"); } catch { return {}; } })();
     const st = stageOf(c.id, "paid", null);
-    out.push({ id: c.id, niche: c.niche_id ?? "mrbeast", name: c.name, size_mb: null, type: "paid", ...st, added: c.created_at, campaign_id: c.id, footage_type: foot.type ?? null });
+    out.push({ id: c.id, niche: c.niche_id ?? "mrbeast", name: c.name, size_mb: null, type: "paid", ...st, added: c.created_at, campaign_id: c.id, footage_type: foot.type ?? null,
+               job: jobOf(c.id, null) });
   }
   for (const u of uploads) {
     if (u.status === "cancelled") continue;
@@ -360,8 +365,10 @@ export async function buildSources(env: Env, camps: any[], cfg: Record<string, a
     const cid = u.campaign_id ?? `fan-${u.id}`;
     const st = stageOf(cid, "fan", u);
     if (u.status === "error" && !st.error) st.error = u.note ?? "Fehler";
+    const job = jobOf(u.campaign_id ?? null, u.id);
+    if (job && job.status === "stuck" && !st.error) st.error = `${job.stage_label}: ${job.text}`;   // „hängt" schlägt bis in die Quellenzeile durch
     out.push({ id: u.id, niche: u.niche_id, name: u.title || u.key.split("/").pop(), size_mb: Math.round((u.size ?? 0) / 1048576), type: u.kind === "paid" ? "paid" : "fan",
-               ...st, added: u.created_at, campaign_id: u.campaign_id ?? null });
+               ...st, added: u.created_at, campaign_id: u.campaign_id ?? null, job });
   }
   return out.sort((a, b) => String(b.added).localeCompare(String(a.added)));
 }

@@ -43,6 +43,7 @@ import { runWeeklyReportAI, runAnomalyCheck, detectAnomalies, lastAnomalies } fr
 import { reconcilePosts } from "./reconcile";
 import { buildPacer, runPacer, lastPacer } from "./pacer";
 import { probeStatus, probeAction, capacity, ProbeAction } from "./probe";
+import { reportProgress, jobProgress, cancelJob, retryStage, cleanupJobs, cancelActionsRun, actionsRunState } from "./progress";
 import { resolveWorkspace, listWorkspaces, createWorkspace, patchWorkspace } from "./workspace";
 import { runFan, startUploadJob } from "./fan";
 import { getSettings, effectiveSettings, validateAll, diffSettings, putSettings, listVersions, getVersion, defaultSettings, deepMerge } from "./settings";
@@ -152,7 +153,7 @@ export async function handleRequest(req: Request, env: Env, ctx: ExecutionContex
     return json({ error: "method not allowed" }, 405);
   }
   // Dashboard-Aktionen (Header x-api-key = DASHBOARD_READ_KEY oder CLIPFORGE_API_KEY, CORS): Review, Settings, Aufgaben, Resume
-  if (["review", "settings", "tasks", "report", "ab", "log", "onboarding", "suggest", "inbox", "chat", "calendar", "payouts", "library", "anomalies", "reconcile", "pacer", "catalog", "probe"].includes(seg[0]) || (seg[0] === "accounts" && seg[2] === "resume")) {
+  if (["review", "settings", "tasks", "report", "ab", "log", "onboarding", "suggest", "inbox", "chat", "calendar", "payouts", "library", "anomalies", "reconcile", "pacer", "catalog", "probe", "jobs"].includes(seg[0]) || (seg[0] === "accounts" && seg[2] === "resume")) {
     const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "x-api-key, content-type", "Access-Control-Allow-Methods": "GET, POST, PUT, OPTIONS" };
     const J = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status, headers: { "Content-Type": "application/json", ...cors } });
     if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
@@ -211,6 +212,29 @@ export async function handleRequest(req: Request, env: Env, ctx: ExecutionContex
       if (seg[0] === "inbox" && seg[1] === "rules" && req.method === "GET") return J(await getRules(env, ws));
       if (seg[0] === "inbox" && seg[1] === "rules" && req.method === "PUT") return J(await putRules(env, (await b()) as any, ws));
       if (seg[0] === "inbox" && seg[1] && ["read", "done", "unread", "reopen"].includes(seg[2] ?? "") && req.method === "POST") return J(await markNotification(env, seg[1] === "all" ? "all" : Number(seg[1]), seg[2] as any, ws));
+      // Workflow-Fortschritt: GET /jobs (alle laufenden Stufen) · GET /jobs?key=<Kampagne|Upload> (alle Stufen einer Quelle)
+      // POST /jobs/cancel {key, reason} bricht den Actions-Lauf ab · POST /jobs/retry {key, stage} startet dieselbe Stufe neu
+      // GET /jobs/permission prüft einmalig, ob der Worker-Token Läufe abbrechen darf (403 = Recht „Actions: write" fehlt)
+      if (seg[0] === "jobs" && !seg[1] && req.method === "GET") return J(await jobProgress(env, ws, url.searchParams.get("key") ?? undefined));
+      if (seg[0] === "jobs" && seg[1] === "cancel" && req.method === "POST") {
+        const body = (await b()) as any;
+        const r = await cancelJob(env, String(body.key ?? ""), String(body.reason ?? ""), ws);
+        return J(r, r.ok ? 200 : 400);
+      }
+      if (seg[0] === "jobs" && seg[1] === "retry" && req.method === "POST") {
+        const body = (await b()) as any;
+        const r = await retryStage(env, String(body.key ?? ""), body.stage ? String(body.stage) : null, ws);
+        return J(r, r.ok ? 200 : 400);
+      }
+      if (seg[0] === "jobs" && seg[1] === "cleanup" && req.method === "POST") return J(await cleanupJobs(env, ws));
+      if (seg[0] === "jobs" && seg[1] === "permission" && req.method === "GET") {
+        const run = url.searchParams.get("run") ?? "";
+        if (!run) return J({ error: "run=<Actions-Lauf-Nummer> nötig" }, 400);
+        const state = await actionsRunState(env, run);
+        const r = await cancelActionsRun(env, run);
+        return J({ run, state, status: r.status, message: r.message, may_cancel: r.status !== 403 && r.status !== 0 });
+      }
+
       // Probelauf: GET /probe zeigt den offenen Lauf und die Auslastung · POST /probe {campaign_id, action: release|another|reject}
       if (seg[0] === "probe" && !seg[1] && req.method === "GET") return J(await probeStatus(env, ws));
       if (seg[0] === "probe" && !seg[1] && req.method === "POST") {
@@ -302,6 +326,7 @@ export async function handleRequest(req: Request, env: Env, ctx: ExecutionContex
         else await db.run(env, "INSERT INTO uploads (id, niche_id, key, title, size, kind, video_id, upload_id, status, workspace_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'uploading', ?)",
           id, niche.key, key, String(b.name ?? "").replace(/\.[^.]+$/, "").slice(0, 120), Number(b.size ?? 0), b.type === "paid" ? "paid" : "fan", (b.video_id as string) ?? null, mp.uploadId, ws);
         await logEvent(env, `upload_started niche=${niche.key} size=${b.size ?? 0} name=${safe}`);
+        await reportProgress(env, { upload_id: id, stage: "download", progress: 0, detail: `0 von ${Math.round(Number(b.size ?? 0) / 1048576)} MB` }, ws);
         return J({ source_id: id, upload_url: `${url.origin}/sources/put/${id}`, part_size: PART, key });
       }
       if (seg[1] === "put" && seg[2] && req.method === "PUT") {
@@ -314,6 +339,9 @@ export async function handleRequest(req: Request, env: Env, ctx: ExecutionContex
         const parts = (JSON.parse(u.parts || "[]") as { partNumber: number; etag: string }[]).filter((p) => p.partNumber !== part);
         parts.push({ partNumber: res.partNumber, etag: res.etag });
         await db.run(env, "UPDATE uploads SET parts = ?, updated_at = ? WHERE id = ?", JSON.stringify(parts), nowIso(), u.id);
+        const bytes = parts.length * PART, total = Number(u.size ?? 0);          // echter Fortschritt: übertragene Teilstücke
+        await reportProgress(env, { upload_id: u.id, stage: "download", progress: total ? Math.min(1, bytes / total) : null,
+                                    detail: `${Math.round(Math.min(bytes, total || bytes) / 1048576)} von ${Math.round(total / 1048576)} MB` }, ws);
         return J({ part: res.partNumber, etag: res.etag, parts: parts.length });
       }
       if (seg[1] === "complete" && req.method === "POST") {
@@ -326,6 +354,8 @@ export async function handleRequest(req: Request, env: Env, ctx: ExecutionContex
           const obj = await env.CLIPS.resumeMultipartUpload(u.key, u.upload_id).complete(parts);
           await db.run(env, "UPDATE uploads SET status = 'uploaded', size = ?, updated_at = ? WHERE id = ?", obj.size, nowIso(), u.id);
           await logEvent(env, `upload_done niche=${u.niche_id} bytes=${obj.size} id=${u.id}`);
+          await reportProgress(env, { upload_id: u.id, stage: "download", status: "done", progress: 1,
+                                      detail: `${Math.round(obj.size / 1048576)} MB übertragen` }, ws);
         }
         const r = await startUploadJob(env, u.id, url.origin, !!b.preview);
         if (r.ok && b.task_id) await completeTask(env, String(b.task_id), "auto");
@@ -522,6 +552,15 @@ export async function handleRequest(req: Request, env: Env, ctx: ExecutionContex
       if (req.method === "DELETE") { await db.run(env, "DELETE FROM kv WHERE key = ?", rest[1]); return json({ ok: true }); }
     }
 
+    // Fortschritt und Lebenszeichen der Pipeline: POST /api/progress {campaign_id|upload_id, stage, status?, progress?, detail?, run_id?, account?}
+    // Die Pipeline schickt das alle 30 Sekunden, auch ohne neuen Stand – ausbleibende Meldungen sind das Signal „hängt".
+    if (rest[0] === "progress" && req.method === "POST") {
+      const b = await body();
+      const r = await reportProgress(env, b as any, env.WS ?? "default");
+      return json(r, r.ok ? 200 : 400);
+    }
+    if (rest[0] === "progress" && req.method === "GET") return json(await jobProgress(env, env.WS ?? "default", url.searchParams.get("key") ?? undefined));
+
     // events
     if (rest[0] === "events" && req.method === "POST") {
       const b = await body();
@@ -586,7 +625,9 @@ export async function handleRequest(req: Request, env: Env, ctx: ExecutionContex
     if (rest[0] === "dispatch" && rest[1] && rest[2] && req.method === "POST") {
       const camp = await db.first(env, "SELECT id FROM campaigns WHERE id = ?", rest[1]);
       if (!camp) return json({ error: `campaign ${rest[1]} not found` }, 404);
-      const status = await dispatchClipJob(env, rest[1], rest[2], url.searchParams.get("preview") ? { preview: "true" } : {});
+      const extra: Record<string, string> = {};                     // ?preview=1 &probe=2 &skip_ranks=1,2 &resume=cut
+      for (const k of ["preview", "probe", "skip_ranks", "resume"]) { const v = url.searchParams.get(k); if (v) extra[k] = k === "preview" ? "true" : v; }
+      const status = await dispatchClipJob(env, rest[1], rest[2], extra);
       if (status === 204) await logEvent(env, `clip_job_dispatched account=${rest[2]} (manual)`, rest[1]);
       return json({ campaign: rest[1], account: rest[2], github_status: status, ok: status === 204 }, status === 204 ? 200 : 502);
     }

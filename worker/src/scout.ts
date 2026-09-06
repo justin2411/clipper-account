@@ -4,6 +4,7 @@
 import { Env, db, logEvent, telegram, toCampaign } from "./shared";
 import { runFan } from "./fan";
 import { syncTasks } from "./tasks";
+import { cleanupJobs } from "./progress";
 
 const SENDERS: Record<string, string> = { "vyro.com": "vyro", "whop.com": "whop" };
 const NEW_CAMPAIGN = /new campaign|campaign.*(live|dropped|open)/;
@@ -56,6 +57,14 @@ export async function dispatchClipJob(env: Env, campaignId: string, account: str
     body: JSON.stringify({ ref: env.GITHUB_REF || "main", inputs: { campaign: campaignId, account, ...extra } }),
   });
   if (r.status !== 204) console.log("[scout] dispatch fehlgeschlagen", r.status, await r.text());
+  // Angestoßene Läufe bekommen sofort eine Zeile: bleibt das erste Lebenszeichen aus, ist der Job trotzdem sichtbar
+  // (und wird nach zwei Stunden vom Cron aufgeräumt). Die Actions-Lauf-Nummer trägt die Pipeline selbst nach.
+  if (r.status === 204) {
+    try {
+      await db.run(env, `INSERT INTO job_runs (workspace_id, campaign_id, account, stage, status, detail) VALUES (?, ?, ?, 'download', 'running', ?)`,
+                   env.WS ?? "default", campaignId, account, "Actions-Lauf angestoßen");
+    } catch (e: any) { console.log("[scout] job_runs", e?.message ?? e); }
+  }
   return r.status;
 }
 
@@ -106,5 +115,7 @@ export async function runScout(env: Env) {
   // Fan-Content: YouTube-RSS (alle 30 min), liegengebliebene Uploads, Vorrats-Hinweis; danach Aufgaben synchronisieren
   try { stats.fan = await runFan(env, env.PUBLIC_ORIGIN ?? ""); } catch (e: any) { stats.fan = { error: String(e?.message ?? e).slice(0, 120) }; await logEvent(env, `fan error ${String(e?.message ?? e).slice(0, 120)}`); }
   try { await syncTasks(env); } catch (e: any) { await logEvent(env, `tasks error ${String(e?.message ?? e).slice(0, 100)}`); }
+  // Karteileichen: laufende Stufen ohne Lebenszeichen seit über zwei Stunden auf failed setzen
+  try { (stats as any).cleaned = (await cleanupJobs(env)).cleaned; } catch (e: any) { await logEvent(env, `cleanup error ${String(e?.message ?? e).slice(0, 100)}`); }
   return stats;
 }
