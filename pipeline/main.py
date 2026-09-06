@@ -156,8 +156,12 @@ def main():
             return
 
     # Alte Videos technisch: vor 2019 liefert YouTube oft nur 720p oder weniger. Unter 480p wird aussortiert,
-    # zwischen 480p und 1080p wird auf 1080 Breite hochskaliert und im QA-Bericht vermerkt.
+    # zwischen 480p und 1080p wird hochskaliert und im QA-Bericht vermerkt.
+    # Die Montage zieht jeden verwendeten Ausschnitt ohnehin auf 1080×1920 – dort waere ein Hochskalieren der ganzen
+    # Quelle reine Wartezeit (bei einer 16-Minuten-Quelle ueber eine Viertelstunde). Deshalb wird nur gemessen und
+    # vermerkt; hochskaliert wird erst, wenn der alte Weg (ein Ausschnitt je Clip) tatsaechlich gebraucht wird.
     src_notes: list[str] = []
+    klein: list[int] = []
     for i, src in enumerate(list(sources)):
         w, h = overlay.probe_size(src)
         short_side = min(w, h)
@@ -168,12 +172,23 @@ def main():
             if video_id: db.patch_video(video_id, status="skipped", note=f"Quelle nur {short_side}p")
             sources.remove(src); continue
         if short_side < 1080:
-            up = src.with_name(src.stem + ".up1080.mp4")
-            subprocess.run(["ffmpeg", "-y", "-i", str(src), "-vf", "scale=-2:1080:flags=lanczos", "-c:v", "libx264", "-crf", "18",
-                            "-preset", "medium", "-pix_fmt", "yuv420p", "-c:a", "copy", str(up)], check=True, capture_output=True)
-            sources[sources.index(src)] = up
+            klein.append(short_side)
             src_notes.append(f"Quelle {short_side}p auf 1080p hochskaliert")
-            db.log(a.campaign, f"footage_upscaled account={label} {short_side}p → 1080p")
+            db.log(a.campaign, f"footage_klein account={label} {short_side}p – Ausschnitte werden auf 1080p gezogen")
+
+    def upscale_sources():
+        """Ganze Quelle auf 1080 Hoehe bringen – nur fuer den alten Weg noetig, die Montage skaliert je Ausschnitt."""
+        for src in list(sources):
+            w2, h2 = overlay.probe_size(src)
+            if min(w2, h2) >= 1080:
+                continue
+            up = src.with_name(src.stem + ".up1080.mp4")
+            if not up.exists():
+                subprocess.run(["ffmpeg", "-y", "-i", str(src), "-vf", "scale=-2:1080:flags=lanczos", "-c:v", "libx264", "-crf", "20",
+                                "-preset", "veryfast", "-pix_fmt", "yuv420p", "-c:a", "copy", str(up)], check=True, capture_output=True)
+            sources[sources.index(src)] = up
+            db.log(a.campaign, f"footage_upscaled account={label} {min(w2, h2)}p → 1080p")
+
     if not sources:
         db.log(a.campaign, f"footage_missing account={label} alle Quellen unter {MIN_SOURCE_HEIGHT}p")
         db.notify(f"⏭ Quelle aussortiert (unter {MIN_SOURCE_HEIGHT}p): {campaign['name']}")
@@ -182,7 +197,10 @@ def main():
     # Automatische Montage (Standard): 3–4 Stellen des Quellvideos zu einer Linie, mit Untertiteln.
     # Liefert die Auswahl nichts Gültiges, greift der alte Weg (ein Ausschnitt je Clip) als Rückfall.
     montage_an = str(((eff.get(targets[0]) or {}).get("settings") or {}).get("montage", {}).get("enabled", True)).lower() not in ("false", "0", "no")
-    if montage_an and os.environ.get("MONTAGE", "1").lower() not in ("0", "false", "no"):
+    montage_aktiv = montage_an and os.environ.get("MONTAGE", "1").lower() not in ("0", "false", "no")
+    if not montage_aktiv and klein:
+        upscale_sources()
+    if montage_aktiv:
         try:
             kept_m = montage_jobs(a, campaign, sources, targets, eff, by_id, brand_of, review_mode, video_id, WORK, kind)
         except Exception as e:      # ein Fehler in der Montage darf nicht die halbe Stunde Transkript wegwerfen
@@ -197,6 +215,7 @@ def main():
             if up: db.patch_upload(up, status="clipped")
             return
         db.log(a.campaign, "montage leer – alter Weg (ein Ausschnitt je Clip)")
+        upscale_sources()                      # der alte Weg schneidet aus der Quelle, die braucht die volle Hoehe
 
     # Schnitt: paid → je Account eigener Stil; fan → ein Schnitt (fan-Profil), Verteilung nach Rang
     jobs: list[tuple[str, int, Path, dict, int]] = []   # (account, src-index, clip, meta, rank)
