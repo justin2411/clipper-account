@@ -377,6 +377,12 @@ async function reviveFailed(env: Env, ws: string): Promise<string[]> {
     const clips = await db.first<{ n: number }>(env,
       "SELECT COUNT(*) AS n FROM clips WHERE workspace_id = ? AND campaign_id = ? AND status NOT IN ('superseded','test_private')", ws, k.id);
     if ((clips?.n ?? 0) > 0) continue;                          // es sind Clips entstanden – kein Grund für einen Neustart
+    const letzter = await db.first<{ run_id: string | null }>(env,
+      "SELECT run_id FROM job_runs WHERE workspace_id = ? AND campaign_id = ? AND run_id IS NOT NULL ORDER BY id DESC LIMIT 1", ws, k.id);
+    if (letzter?.run_id) {                                      // arbeitet der Actions-Lauf noch (z.B. Rückfall auf den alten
+      const st = await actionsRunState(env, letzter.run_id).catch(() => null);   // Weg), wäre ein Neustart ein zweiter Job
+      if (st && st.status !== "completed") continue;
+    }
     let account = "AB";
     try { const a = JSON.parse(c.accounts || "[]"); if (Array.isArray(a) && a.length) account = a.join(""); } catch { /* Standard */ }
     const status = await dispatchClipJob(env, c.id, account, {});

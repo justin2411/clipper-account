@@ -30,14 +30,14 @@ def montage_jobs(a, campaign, sources, targets, eff, by_id, brand_of, review_mod
     tr = transcribe.transcribe(src, WORK / "tr", campaign=a.campaign)
     words = tr.get("words") or []
     if not words:
-        db.log(a.campaign, "montage_abbruch kein Transkript"); PG.failed("kein Transkript"); return {}
+        db.log(a.campaign, "montage_abbruch kein Transkript"); PG.tick(None, "kein Transkript – alter Weg"); return {}
     _, _, dur = montage.probe(src)
     n = max(2, int(((eff.get(targets[0]) or {}).get("settings") or {}).get("select", {}).get("render_top", 6)))
     db.log(a.campaign, f"stage=moments account={''.join(targets)} montage kandidaten={n}")
     PG.stage("moments", detail=f"{n} Kandidaten")
     kandidaten = montage.select(tr.get("text") or "", dur, n)
     if not kandidaten:
-        db.log(a.campaign, "montage_abbruch keine gültige Auswahl"); PG.failed("keine gültige Auswahl"); return {}
+        db.log(a.campaign, "montage_abbruch keine gültige Auswahl"); PG.tick(None, "keine gültige Auswahl – alter Weg"); return {}
     kept = {t: 0 for t in targets}
     for i, clip in enumerate(kandidaten):
         acc = targets[i % len(targets)]
