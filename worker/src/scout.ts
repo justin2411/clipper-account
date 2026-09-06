@@ -61,6 +61,9 @@ export async function dispatchClipJob(env: Env, campaignId: string, account: str
   // (und wird nach zwei Stunden vom Cron aufgeräumt). Die Actions-Lauf-Nummer trägt die Pipeline selbst nach.
   if (r.status === 204) {
     try {
+      // Ältere laufende Zeilen derselben Quelle schließen: der neue Lauf ersetzt sie, sonst stehen zwei „laufende" da.
+      await db.run(env, `UPDATE job_runs SET status = 'failed', ended_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'), note = 'durch einen neuen Lauf ersetzt'
+                         WHERE workspace_id = ? AND campaign_id = ? AND status = 'running'`, env.WS ?? "default", campaignId);
       await db.run(env, `INSERT INTO job_runs (workspace_id, campaign_id, account, stage, status, detail) VALUES (?, ?, ?, 'download', 'running', ?)`,
                    env.WS ?? "default", campaignId, account, "Actions-Lauf angestoßen");
     } catch (e: any) { console.log("[scout] job_runs", e?.message ?? e); }

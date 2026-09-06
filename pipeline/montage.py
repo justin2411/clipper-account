@@ -27,6 +27,7 @@ ROLES = [                                   # (Name, min_s, max_s, Beschreibung 
     ("turn", 5.0, 10.0, "the turn: the moment it tips"),
     ("payoff", 4.0, 8.0, "the reaction or resolution, the longest segment"),
 ]
+ROLE_ORDER = {r[0]: i for i, r in enumerate(ROLES)}   # Rolle → Platz in der Linie (stakes, build, turn, payoff)
 TOTAL_MIN, TOTAL_MAX = 22.0, 35.0
 MIN_APART_S = 30.0                          # Segmente müssen aus verschiedenen Teilen des Videos stammen
 PART_MAX_S = 4.0                            # kein Teil länger als 4 s ohne Wechsel
@@ -130,7 +131,7 @@ def select(transcript: str, duration: float, n: int = 6) -> list[dict]:
         if not ok:
             print(f"[montage] verworfen: {why} · {str(c.get('line'))[:60]}")
             continue
-        c["segments"] = sorted(c["segments"], key=lambda s: ROLES.index(next((r[0] for r in ROLES if r[0] == s.get("role")), "build")))
+        c["segments"] = sorted(c["segments"], key=lambda s: ROLE_ORDER.get(str(s.get("role") or ""), ROLE_ORDER["build"]))
         out.append(c)
     return out
 
@@ -176,8 +177,11 @@ def split_parts(a: float, b: float, words: list[dict], max_len: float = PART_MAX
     while b - start > max_len:
         rest = b - start
         ziel = start + (rest / 2 if rest < max_len + PART_MIN_S else max_len)   # Rest gleichmäßig teilen, kein Schnipsel am Ende
-        passend = [e for e in ends if start + PART_MIN_S < e <= ziel + 0.4 and b - e >= PART_MIN_S]
-        cut = max(passend) if passend else ziel
+        # Trennstelle möglichst vor dem Ziel (dann bleibt der Teil unter 4 s); erst wenn dort keine Wortgrenze
+        # liegt, darf sie bis zu 0,4 s darüber liegen – lieber ein Hauch länger als ein Schnitt mitten im Wort.
+        früh = [e for e in ends if start + PART_MIN_S < e <= ziel and b - e >= PART_MIN_S]
+        spät = [e for e in ends if ziel < e <= ziel + 0.4 and b - e >= PART_MIN_S]
+        cut = max(früh) if früh else (min(spät) if spät else ziel)
         parts.append((round(start, 3), round(cut, 3)))
         start = round(cut, 3)
     parts.append((round(start, 3), round(b, 3)))
