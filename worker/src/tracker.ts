@@ -40,16 +40,30 @@ export async function runTracker(env: Env) {
     }
   }
 
-  // Post-Analytics (Views/Likes) für gepostete Posts der letzten 30 Tage; Views-Meilensteine 24h/72h/7d daraus ableiten
+  // Post-Analytics (Views/Likes) für gepostete Posts der letzten 30 Tage; Views-Meilensteine 24h/72h/7d daraus ableiten.
+  // Die published-post-ID (für /v2/posts/{id}/analytics) kommt aus GET /v2/published-posts, zugeordnet über die Post-URL.
   if (env.BLOTATO_API_KEY) {
     const since = new Date(Date.now() - 30 * 86400000).toISOString();
+    const missing = await db.all<any>(env, "SELECT id, post_url FROM posts WHERE status = 'posted' AND blotato_post_id IS NULL AND post_url IS NOT NULL AND posted_at >= ?", since);
+    if (missing.length) {
+      try {
+        const r = await fetch(`${BLOTATO}/published-posts?limit=100&sortBy=newest`, { headers: blotatoHeaders(env) });
+        const items: any[] = r.ok ? (((await r.json()) as any).items ?? []) : [];
+        const norm = (u: string) => String(u ?? "").replace(/\?.*$/, "").replace(/\/$/, "");
+        for (const p of missing) {
+          const hit = items.find((it) => norm(it.postUrl) === norm(p.post_url));
+          if (hit?.id) await db.run(env, "UPDATE posts SET blotato_post_id = ? WHERE id = ?", String(hit.id), p.id);
+        }
+      } catch (e: any) { console.log("[tracker] published-posts", e?.message ?? e); }
+    }
     const posted = await db.all<any>(env, "SELECT * FROM posts WHERE status = 'posted' AND posted_at >= ? AND blotato_post_id IS NOT NULL", since);
     for (const p of posted) {
       try {
         const r = await fetch(`${BLOTATO}/posts/${p.blotato_post_id}/analytics`, { headers: blotatoHeaders(env) });
         if (!r.ok) continue;
         const a: any = await r.json();
-        const m = a?.metrics ?? a?.latestMetrics ?? {};
+        const m = a?.metrics ?? a?.latestMetrics?.metrics ?? null;
+        if (!m) continue;                                   // Blotato hat für diesen Post noch keine Metriken geholt
         const views = Number(m.viewsCount ?? m.views ?? 0), likes = Number(m.likesCount ?? m.likes ?? 0);
         const age = (Date.now() - new Date(p.posted_at).getTime()) / 36e5;
         const sets = ["views = ?", "likes = ?", "metrics_at = ?"], vals: unknown[] = [views, likes, nowIso()];
