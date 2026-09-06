@@ -183,7 +183,12 @@ def main():
     # Liefert die Auswahl nichts Gültiges, greift der alte Weg (ein Ausschnitt je Clip) als Rückfall.
     montage_an = str(((eff.get(targets[0]) or {}).get("settings") or {}).get("montage", {}).get("enabled", True)).lower() not in ("false", "0", "no")
     if montage_an and os.environ.get("MONTAGE", "1").lower() not in ("0", "false", "no"):
-        kept_m = montage_jobs(a, campaign, sources, targets, eff, by_id, brand_of, review_mode, video_id, WORK, kind)
+        try:
+            kept_m = montage_jobs(a, campaign, sources, targets, eff, by_id, brand_of, review_mode, video_id, WORK, kind)
+        except Exception as e:      # ein Fehler in der Montage darf nicht die halbe Stunde Transkript wegwerfen
+            db.log(a.campaign, f"montage_fehler_gesamt {type(e).__name__}: {str(e)[:140]}")
+            print("montage failed:", repr(e))
+            kept_m = {}
         if sum(kept_m.values()):
             db.log(a.campaign, f"pipeline_done montage clips={sum(kept_m.values())} " + " ".join(f"{k}={v}" for k, v in kept_m.items()))
             PG.done(f"{sum(kept_m.values())} Clips")

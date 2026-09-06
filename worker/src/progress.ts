@@ -281,8 +281,19 @@ export async function retryStage(env: Env, key: string, stage: string | null, ws
 /** Läuft seit über zwei Stunden ohne Lebenszeichen → failed mit Vermerk. Sonst sammeln sich Karteileichen. */
 export async function cleanupJobs(env: Env, ws = "default") {
   const cutoff = new Date(Date.now() - CLEAN_H * 3600e3).toISOString();
+  // Zwei Wege: nach zwei Stunden ohne Zeichen in jedem Fall – und schon nach zehn Minuten, wenn GitHub sagt,
+  // der zugehörige Actions-Lauf sei zu Ende. Dann muss niemand zwei Stunden auf die Wahrheit warten.
+  const still = new Date(Date.now() - STUCK_MIN * 60e3).toISOString();
+  const kandidaten = await db.all<JobRun>(env,
+    "SELECT * FROM job_runs WHERE workspace_id = ? AND status = 'running' AND heartbeat_at < ? AND run_id IS NOT NULL ORDER BY id DESC LIMIT 5",
+    ws, still);
   const dead = await db.all<JobRun>(env,
     "SELECT * FROM job_runs WHERE workspace_id = ? AND status = 'running' AND heartbeat_at < ? ORDER BY id DESC LIMIT 50", ws, cutoff);
+  for (const j of kandidaten) {
+    if (dead.some((d) => d.id === j.id)) continue;
+    const state = await actionsRunState(env, j.run_id!).catch(() => null);
+    if (state && state.status === "completed") dead.push(j);
+  }
   let finished = 0;
   for (const j of dead) {
     const state = j.run_id ? await actionsRunState(env, j.run_id).catch(() => null) : null;
