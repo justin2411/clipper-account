@@ -21,17 +21,17 @@ const isoWeek = (d: Date) => {
   return Math.ceil((((t.getTime() - y0.getTime()) / 86400000) + 1) / 7);
 };
 
-export async function buildDashboard(env: Env) {
+export async function buildDashboard(env: Env, ws = "default") {
   const now = new Date();
   const month = now.toISOString().slice(0, 7);
   const monthStart = `${month}-01`;
   const weekAgo = new Date(now.getTime() - 7 * 86400000).toISOString();
 
   // Umsatz = Auszahlungen (Scout liest Payout-Mails / manuell)
-  const rev = await db.first<{ s: number }>(env, "SELECT COALESCE(SUM(amount_usd),0) AS s FROM payouts WHERE at >= ?", monthStart);
-  const revWeek = await db.first<{ s: number }>(env, "SELECT COALESCE(SUM(amount_usd),0) AS s FROM payouts WHERE at >= ?", weekAgo);
-  const clipsMonth = await db.first<{ n: number }>(env, "SELECT COUNT(*) AS n FROM clips WHERE created_at >= ? AND status NOT IN ('rejected_precheck')", monthStart);
-  const costsTable = await db.first<{ s: number }>(env, "SELECT COALESCE(SUM(amount_usd),0) AS s FROM costs WHERE at >= ?", monthStart);
+  const rev = await db.first<{ s: number }>(env, "SELECT COALESCE(SUM(amount_usd),0) AS s FROM payouts WHERE workspace_id = ? AND at >= ?", ws, monthStart);
+  const revWeek = await db.first<{ s: number }>(env, "SELECT COALESCE(SUM(amount_usd),0) AS s FROM payouts WHERE workspace_id = ? AND at >= ?", ws, weekAgo);
+  const clipsMonth = await db.first<{ n: number }>(env, "SELECT COUNT(*) AS n FROM clips WHERE workspace_id = ? AND created_at >= ? AND status NOT IN ('rejected_precheck')", ws, monthStart);
+  const costsTable = await db.first<{ s: number }>(env, "SELECT COALESCE(SUM(amount_usd),0) AS s FROM costs WHERE COALESCE(workspace_id, 'default') = ? AND at >= ?", ws, monthStart);
   const costs = Math.round((BLOTATO_FIXED_USD + LLM_PER_CLIP_USD * (clipsMonth?.n ?? 0) + (costsTable?.s ?? 0)) * 100) / 100;
 
   // Posts mit neuestem Views-Stand
@@ -40,7 +40,7 @@ export async function buildDashboard(env: Env) {
             COALESCE(p.views_7d, p.views_72h, p.views_24h) AS views,
             c.campaign_id, c.account, c.hook_type, ca.name AS camp_name, ca.rate_per_1k_usd, ca.min_views, ca.max_per_post_usd
      FROM posts p JOIN clips c ON c.id = p.clip_id JOIN campaigns ca ON ca.id = c.campaign_id
-     WHERE p.status IN ('scheduled','posted')`);
+     WHERE p.workspace_id = ? AND p.status IN ('scheduled','posted')`, ws);
   const earnedOf = (p: any) => {
     const v = p.views ?? 0, rate = p.rate_per_1k_usd ?? 0;
     if (v < (p.min_views ?? 0)) return 0;
@@ -53,15 +53,15 @@ export async function buildDashboard(env: Env) {
   for (let i = 7; i >= 0; i--) {
     const start = new Date(now.getTime() - (i * 7 + ((now.getUTCDay() || 7) - 1)) * 86400000); start.setUTCHours(0, 0, 0, 0);
     const end = new Date(start.getTime() + 7 * 86400000);
-    const r = await db.first<{ s: number }>(env, "SELECT COALESCE(SUM(amount_usd),0) AS s FROM payouts WHERE at >= ? AND at < ?", start.toISOString(), end.toISOString());
+    const r = await db.first<{ s: number }>(env, "SELECT COALESCE(SUM(amount_usd),0) AS s FROM payouts WHERE workspace_id = ? AND at >= ? AND at < ?", ws, start.toISOString(), end.toISOString());
     history.push({ week: `KW${isoWeek(start)}`, revenue: Math.round(r?.s ?? 0) });
   }
 
   // Kampagnen
-  const allCamps = await db.all<any>(env, "SELECT * FROM campaigns ORDER BY created_at DESC");
+  const allCamps = await db.all<any>(env, "SELECT * FROM campaigns WHERE workspace_id = ? ORDER BY created_at DESC", ws);
   const campRows = allCamps.filter((c) => c.kind !== "fan");
   const fanIds = new Set(allCamps.filter((c) => c.kind === "fan").map((c) => c.id));
-  const clipCounts = await db.all<{ campaign_id: string; n: number }>(env, "SELECT campaign_id, COUNT(*) AS n FROM clips WHERE status NOT IN ('rejected_precheck','rejected_review','test_private') GROUP BY campaign_id");
+  const clipCounts = await db.all<{ campaign_id: string; n: number }>(env, "SELECT campaign_id, COUNT(*) AS n FROM clips WHERE workspace_id = ? AND status NOT IN ('rejected_precheck','rejected_review','test_private') GROUP BY campaign_id", ws);
   const campaigns: any[] = campRows.map((c) => {
     const ps = posts.filter((p) => p.campaign_id === c.id && p.status === "posted");
     const views = ps.reduce((a, p) => a + (p.views ?? 0), 0);
@@ -74,18 +74,18 @@ export async function buildDashboard(env: Env) {
   });
   if (fanIds.size) {                                   // Fan-Content als eine Sammelzeile (viele fan-<video>-Kampagnen)
     const ps = posts.filter((p) => fanIds.has(p.campaign_id) && p.status === "posted");
-    const vids = await db.first<any>(env, "SELECT SUM(status='clipped') AS c, SUM(status='new') AS n FROM videos");
+    const vids = await db.first<any>(env, "SELECT SUM(status='clipped') AS c, SUM(status='new') AS n FROM videos WHERE workspace_id = ?", ws);
     campaigns.push({ id: "fan", name: "Fan-Content", platform: "upload", kind: "fan", niche: "mrbeast", status: "active", rate_per_1k: 0,
       clips: clipCounts.filter((x) => fanIds.has(x.campaign_id)).reduce((a, x) => a + x.n, 0),
       views: ps.reduce((a, p) => a + (p.views ?? 0), 0), qualified: 0, earned: 0, budget_used: vids?.c ?? 0, budget_total: (vids?.c ?? 0) + (vids?.n ?? 0), paid_out_pct: null });
   }
 
   // Accounts (Views/Likes aus Blotato-Post-Analytics via account_stats; Follower liefert Blotato nicht → 0, followers_7d 0)
-  const state = await db.all<any>(env, "SELECT * FROM account_state");
+  const state = await db.all<any>(env, "SELECT * FROM account_state WHERE workspace_id = ?", ws);
   const cfg = accountsOf(env) as Record<string, any>;
   const nichesCfg = nichesOf(env);
-  const todayStat = await db.all<any>(env, "SELECT s.* FROM account_stats s WHERE s.day = (SELECT MAX(day) FROM account_stats WHERE account = s.account)");
-  const weekAgoStat = await db.all<any>(env, "SELECT s.* FROM account_stats s WHERE s.day = (SELECT MAX(day) FROM account_stats WHERE account = s.account AND day <= ?)", new Date(now.getTime() - 7 * 86400000).toISOString().slice(0, 10));
+  const todayStat = await db.all<any>(env, "SELECT s.* FROM account_stats s WHERE s.workspace_id = ? AND s.day = (SELECT MAX(day) FROM account_stats WHERE account = s.account AND workspace_id = s.workspace_id)", ws);
+  const weekAgoStat = await db.all<any>(env, "SELECT s.* FROM account_stats s WHERE s.workspace_id = ? AND s.day = (SELECT MAX(day) FROM account_stats WHERE account = s.account AND workspace_id = s.workspace_id AND day <= ?)", ws, new Date(now.getTime() - 7 * 86400000).toISOString().slice(0, 10));
   const accounts = [] as any[];
   for (const [id, a] of Object.entries(cfg)) {
     const st = state.find((s) => s.account === id);
@@ -119,32 +119,32 @@ export async function buildDashboard(env: Env) {
   };
 
   // Aufgaben (tasks.ts: automatisch angelegt/abgehakt), Review-Clips, Einstellungen
-  try { await syncTasks(env); } catch (e: any) { console.log("[dashboard] syncTasks", e?.message ?? e); }
-  const taskList = await listTasks(env);
+  try { await syncTasks(env, ws); } catch (e: any) { console.log("[dashboard] syncTasks", e?.message ?? e); }
+  const taskList = await listTasks(env, ws);
   const tasks = taskList.map((t) => ({ ...t, type: t.kind, text: t.title, url: t.campaign_url ?? undefined }));   // type/text/url: Kompatibilität v1
-  const review = await listReview(env);
-  const settings = await getSettings(env);
-  const settings_versions = await listVersions(env);   // Stufe 3: letzte 10 Stände fürs Zurücksetzen
+  const review = await listReview(env, ws);
+  const settings = await getSettings(env, ws);
+  const settings_versions = await listVersions(env, ws);   // Stufe 3: letzte 10 Stände fürs Zurücksetzen
 
   const daysLeft = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0)).getUTCDate() - now.getUTCDate();
-  const pipeline = await buildPipeline(env);
+  const pipeline = await buildPipeline(env, ws);
   const postList = (await db.all<any>(env,
     `SELECT p.id, p.post_url, p.posted_at, p.views, p.likes, c.account, c.caption, c.thumb_url, c.cover_url, c.campaign_id, ca.kind, ca.niche_id, ca.name AS camp_name
      FROM posts p JOIN clips c ON c.id = p.clip_id JOIN campaigns ca ON ca.id = c.campaign_id
-     WHERE p.status = 'posted' AND p.post_url IS NOT NULL ORDER BY p.posted_at DESC LIMIT 120`)).map((p) => ({
+     WHERE p.workspace_id = ? AND p.status = 'posted' AND p.post_url IS NOT NULL ORDER BY p.posted_at DESC LIMIT 120`, ws)).map((p) => ({
     id: p.id, account: p.account, niche: p.niche_id ?? cfg[p.account]?.niche ?? "mrbeast", url: p.post_url, thumb: p.cover_url ?? p.thumb_url ?? null,
     caption: String(p.caption ?? "").split("\n")[0], posted_at: p.posted_at, views: p.views ?? 0, likes: p.likes ?? 0, type: p.kind ?? "paid", campaign: p.camp_name }));
-  const sources = await buildSources(env, allCamps, cfg);
-  const report = { latest: await getReport(env, "latest"), weeks: await listReports(env) };   // Stufe 2: zuletzt gespeicherter Wochenbericht + Wochenliste
-  const ab = { ...(await abStats(env)), variables: AB_VARIABLES };                                // Stufe 4: A/B-Test
-  const log = { ...(await listLog(env, { cat: "all", limit: 60 })), cats: LOG_CATS };            // Stufe 5: Ereignis-Log (erste Seite)
-  const onboarding = await onboardingStatus(env);                                                  // Stufe 6: Checkliste beim ersten Start
+  const sources = await buildSources(env, allCamps, cfg, ws);
+  const report = { latest: await getReport(env, "latest", ws), weeks: await listReports(env, ws) };   // Stufe 2: zuletzt gespeicherter Wochenbericht + Wochenliste
+  const ab = { ...(await abStats(env, ws)), variables: AB_VARIABLES };                                // Stufe 4: A/B-Test
+  const log = { ...(await listLog(env, { cat: "all", limit: 60 }, ws)), cats: LOG_CATS };            // Stufe 5: Ereignis-Log (erste Seite)
+  const onboarding = await onboardingStatus(env, ws);                                                  // Stufe 6: Checkliste beim ersten Start
   return {
     pipeline, niches, sources, posts: postList, review, settings, settings_versions, report, ab, log, onboarding,
     month, currency: "USD", eur_rate: EUR_RATE,
     totals: { revenue: Math.round(rev?.s ?? 0), costs, pending, week_delta: Math.round(revWeek?.s ?? 0) },
     history, campaigns, accounts, insights, tasks, goal_monthly: GOAL_MONTHLY,
-    meta: { generated_at: now.toISOString(), days_left: daysLeft, posts_posted: postedAll.length, posts_scheduled: posts.filter((p) => p.status === "scheduled").length,
+    meta: { workspace: ws, generated_at: now.toISOString(), days_left: daysLeft, posts_posted: postedAll.length, posts_scheduled: posts.filter((p) => p.status === "scheduled").length,
             views_source: withViews.length ? "posts.views_*" : "none (Blotato liefert keine Views)" },
   };
 }
@@ -185,10 +185,10 @@ async function githubJobs(env: Env) {
 
 const parseEv = (e: string) => Object.fromEntries([...e.matchAll(/(\w+)=([^\s]+)/g)].map((m) => [m[1], m[2]]));
 
-export async function buildPipeline(env: Env) {
+export async function buildPipeline(env: Env, ws = "default") {
   const now = Date.now();
-  const ev = await db.all<{ id: number; campaign_id: string | null; event: string; at: string }>(env, "SELECT * FROM events ORDER BY id DESC LIMIT 200");
-  const camps = await db.all<{ id: string; name: string }>(env, "SELECT id, name FROM campaigns");
+  const ev = await db.all<{ id: number; campaign_id: string | null; event: string; at: string }>(env, "SELECT * FROM events WHERE workspace_id = ? ORDER BY id DESC LIMIT 200", ws);
+  const camps = await db.all<{ id: string; name: string }>(env, "SELECT id, name FROM campaigns WHERE workspace_id = ?", ws);
   const nameOf = (id: string | null) => camps.find((c) => c.id === id)?.name ?? id ?? "";
   const last = (pred: (e: string) => boolean) => ev.find((x) => pred(x.event));
   const cronOf = (fn: string) => last((e) => e.startsWith(`cron ${fn} `));
@@ -229,7 +229,7 @@ export async function buildPipeline(env: Env) {
       : { key: "clip", label: "Clip-Job", status: "idle", info: "noch kein Lauf" };
 
   // Footage: pro aktiver Kampagne der letzte footage_ok/-missing
-  const active = await db.all<any>(env, "SELECT id, name, footage FROM campaigns WHERE status='active'");
+  const active = await db.all<any>(env, "SELECT id, name, footage FROM campaigns WHERE workspace_id = ? AND status='active'", ws);
   const footBad = active.filter((c) => { const e = ev.find((x) => x.campaign_id === c.id && /^footage_/.test(x.event)); return e && e.event.startsWith("footage_missing"); });
   const footageStage: Stage = { key: "footage", label: "Footage", status: footBad.length ? "error" : active.length ? "ok" : "idle",
     info: footBad.length ? `Footage fehlt: ${footBad.map((c) => c.name).join(", ")}` : `${active.length} Kampagne${active.length === 1 ? "" : "n"} aktiv` };
@@ -237,12 +237,12 @@ export async function buildPipeline(env: Env) {
   // Queue
   const q = await db.first<any>(env,
     `SELECT SUM(CASE WHEN status='ready' THEN 1 ELSE 0 END) AS ready,
-            SUM(CASE WHEN status IN ('scheduled','shadow') THEN 1 ELSE 0 END) AS scheduled FROM clips`);
+            SUM(CASE WHEN status IN ('scheduled','shadow') THEN 1 ELSE 0 END) AS scheduled FROM clips WHERE workspace_id = ?`, ws);
   const today = new Date().toISOString().slice(0, 10);
-  const pt = await db.first<{ n: number }>(env, "SELECT COUNT(*) AS n FROM posts WHERE status='posted' AND substr(posted_at,1,10)=?", today);
-  const ps = await db.first<{ n: number }>(env, "SELECT COUNT(*) AS n FROM posts WHERE status='posted' AND submitted_at IS NULL AND post_url IS NOT NULL");
-  const nextSlot = await db.first<{ t: string }>(env, "SELECT MIN(scheduled_at) AS t FROM posts WHERE status IN ('scheduled','shadow') AND scheduled_at > ?", new Date().toISOString());
-  const paused = await db.all<any>(env, "SELECT account FROM account_state WHERE paused=1");
+  const pt = await db.first<{ n: number }>(env, "SELECT COUNT(*) AS n FROM posts WHERE workspace_id = ? AND status='posted' AND substr(posted_at,1,10)=?", ws, today);
+  const ps = await db.first<{ n: number }>(env, "SELECT COUNT(*) AS n FROM posts WHERE workspace_id = ? AND status='posted' AND submitted_at IS NULL AND post_url IS NOT NULL", ws);
+  const nextSlot = await db.first<{ t: string }>(env, "SELECT MIN(scheduled_at) AS t FROM posts WHERE workspace_id = ? AND status IN ('scheduled','shadow') AND scheduled_at > ?", ws, new Date().toISOString());
+  const paused = await db.all<any>(env, "SELECT account FROM account_state WHERE workspace_id = ? AND paused=1", ws);
 
   const stages: Stage[] = [
     cronStage("scout", "Scout", 10, (e, at) => { const m = e.match(/"(new|created|campaigns)":(\d+)/); return `letzte Prüfung ${tmUtc(at)}${m ? ` · ${m[2]} neue` : ""}`; }),
@@ -288,14 +288,14 @@ export async function buildPipeline(env: Env) {
 
 // ---------- Quellen (Footage) mit Workflow-Stufe 0–7 ----------
 // 0 Upload · 1 Transkript · 2 Momentwahl · 3 Schnitt · 4 QA · 5 Geplant · 6 Gepostet · 7 Eingereicht (aus Clip-Job-Events + Clip-/Post-Status)
-export async function buildSources(env: Env, camps: any[], cfg: Record<string, any>) {
-  const ev = await db.all<{ campaign_id: string | null; event: string; at: string }>(env, "SELECT campaign_id, event, at FROM events WHERE campaign_id IS NOT NULL ORDER BY id DESC LIMIT 600");
+export async function buildSources(env: Env, camps: any[], cfg: Record<string, any>, ws = "default") {
+  const ev = await db.all<{ campaign_id: string | null; event: string; at: string }>(env, "SELECT campaign_id, event, at FROM events WHERE workspace_id = ? AND campaign_id IS NOT NULL ORDER BY id DESC LIMIT 600", ws);
   const clipAgg = await db.all<any>(env,
     `SELECT campaign_id, COUNT(*) AS n, SUM(status IN ('ready','shadow','scheduled','posted','submitted','archived')) AS ok,
             SUM(status IN ('shadow','scheduled')) AS planned, SUM(status IN ('posted','submitted','archived')) AS posted, SUM(status IN ('submitted','archived')) AS submitted,
             SUM(qa IS NOT NULL) AS qa
-     FROM clips WHERE status NOT IN ('superseded','test_private') GROUP BY campaign_id`);
-  const uploads = await db.all<any>(env, "SELECT * FROM uploads ORDER BY created_at DESC LIMIT 100");
+     FROM clips WHERE workspace_id = ? AND status NOT IN ('superseded','test_private') GROUP BY campaign_id`, ws);
+  const uploads = await db.all<any>(env, "SELECT * FROM uploads WHERE workspace_id = ? ORDER BY created_at DESC LIMIT 100", ws);
   const out: any[] = [];
   const stageOf = (cid: string, kind: string, up: any | null) => {
     const e = ev.filter((x) => x.campaign_id === cid);

@@ -77,10 +77,10 @@ export async function startUploadJob(env: Env, uploadId: string, origin: string,
   const url = mediaUrl(origin || env.PUBLIC_ORIGIN || "", u.key);
   const required = { caption: n.caption, hashtags: n.hashtags, tiktok: { isBrandedContent: false, isYourBrand: false } };
   await db.run(env,
-    `INSERT OR IGNORE INTO campaigns (id, platform, kind, niche_id, name, external_url, status, min_views, min_seconds, footage, required, forbidden, accounts, platforms)
-     VALUES (?, 'fan', 'fan', ?, ?, ?, 'active', 0, 15, ?, ?, '{}', ?, '["tiktok"]')`,
+    `INSERT OR IGNORE INTO campaigns (id, platform, kind, niche_id, name, external_url, status, min_views, min_seconds, footage, required, forbidden, accounts, platforms, workspace_id)
+     VALUES (?, 'fan', 'fan', ?, ?, ?, 'active', 0, 15, ?, ?, '{}', ?, '["tiktok"]', ?)`,
     id, n.key, `${n.label}: ${u.title || uploadId}`.slice(0, 120), u.video_id ? yt(u.video_id) : url,
-    JSON.stringify({ type: "url", url, video_id: u.video_id ?? null, upload_id: uploadId }), JSON.stringify(required), JSON.stringify(n.accounts));
+    JSON.stringify({ type: "url", url, video_id: u.video_id ?? null, upload_id: uploadId }), JSON.stringify(required), JSON.stringify(n.accounts), u.workspace_id ?? "default");   // Stufe 7: Kampagne erbt den Workspace des Uploads
   const account = n.accounts.join("");
   const status = await dispatchClipJob(env, id, account, preview ? { preview: "true" } : {});
   if (status === 204) {

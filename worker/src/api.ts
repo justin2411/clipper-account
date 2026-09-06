@@ -32,6 +32,7 @@ import { runWeeklyReport, getReport, listReports } from "./report";
 import { abStats, startExperiment, stopExperiment, applyWinner, getExperiment, AB_VARIABLES } from "./ab";
 import { listLog, LOG_CATS } from "./log";
 import { onboardingStatus } from "./onboarding";
+import { resolveWorkspace, listWorkspaces, createWorkspace, patchWorkspace } from "./workspace";
 import { runFan, startUploadJob } from "./fan";
 import { getSettings, effectiveSettings, validateSettings, diffSettings, putSettings, listVersions, getVersion, defaultSettings, deepMerge } from "./settings";
 import { listTasks, completeTask, resumeAccount, syncTasks } from "./tasks";
@@ -143,8 +144,9 @@ export async function handleRequest(req: Request, env: Env, ctx: ExecutionContex
     const J = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status, headers: { "Content-Type": "application/json", ...cors } });
     if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
     const given = req.headers.get("x-api-key") ?? (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "");
-    if (!keyMatches(given, env.DASHBOARD_READ_KEY) && !keyMatches(given, env.CLIPFORGE_API_KEY)) return J({ error: "unauthorized" }, 401);
-    const ws = "default";
+    const wsr = await resolveWorkspace(env, given, url.searchParams.get("ws") ?? req.headers.get("x-workspace"));
+    if (!wsr) return J({ error: "unauthorized" }, 401);
+    const ws = wsr.ws; env = wsr.env;
     try {
       const b = async (): Promise<Row> => (await req.json().catch(() => ({}))) as Row;
       if (seg[0] === "review" && !seg[1] && req.method === "GET") return J(await listReview(env, ws));
@@ -199,7 +201,7 @@ export async function handleRequest(req: Request, env: Env, ctx: ExecutionContex
       }
       if (seg[0] === "tasks" && !seg[1] && req.method === "GET") { await syncTasks(env, ws); return J(await listTasks(env, ws)); }
       if (seg[0] === "tasks" && seg[1] && seg[2] === "done" && req.method === "POST") return J({ ok: await completeTask(env, seg[1], "user"), id: seg[1] });
-      if (seg[0] === "accounts" && seg[1] && seg[2] === "resume" && req.method === "POST") return J(await resumeAccount(env, seg[1]));
+      if (seg[0] === "accounts" && seg[1] && seg[2] === "resume" && req.method === "POST") return J(await resumeAccount(env, seg[1], ws));
       return J({ error: "not found" }, 404);
     } catch (e: any) { return J({ error: String(e?.message ?? e) }, 500); }
   }
@@ -209,7 +211,9 @@ export async function handleRequest(req: Request, env: Env, ctx: ExecutionContex
     const J = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status, headers: { "Content-Type": "application/json", ...cors } });
     if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
     const given = req.headers.get("x-api-key") ?? (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "");
-    if (!keyMatches(given, env.DASHBOARD_READ_KEY) && !keyMatches(given, env.CLIPFORGE_API_KEY)) return J({ error: "unauthorized" }, 401);
+    const wsr = await resolveWorkspace(env, given, url.searchParams.get("ws") ?? req.headers.get("x-workspace"));
+    if (!wsr) return J({ error: "unauthorized" }, 401);
+    const ws = wsr.ws; env = wsr.env;
     const PART = 25 * 1024 * 1024;
     try {
       if (seg[1] === "presign" && req.method === "POST") {
@@ -220,13 +224,13 @@ export async function handleRequest(req: Request, env: Env, ctx: ExecutionContex
         const safe = String(b.name ?? "footage.mp4").replace(/[^\w.\-]+/g, "_").slice(0, 80);
         const key = `uploads/${niche.key}/${id}/${safe.toLowerCase().endsWith(".mp4") || safe.toLowerCase().endsWith(".mov") ? safe : safe + ".mp4"}`;
         const mp = await env.CLIPS.createMultipartUpload(key, { httpMetadata: { contentType: "video/mp4" } });
-        await db.run(env, "INSERT INTO uploads (id, niche_id, key, title, size, kind, video_id, upload_id, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'uploading')",
-          id, niche.key, key, String(b.name ?? "").replace(/\.[^.]+$/, "").slice(0, 120), Number(b.size ?? 0), b.type === "paid" ? "paid" : "fan", (b.video_id as string) ?? null, mp.uploadId);
+        await db.run(env, "INSERT INTO uploads (id, niche_id, key, title, size, kind, video_id, upload_id, status, workspace_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'uploading', ?)",
+          id, niche.key, key, String(b.name ?? "").replace(/\.[^.]+$/, "").slice(0, 120), Number(b.size ?? 0), b.type === "paid" ? "paid" : "fan", (b.video_id as string) ?? null, mp.uploadId, ws);
         await logEvent(env, `upload_started niche=${niche.key} size=${b.size ?? 0} name=${safe}`);
         return J({ source_id: id, upload_url: `${url.origin}/sources/put/${id}`, part_size: PART, key });
       }
       if (seg[1] === "put" && seg[2] && req.method === "PUT") {
-        const u = await db.first<any>(env, "SELECT * FROM uploads WHERE id = ?", seg[2]);
+        const u = await db.first<any>(env, "SELECT * FROM uploads WHERE id = ? AND workspace_id = ?", seg[2], ws);
         if (!u || !u.upload_id) return J({ error: "upload not found" }, 404);
         const part = Number(url.searchParams.get("part") || 1);
         if (!req.body) return J({ error: "leerer Body" }, 400);
@@ -239,7 +243,7 @@ export async function handleRequest(req: Request, env: Env, ctx: ExecutionContex
       }
       if (seg[1] === "complete" && req.method === "POST") {
         const b = (await req.json().catch(() => ({}))) as Row;
-        const u = await db.first<any>(env, "SELECT * FROM uploads WHERE id = ?", b.source_id);
+        const u = await db.first<any>(env, "SELECT * FROM uploads WHERE id = ? AND workspace_id = ?", b.source_id, ws);
         if (!u) return J({ error: "upload not found" }, 404);
         if (u.status === "uploading") {
           const parts = (JSON.parse(u.parts || "[]") as { partNumber: number; etag: string }[]).sort((a, c) => a.partNumber - c.partNumber);
@@ -260,12 +264,10 @@ export async function handleRequest(req: Request, env: Env, ctx: ExecutionContex
   if (path === "/dashboard") {
     const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "x-api-key, content-type", "Access-Control-Allow-Methods": "GET, OPTIONS" };
     if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
-    const key = env.DASHBOARD_READ_KEY ?? "", given = req.headers.get("x-api-key") ?? "";
-    let diff = key.length ^ given.length;
-    for (let i = 0; i < key.length && i < given.length; i++) diff |= key.charCodeAt(i) ^ given.charCodeAt(i);
-    if (!key || diff !== 0) return new Response(JSON.stringify({ error: "unauthorized" }), { status: 401, headers: { "Content-Type": "application/json", ...cors } });
+    const wsr = await resolveWorkspace(env, req.headers.get("x-api-key") ?? "", url.searchParams.get("ws") ?? req.headers.get("x-workspace"));
+    if (!wsr) return new Response(JSON.stringify({ error: "unauthorized" }), { status: 401, headers: { "Content-Type": "application/json", ...cors } });
     try {
-      return new Response(JSON.stringify(await buildDashboard(env)), { headers: { "Content-Type": "application/json", "Cache-Control": "no-store", ...cors } });
+      return new Response(JSON.stringify(await buildDashboard(wsr.env, wsr.ws)), { headers: { "Content-Type": "application/json", "Cache-Control": "no-store", ...cors } });
     } catch (e: any) {
       return new Response(JSON.stringify({ error: String(e?.message ?? e) }), { status: 500, headers: { "Content-Type": "application/json", ...cors } });
     }
@@ -447,6 +449,10 @@ export async function handleRequest(req: Request, env: Env, ctx: ExecutionContex
     }
 
     // manual run
+    // Workspaces (Stufe 7): GET /api/workspaces · POST {id,name,config?} → read_key einmalig · PATCH /api/workspaces/:id {name?,config?,rotate_key?}
+    if (rest[0] === "workspaces" && !rest[1] && req.method === "GET") return json(await listWorkspaces(env));
+    if (rest[0] === "workspaces" && !rest[1] && req.method === "POST") { const r = await createWorkspace(env, (await body()) as any); return json(r, r.ok ? 200 : 400); }
+    if (rest[0] === "workspaces" && rest[1] && req.method === "PATCH") { const r = await patchWorkspace(env, rest[1], (await body()) as any); return json(r, r.ok ? 200 : 404); }
     if (rest[0] === "run" && rest[1] && req.method === "POST") {
       const fn = FUNCTIONS[rest[1]];
       if (!fn) return json({ error: `unbekannt: ${rest[1]}` }, 404);

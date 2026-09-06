@@ -39,3 +39,12 @@ RSS der Nischen-Kanäle + Backlog (yt-dlp-Playlist: Titel, Dauer, Aufrufe); Rank
 Videos und Videos unter der Mindestlänge der Nische ausschließen. Jeder Vorschlag mit Titel, Länge, Aufrufen, Alter, Begründung, Knopf „Nehmen"
 → Quelle mit needs_download. Automatik: Vorrat < „Vorrat in Tagen" (Regler, Standard 2) → oberster Vorschlag automatisch, sichtbar
 „automatisch gewählt", abbrechbar; Telegram informiert nur.
+
+## Workspaces (Stufe 7, Datentrennung)
+- Jeder Datensatz trägt workspace_id; Dashboard (/dashboard, /review, /settings, /tasks, /report, /ab, /log, /onboarding, /sources) filtert strikt nach dem
+  Workspace, der aus dem Lese-Key kommt: Worker-Secret DASHBOARD_READ_KEY = Workspace `default`, sonst `workspaces.read_key_hash` (SHA-256).
+- Verwaltung mit dem Admin-Key: `GET /api/workspaces`, `POST /api/workspaces {id, name, config?}` (config = JSON wie ACCOUNTS_JSON; Lese-Key kommt
+  einmalig zurück → SECRETS.local.md), `PATCH /api/workspaces/<id> {name?, config?, rotate_key?}`. Admin-Key kann jeden Workspace per `?ws=<id>` ansprechen.
+- Pro Workspace eigenes Dashboard-Deployment: `dashboard/index.html` mit dem jeweiligen Lese-Key ausliefern (deploy_dashboard.sh, eigenes Pages-Projekt).
+- Noch offen (Login): Cloudflare Access vor die Pages-Seite; Pipeline (GitHub Actions) und Crons arbeiten weiter im Workspace `default` –
+  Clip-Jobs anderer Workspaces brauchen später `ws` als Workflow-Input und POST /api/clips mit workspace_id.
