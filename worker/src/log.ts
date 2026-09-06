@@ -2,10 +2,11 @@
 // Suche, Paginierung und Link zum GitHub-Actions-Lauf (run=<id> im Ereignistext, sonst Workflow-Liste).
 import { Env, db } from "./shared";
 
-export type LogCat = "error" | "reject" | "killswitch" | "upload" | "post" | "job" | "settings" | "other";
-export const LOG_CATS: Record<LogCat, string> = { error: "Fehler", reject: "Ablehnungen", killswitch: "Kill-Switch", upload: "Uploads", post: "Posts", job: "Clip-Jobs", settings: "Einstellungen", other: "Sonstiges" };
+export type LogCat = "error" | "reject" | "killswitch" | "upload" | "post" | "job" | "settings" | "pacer" | "other";
+export const LOG_CATS: Record<LogCat, string> = { error: "Fehler", reject: "Ablehnungen", killswitch: "Kill-Switch", upload: "Uploads", post: "Posts", job: "Clip-Jobs", settings: "Einstellungen", pacer: "Taktgeber", other: "Sonstiges" };
 
 const RULES: [LogCat, RegExp][] = [
+  ["pacer", /^pacer /],                       // Taktgeber-Vorschläge zuerst: sie nennen Pausen und Vorrat, wären sonst „Kill-Switch"
   ["error", /error|fehler|failed|fehlgeschlagen|exception|traceback|_missing|dispatch_failed/i],
   ["reject", /reject|abgelehnt|verworfen|rejected_/i],
   ["killswitch", /kill.?switch|pausiert|paused|account_resumed|account_rules|freigegeben|views_drop/i],
