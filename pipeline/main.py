@@ -28,6 +28,8 @@ def main():
     kind = campaign.get("kind") or "paid"
     accounts_cfg = load_yaml(ROOT / "config/accounts.yaml")
     by_id = {x["id"]: x for x in accounts_cfg["accounts"]}
+    brand = (load_yaml(ROOT / "config/brand.yaml") if (ROOT / "config/brand.yaml").exists() else {}) or {}
+    brand_of = lambda acc: (brand.get("accounts") or {}).get(acc)          # Style-Tokens (Stufe 2); sonst text_hook aus accounts.yaml
     targets = ["A", "B"] if a.account.upper() == "AB" else [a.account]
     for t in targets:
         if t not in by_id: sys.exit(f"unbekannter Account {t}")
@@ -109,9 +111,10 @@ def main():
         staged = overlay.apply(clip, overlay_text, WORK / "stage", name=name)                # Pflicht-Overlay (paid, falls gesetzt)
         if not context_line.strip():                                                          # nie roh (Fan wie paid)
             db.insert_clip(a.campaign, acc, str(staged), status="rejected_precheck", note="no_hook", hook=hook, video_id=video_id, rank=rank); continue
+        style = brand_of(acc) or str(th.get("style", "bar"))
         final, cover_jpg = overlay.apply_text_hook(staged, context_line, WORK / "final", name=name,
                                                    seconds=float(th.get("seconds", 2)), color=str(th.get("color", "white")),
-                                                   accent=str(th.get("accent", "#FF5A1F")), style=str(th.get("style", "bar")),
+                                                   accent=str(th.get("accent", "#FF5A1F")), style=style,
                                                    accent_word=accent_word, cover=True)
         ok, reason = checks.validate(final, rules, forbidden=campaign.get("forbidden", {}))
         dur = checks.duration_of(final)

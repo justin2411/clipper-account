@@ -55,6 +55,13 @@ jobs:
       # yt-dlp braucht für YouTube eine JS-Laufzeit (Deno empfohlen) + yt-dlp-ejs (Challenge-Solver), sonst fehlen Formate
       - uses: denoland/setup-deno@v2
         with: { deno-version: v2.x }
+      # PO-Token-Provider (bgutil): YouTube verlangt von Rechenzentrums-IPs (GitHub-Runner) sonst „Sign in to confirm you're not a bot“,
+      # auch mit gültigen Cookies. Der Server erzeugt die Tokens lokal; das yt-dlp-Plugin (pip) fragt ihn automatisch ab.
+      - name: po-token provider
+        run: |
+          docker run -d --name bgutil -p 4416:4416 brainicism/bgutil-ytdlp-pot-provider >/dev/null
+          for i in $(seq 1 30); do curl -sf http://127.0.0.1:4416/ping >/dev/null && break; sleep 1; done
+          curl -s http://127.0.0.1:4416/ping || echo "::warning::bgutil ping fehlgeschlagen"
       - name: pip install
         run: pip install --extra-index-url https://download.pytorch.org/whl/cpu -r pipeline/requirements.txt -r vendor/opensource-clipping/requirements.txt
       - name: clip pipeline
