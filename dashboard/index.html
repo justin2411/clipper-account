@@ -46,6 +46,8 @@
                 top_posts:[{url,account,views,likes,hook,kind,campaign,posted_at}], learned:{best_slot,best_hook_type,best_font,best_account}, suggestions:[{text,action?:{kind,label,href}}], summary:[3 Sätze] }
               -> GET /report?week=latest|current|<YYYY-Www> (Dashboard-Key), GET /report/weeks. Sonntags 09:00 Berlin: Bericht in kv + Telegram-Kurzfassung mit Link auf #report.
               WeeklyReport zusätzlich: ab:{variable,leader,lift_pct,hint,variants:[{value,posts,avg_views}]}|null, changes:[{at,text}] (was das System umgestellt hat)
+  onboarding (Stufe 6): { steps:[{key:"accounts|vyro|niche|look|shadow|live", label, done, detail, href, hint?}], done, total, complete } -> GET /onboarding
+              Übersicht zeigt die Checkliste, bis complete; danach unter #start. Status aus echten Daten (Secrets, Blotato-IDs, Kampagnen, Versionen, Schatten-/Live-Posts).
   log (Stufe 5): { items:[{id, at, campaign_id, text, cat:"error|reject|killswitch|upload|post|job|settings|other", run_id}], counts:{all,error,...}, repo, next_before, cats:{key:label} }
               -> GET /log?cat=&q=&limit=&before=<id> (Dashboard-Key). run_id aus "run=<id>" im Ereignis (Pipeline hängt GITHUB_RUN_ID an) → Link https://github.com/<repo>/actions/runs/<id>
   ab (Stufe 4): { experiment:{variable,variants:[..],niche,started_at}|null, variants:[{value,clips,posts,views,avg_views,likes,engagement,watchtime,completion}], min_n:20, significant, leader, lift_pct, hint, variables:{<pfad>:{label,values?,kind}} }
@@ -273,6 +275,8 @@ details.more{border:1px solid var(--line);border-radius:var(--r);background:var(
 .pill.error{background:color-mix(in srgb,var(--bad) 18%,transparent);color:var(--bad)}.pill.reject{background:color-mix(in srgb,var(--warn) 18%,transparent);color:var(--warn)}.pill.killswitch{background:color-mix(in srgb,var(--bad) 12%,transparent);color:var(--bad)}.pill.upload{background:color-mix(in srgb,var(--violet) 18%,transparent);color:#B197FF}.pill.post{background:color-mix(in srgb,var(--ok) 18%,transparent);color:var(--ok)}.pill.job{background:color-mix(in srgb,var(--flame) 18%,transparent);color:var(--flame)}
 .chips{display:flex;gap:6px;flex-wrap:wrap;align-items:center}.chips input{font:inherit;font-size:13px;padding:6px 10px;border:1px solid var(--line);border-radius:999px;background:var(--panel);color:var(--ink);min-width:160px;flex:1}
 @media (max-width:600px){.lg{grid-template-columns:auto 1fr;grid-template-areas:"t c" "x x" "a a"}.lg time{grid-area:t}.lg .pill{grid-area:c;justify-self:start}.lg .tx{grid-area:x}.lg a{grid-area:a}}
+.onb{display:flex;gap:12px;align-items:flex-start;padding:10px 0;border-top:1px solid var(--line)}.onb:first-of-type{border-top:0}.onb .ck{width:26px;height:26px;border-radius:50%;border:2px solid var(--line);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px;flex:none;color:var(--ink3)}.onb.done .ck{background:var(--ok);border-color:var(--ok);color:#fff}.onb .w{flex:1;min-width:0}.onb .l{font-weight:800;font-size:14px}.onb.done .l{color:var(--ink2)}.onb .d{font-size:12px;color:var(--ink3);margin-top:2px}.onb .h{font-size:12px;color:var(--ink2);margin-top:4px;display:none}.onb.open .h{display:block}.onb a.go{font-size:12px;font-weight:700;color:var(--flame);white-space:nowrap}
+.prog{height:6px;background:var(--line);border-radius:3px;overflow:hidden;margin:6px 0 10px}.prog i{display:block;height:100%;background:var(--ok)}
 main{min-width:0;overflow-x:hidden}section,.kpi,.tk,.card,.rv{min-width:0}
 .urls{white-space:pre-wrap;word-break:break-all}
 @media (max-width:480px){.g2,.g4,.flow,.cards{grid-template-columns:1fr}.steps{grid-template-columns:repeat(2,1fr)}table{display:block;overflow-x:auto}}
@@ -380,6 +384,7 @@ function nav(d){const r=route();
   <div class="nh">Sonstiges</div>
   <a class="nl ${r==="tasks"?"on":""}" href="#tasks">Aufgaben<small>${(d.tasks||[]).length}</small></a>
   <a class="nl ${r==="report"?"on":""}" href="#report">Wochenbericht<small>${d.report?.latest?.week?.replace(/^\d{4}-W/,"KW")||""}</small></a>
+  ${d.onboarding&&!d.onboarding.complete?`<a class="nl ${r==="start"?"on":""}" href="#start">Erste Schritte<small>${d.onboarding.done}/${d.onboarding.total}</small></a>`:""}
   <a class="nl ${r==="log"?"on":""}" href="#log">Ereignis-Log<small>${d.log?.counts?.error?`${d.log.counts.error} Fehler`:""}</small></a>
   <a class="nl ${r==="how"?"on":""}" href="#how">So funktioniert es</a>
   <a class="nl ${r==="forecast"?"on":""}" href="#forecast">Hochrechnung</a>`;}
@@ -412,6 +417,7 @@ function page(d){const r=route(); nav(d);
   if(r==="home"){const t=d.totals,profit=t.revenue-t.costs,max=Math.max(1,...d.history.map(h=>h.revenue));
     html=`<div class="top"><h1>Übersicht</h1><div class="meta">${monthLabel(d.month)} <span class="live"><i></i>live</span><button class="b" id="rf">Aktualisieren</button></div></div>${banner}
     <div class="grid g4" style="margin-bottom:14px"><div class="kpi"><b>${money(profit)}</b><span>Gewinn · ≈ ${fmt(profit*(d.eur_rate||0.92))} €</span><small>+${money(t.week_delta)} diese Woche</small></div><div class="kpi"><b>${money(t.revenue)}</b><span>Umsatz ausgezahlt</span></div><div class="kpi"><b>${k(d.accounts.reduce((a,x)=>a+(x.views_7d||0),0))}</b><span>Views 7 Tage · alle Accounts</span></div><div class="kpi"><b>${k(d.accounts.reduce((a,x)=>a+(x.followers||0),0))}</b><span>Follower gesamt</span><small>+${k(d.accounts.reduce((a,x)=>a+(x.followers_7d||0),0))} diese Woche</small></div></div>
+    ${d.onboarding&&!d.onboarding.complete&&!hideOnb()?onboardingBlock(d.onboarding,true):""}
     ${(d.tasks||[]).length?`<section><h2>Deine Aufgaben <span><a href="#tasks">alle →</a></span></h2>${(d.tasks||[]).slice(0,3).map(t=>taskCard(t,d)).join("")}</section>`:""}
     <section><h2>Rangliste Accounts <span>Spalte anklicken = sortieren · Handle öffnet TikTok</span></h2>${leaderboard(d)}</section>
     <div class="grid g2"><section><h2>Pipeline <span><a href="#pipeline">alles →</a></span></h2>${pipelineBlock(d,true)}</section>
@@ -511,6 +517,8 @@ function page(d){const r=route(); nav(d);
     html=`<div class="top"><h1>Wochenbericht</h1><div class="meta">${rep?`${rep.week.replace(/^\d{4}-W/,"KW ")}${rep.partial?" · bisher":""}`:""}<button class="b" id="rf">Aktualisieren</button></div></div>${banner}
     <section style="padding:10px 18px"><div class="tools" style="margin:0;flex-wrap:wrap">${weeks.map(w=>`<button class="b ${rep&&rep.week===w.week&&!rep.partial?"on":""}" data-week="${w.week}">${w.week.replace(/^\d{4}-W/,"KW ")}</button>`).join("")}<button class="b ${rep&&rep.partial?"on":""}" data-week="current">Diese Woche bisher</button><span id="repstat" style="font-size:12px;color:var(--ink3)"></span></div></section>
     ${rep?reportBody(rep,d):`<section><div class="empty">Noch kein Bericht – der erste kommt Sonntag 09:00 (Berlin). Oder jetzt: <button class="b" data-week="current">für diese Woche berechnen</button></div></section>`}`;
+  } else if(r==="start"){
+    html=`<div class="top"><h1>Erste Schritte</h1><div class="meta">${d.onboarding?`${d.onboarding.done} von ${d.onboarding.total} erledigt`:""} <button class="b" id="rf">Aktualisieren</button></div></div>${banner}${d.onboarding?onboardingBlock(d.onboarding,false):`<section><div class="empty">Keine Daten.</div></section>`}`;
   } else if(r==="log"){
     const lg=LOG||d.log||{items:[],counts:{},cats:{}};const cats={all:"Alle",...(lg.cats||{})};
     html=`<div class="top"><h1>Ereignis-Log</h1><div class="meta">${lg.counts?.all||0} Ereignisse (letzte 500) <button class="b" id="rf">Aktualisieren</button></div></div>${banner}
@@ -521,7 +529,7 @@ function page(d){const r=route(); nav(d);
     html=`<div class="top"><h1>Aufgaben</h1><div class="meta">${(d.tasks||[]).length} offen <button class="b" id="rf">Aktualisieren</button></div></div>${banner}<section>${(d.tasks||[]).map(t=>taskCard(t,d)).join("")||`<div class="empty">Nichts offen – alles läuft.</div>`}</section>`;
   }
   $("#main").innerHTML=html; const rf=$("#rf"); if(rf) rf.onclick=refresh;
-  document.querySelectorAll("th[data-k]").forEach(th=>th.onclick=()=>{sortKey=th.dataset.k;page(d)}); wireUpload(d); wireTasks(d); wireStudio(d); wireHow(d); wireReport(d); wireAb(d); wireLog(d);}
+  document.querySelectorAll("th[data-k]").forEach(th=>th.onclick=()=>{sortKey=th.dataset.k;page(d)}); wireUpload(d); wireTasks(d); wireStudio(d); wireHow(d); wireReport(d); wireAb(d); wireLog(d); wireOnb(d);}
 
 // Wochenbericht (Stufe 2) – Tiefe 1: Kennzahlen + 3 Sätze + Vorschläge; Tiefe 2: Accounts / Paid vs Fan (zu); Tiefe 3: Top-Posts, Gelernt, Produktion (zu)
 function reportBody(rep,d){const t=rep.totals,p=rep.prev||{};
@@ -755,6 +763,11 @@ function wireStudio(d){
     const pv=await post(body);if(pv.errors){showDiff({title:"Zurücksetzen nicht möglich",errors:pv.errors});return}
     if(!pv.diff||!pv.diff.length){showDiff({title:"Nichts zu tun",sub:"Dieser Stand ist bereits aktiv."});return}
     showDiff({title:`Zurücksetzen auf ${pv.target}`,sub:`${pv.diff.length} Änderung${pv.diff.length>1?"en":""} – der Zustand wird als neue Version gespeichert`,diff:pv.diff,onConfirm:async()=>{const r=await post({...body,confirm:true});if(r.ok){PEND=null;refresh()}else showDiff({title:"Fehler",errors:r.errors||[r.error||"unbekannt"]})}})});}
+// Onboarding-Checkliste (Stufe 6) – Tiefe 1: Fortschritt + sechs Schritte mit Status; Tiefe 2: Hinweis je Schritt per Klick
+const hideOnb=()=>{try{return localStorage.getItem("onb_hide")==="1"}catch(e){return false}};
+function onboardingBlock(o,compact){return `<section><h2>Erste Schritte <span>${o.done}/${o.total} erledigt${compact?` · <a href="#start">alle →</a> · <a href="#" id="onb-hide">ausblenden</a>`:""}</span></h2><div class="prog"><i style="width:${Math.round(o.done/o.total*100)}%"></i></div>
+  ${o.steps.map((s,i)=>`<div class="onb ${s.done?"done":""}" data-onb="${s.key}"><div class="ck">${s.done?"✓":i+1}</div><div class="w"><div class="l">${s.label}</div><div class="d">${s.detail}</div>${s.hint?`<div class="h">→ ${s.hint}</div>`:""}</div>${s.done?"":`<a class="go" href="${s.href}">öffnen →</a>`}</div>`).join("")}</section>`}
+function wireOnb(d){document.querySelectorAll("[data-onb]").forEach(el=>el.onclick=e=>{if(e.target.closest("a"))return;el.classList.toggle("open")});const h=$("#onb-hide");if(h)h.onclick=e=>{e.preventDefault();try{localStorage.setItem("onb_hide","1")}catch(x){}page(d)}}
 // Ereignis-Log (Stufe 5): Zeile = Zeit · Kategorie · Text (+ Kampagne) · Actions-Link
 function logRow(lg,e){const cats={...(lg.cats||{})};const link=e.run_id&&lg.repo?`https://github.com/${lg.repo}/actions/runs/${e.run_id}`:(e.cat==="job"&&lg.repo?`https://github.com/${lg.repo}/actions/workflows/clip.yml`:null);
   return `<div class="lg"><time>${tm(e.at)}</time><span class="pill ${e.cat}">${cats[e.cat]||e.cat}</span><div class="tx">${e.text.replace(/\s*run=\d+/,"")}${e.campaign_id?` <small>· ${e.campaign_id}</small>`:""}</div>${link?`<a href="${link}" target="_blank" rel="noopener">${e.run_id?"Lauf ↗":"Actions ↗"}</a>`:"<span></span>"}</div>`}
