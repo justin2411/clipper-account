@@ -4,7 +4,7 @@ Aufruf: python -m pipeline.main --campaign <id> --account A|B|AB
   paid-Kampagne: ein Account je Job (eigener Schnittstil).
   fan-Kampagne (kind='fan', Footage = YouTube-Video): --account AB → EIN Schnitt, Momente nach Rang verteilt
   (A: 1,3,5… B: 2,4,6…), immer mit Hook-Text (nie roh), Caption „<Hook> · Credit @mrbeast #mrbeast“.
-Env: CLIPFORGE_API_URL, CLIPFORGE_API_KEY, GOOGLE_API_KEY (Gemini), optional YT_COOKIES_B64
+Env: CLIPFORGE_API_URL, CLIPFORGE_API_KEY, GOOGLE_API_KEY (Gemini), PREVIEW=true (Standbilder per Telegram)
 """
 import argparse, os, re, sys, yaml
 from pathlib import Path
@@ -30,7 +30,7 @@ def main():
     by_id = {x["id"]: x for x in accounts_cfg["accounts"]}
     brand = (load_yaml(ROOT / "config/brand.yaml") if (ROOT / "config/brand.yaml").exists() else {}) or {}
     brand_of = lambda acc: (brand.get("accounts") or {}).get(acc)          # Style-Tokens (Stufe 2); sonst text_hook aus accounts.yaml
-    targets = ["A", "B"] if a.account.upper() == "AB" else [a.account]
+    targets = list(a.account.upper()) if len(a.account) > 1 else [a.account]     # "AB" = alle Accounts der Nische
     for t in targets:
         if t not in by_id: sys.exit(f"unbekannter Account {t}")
     platform = REGISTRY[campaign["platform"]]
@@ -38,6 +38,8 @@ def main():
     video_id = (campaign.get("footage") or {}).get("video_id")
     label = a.account.upper()
 
+    os.environ["CLIPFORGE_CAMPAIGN"] = a.campaign                     # Stufen-Events aus dem Clipper (Transkript, Momentwahl)
+    db.log(a.campaign, f"stage=download account={label}")
     try:
         sources = download.fetch(campaign["footage"], WORK / "src")
     except Exception as e:                            # z.B. YouTube-Bot-Check → Video als Fehler markieren, Job sauber beenden
@@ -60,6 +62,8 @@ def main():
         if src_dur < MIN_SOURCE_S or clipper.is_vertical(sources[0]):
             db.log(a.campaign, f"footage_skipped account={label} reason={'short' if src_dur < MIN_SOURCE_S else 'vertical'} dur={src_dur:.0f}")
             if video_id: db.patch_video(video_id, status="skipped", note="short/vertical", is_short=1)
+            up = (campaign.get("footage") or {}).get("upload_id")
+            if up: db.patch_upload(up, status="error", note="zu kurz (< 3 min)" if src_dur < MIN_SOURCE_S else "vertikales Video")
             db.notify(f"⏭ Fan-Video übersprungen ({'zu kurz' if src_dur < MIN_SOURCE_S else 'vertikal'}): {campaign['name']}")
             return
 
@@ -76,6 +80,7 @@ def main():
             except Exception as e:
                 db.log(a.campaign, f"clipper_error account={label} src={src.name} err={str(e)[:120]}"); continue
             db.log(a.campaign, f"clipper_done account={label} src={src.name} raw={len(clips)}")
+            db.log(a.campaign, f"stage=render account={label} raw={len(clips)}")
             hooks = clipper.hooks_of(WORK / "AB" / f"src{i}")
             for c in sorted(clips, key=rank_of):
                 r = rank_of(c)
@@ -101,11 +106,18 @@ def main():
     for acc, i, clip, meta, rank in jobs:
         th = by_id[acc].get("text_hook") or {}
         hook = meta.get("hook", "")
-        # Originalität: Kontextzeile in eigenen Worten (≤8 Wörter, kein Transkript-Zitat) = Hook-Text im Bild + erster Caption-Satz
-        gen = ai.enrich(hook, meta.get("description", ""), meta.get("transcript", ""), campaign["name"])
-        context_line = gen.get("context_line") or gen.get("caption_hook") or hook
-        accent_word = gen.get("accent_word") or ""
-        pinned = gen["pinned_comment"] or meta.get("pinned_comment", "")
+        # Originalität: Kontextzeile in eigenen Worten (≤8 Wörter, kein Transkript-Zitat) = Hook-Text im Bild + erster Caption-Satz.
+        # Kommt aus der Momentwahl (Stufe 3); fehlt sie oder zitiert sie das Transkript, liefert ai.enrich() Ersatz.
+        transcript = meta.get("transcript", "")
+        context_line = meta.get("context_line") or ""
+        accent_word, pinned = meta.get("accent_word") or "", meta.get("pinned_comment", "")
+        if not context_line or len(context_line.split()) > ai.MAX_WORDS or ai.quotes_transcript(context_line, transcript) or not pinned:
+            gen = ai.enrich(hook, meta.get("description", ""), transcript, campaign["name"])
+            if not context_line or len(context_line.split()) > ai.MAX_WORDS or ai.quotes_transcript(context_line, transcript):
+                context_line, accent_word = gen.get("context_line") or gen.get("caption_hook") or hook, gen.get("accent_word") or ""
+            pinned = pinned or gen["pinned_comment"]
+        if not accent_word or accent_word.lower().strip(".,!?\"'") not in [w.lower().strip(".,!?\"'") for w in context_line.split()]:
+            accent_word = ai._pick_accent(context_line)
         caption = platform.caption(campaign, hook=context_line)
         name = f"{acc}_s{i}_{clip.name}"
         staged = overlay.apply(clip, overlay_text, WORK / "stage", name=name)                # Pflicht-Overlay (paid, falls gesetzt)
@@ -133,7 +145,7 @@ def main():
             print("thumbnail failed:", e)
         r = db.insert_clip(a.campaign, acc, url, status="ready", caption=caption, hook_type=overlay.hook_type_of(clip),
                            duration_s=dur, hook=hook, pinned_comment=pinned, video_id=video_id, rank=rank, thumb_url=thumb_url,
-                           context_line=context_line, cover_url=cover_url)
+                           context_line=context_line, cover_url=cover_url, scores=meta.get("scores"))
         kept[acc] += 1
         if preview_on and previews[acc] < 3:                                                 # Vorschau: Standbild (Hook sichtbar) + Caption
             previews[acc] += 1
@@ -148,6 +160,9 @@ def main():
     db.log(a.campaign, f"pipeline_done account={label} kept={total}/{len(jobs)} " + " ".join(f"{k}={v}" for k, v in kept.items()))
     if video_id:
         db.patch_video(video_id, status="clipped" if total else "error", note=None if total else f"0 of {len(jobs)} kept")
+    upload_id = (campaign.get("footage") or {}).get("upload_id")
+    if upload_id:
+        db.patch_upload(upload_id, status="clipped" if total else "error", note=None if total else f"0 of {len(jobs)} kept")
     per = ", ".join(f"{k}: {v}" for k, v in kept.items())
     db.notify(f"✂️ Clip-Job fertig ({'⭐ Fan' if kind == 'fan' else '💰 Paid'}): {campaign['name']} – {per} Clips bereit (von {len(jobs)} geschnitten). "
               f"Der Planer verteilt sie auf die nächsten Slots.")

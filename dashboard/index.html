@@ -6,289 +6,224 @@
 <title>ClipForge</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&display=swap" rel="stylesheet">
+<!--
+  DATENVERTRAG – GET {apiUrl}/dashboard, Header x-api-key. Ergänzt gegenüber v1:
+  accounts[]: { id, handle, niche, platform:"tiktok", url, followers, followers_7d, views_7d, views_30d, earnings_30d, avg_views, posts_7d, paused, reason }
+  niches[]:   { key, label, color, accounts:[ids] }
+  sources[]:  { id, niche, name, size_mb, type:"paid|fan", stage:0..7, progress, clips, error, added, campaign_id }
+              stage: 0 Upload · 1 Transkript · 2 Momentwahl · 3 Schnitt · 4 QA · 5 Geplant · 6 Gepostet · 7 Eingereicht
+  posts[]:    { id, account, niche, url, thumb, caption, posted_at, views, likes, type, campaign }
+  campaigns[] (+niche, paid_out_pct), totals, history, insights, tasks, pipeline, forecast, goal_monthly wie v1.
+  Upload: POST /sources/presign {niche,name,size,type} -> {upload_url,source_id}; PUT upload_url (Browser→R2); POST /sources/complete {source_id}
+-->
 <style>
-/*
-  DATENVERTRAG – Claude Code liefert GET {apiUrl}/dashboard mit Header "x-api-key".
-  Antwort (JSON):
-  {
-    "month": "2026-09", "currency": "USD", "eur_rate": 0.92,
-    "totals": { "revenue": 412, "costs": 31, "pending": 96, "week_delta": 138 },
-    "history": [ { "week": "KW34", "revenue": 40 }, ... ],                 // letzte 8 Wochen
-    "campaigns": [ { "id": "...", "name": "...", "platform": "vyro", "status": "active|ended|joined|paused",
-                     "rate_per_1k": 2, "clips": 18, "views": 142000, "qualified": 9, "earned": 231,
-                     "budget_used": 30000, "budget_total": 105000 } ],
-    "accounts": [ { "id": "A", "handle": "@mrbeastfire0", "niche": "Momente", "followers": 4200,
-                    "avg_views": 7900, "paused": false, "reason": null } ],
-    "insights": { "best_hook": "Textfrage im Overlay", "best_slot": "20:00", "qualified_rate": 0.34 },
-    "tasks": [ { "type": "submit|join|review", "text": "...", "url": "..." } ],
-    "pipeline": {                                                            // Live-Ansicht, Worker liefert aus D1 + GitHub Actions API
-      "stages": [ { "key":"scout", "label":"Scout", "status":"idle|running|ok|error", "last_run":"ISO", "info":"letzte Mail 09:10" },
-                  { "key":"footage", "label":"Footage", "status":"ok", "info":"2 Kampagnen geladen" },
-                  { "key":"clip", "label":"Clip-Job", "status":"running", "info":"Extreme Places · A · Schnitt 7/12" },
-                  { "key":"publish", "label":"Publisher", "status":"ok", "info":"nächster Slot 14:00 · 9 Clips in Queue" },
-                  { "key":"track", "label":"Tracker", "status":"ok", "info":"vor 2 h · 6 Posts aktualisiert" } ],
-      "jobs": [ { "id":"run-5", "label":"Clip-Job · vyro-extreme-places · A", "started":"ISO", "progress":0.6, "step":"Schnitt 7/12", "url":"https://github.com/..." } ],
-      "queue": { "ready": 9, "scheduled": 4, "posted_today": 3, "pending_submit": 2 },
-      "events": [ { "at":"ISO", "text":"Clip 7/12 gerendert (A)" } ]                          // letzte 15
-    },
-    "goal_monthly": 2000,                                                    // optional, Standard 2000
-    "forecast": { "month_end": 640, "next_month": 980, "days_left": 25 }     // optional – fehlt es, rechnet das Dashboard selbst
-  }
-*/
-:root{
-  --bg:#0E0F14; --panel:#15171F; --line:#252833; --ink:#F2F1EC; --ink-2:#A9ABB6; --ink-3:#6B6E7B;
-  --flame:#FF5A1F; --violet:#8B5CF6; --gold:#FACC15; --ok:#3DD68C; --warn:#F5A524; --bad:#F0564A;
-  --r:14px; --font:"Manrope",system-ui,sans-serif;
-}
-@media (prefers-color-scheme: light){
-  :root:not([data-theme="dark"]){ --bg:#F6F5F1; --panel:#FFFFFF; --line:#E4E2DB; --ink:#16171C; --ink-2:#5B5E6B; --ink-3:#8E909B; }
-}
-:root[data-theme="light"]{ --bg:#F6F5F1; --panel:#FFFFFF; --line:#E4E2DB; --ink:#16171C; --ink-2:#5B5E6B; --ink-3:#8E909B; }
-*{box-sizing:border-box}
-html,body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font);font-weight:500;line-height:1.5}
-a{color:inherit}
-.wrap{max-width:1040px;margin:0 auto;padding:20px 16px 60px}
-header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:6px 0 18px}
-.brand{display:flex;align-items:center;gap:10px;font-weight:800;font-size:18px;letter-spacing:-.01em}
-.brand i{width:26px;height:26px;border-radius:8px;background:var(--flame);display:inline-block;position:relative}
+:root{--bg:#0C0D12;--panel:#14161D;--panel2:#1A1D26;--line:#262A35;--ink:#F2F1EC;--ink2:#A9ABB6;--ink3:#6B6E7B;
+ --flame:#FF5A1F;--violet:#8B5CF6;--gold:#FACC15;--ok:#3DD68C;--warn:#F5A524;--bad:#F0564A;--r:14px;--font:"Manrope",system-ui,sans-serif}
+@media (prefers-color-scheme: light){:root:not([data-theme="dark"]){--bg:#F4F3EF;--panel:#FFFFFF;--panel2:#F8F7F3;--line:#E4E2DB;--ink:#16171C;--ink2:#5B5E6B;--ink3:#8E909B}}
+*{box-sizing:border-box}html,body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font);font-weight:500;line-height:1.45}
+a{color:inherit;text-decoration:none}
+.app{display:grid;grid-template-columns:230px 1fr;min-height:100vh}
+nav{background:var(--panel);border-right:1px solid var(--line);padding:18px 14px;position:sticky;top:0;height:100vh;overflow:auto}
+.brand{display:flex;align-items:center;gap:10px;font-weight:800;font-size:18px;margin:4px 6px 18px}
+.brand i{width:26px;height:26px;border-radius:8px;background:var(--flame);position:relative}
 .brand i:after{content:"";position:absolute;inset:7px 9px;background:var(--bg);clip-path:polygon(60% 0,20% 55%,48% 55%,35% 100%,80% 40%,52% 40%)}
-.meta{color:var(--ink-3);font-size:13px;display:flex;gap:10px;align-items:center}
-.meta button{font:inherit;color:var(--ink-2);background:transparent;border:1px solid var(--line);border-radius:999px;padding:6px 12px;cursor:pointer}
-/* hero: money bar */
-.hero{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:20px 22px;margin-bottom:14px}
-.hero-top{display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:12px}
-.profit{font-size:44px;font-weight:800;letter-spacing:-.03em;line-height:1}
-.profit small{font-size:15px;font-weight:700;color:var(--ink-2);margin-left:8px;letter-spacing:0}
-.delta{color:var(--ok);font-size:14px;font-weight:700}
-.delta.neg{color:var(--bad)}
-.split{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:16px}
-.split div{padding:10px 12px;border-radius:10px;background:color-mix(in srgb,var(--panel) 70%,var(--bg))}
-.split b{display:block;font-size:20px;font-weight:800;letter-spacing:-.02em}
-.split span{font-size:12px;color:var(--ink-3)}
-.bars{display:flex;align-items:flex-end;gap:6px;height:64px;margin-top:18px}
-.bars div{flex:1;background:var(--line);border-radius:4px 4px 0 0;position:relative;min-height:3px}
-.bars div.cur{background:var(--flame)}
-.bars div:after{content:attr(data-w);position:absolute;top:100%;left:0;right:0;text-align:center;font-size:10px;color:var(--ink-3);margin-top:4px}
-/* pipeline */
-.flow{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;align-items:stretch}
-.stage{position:relative;padding:12px 12px 12px 14px;border-radius:12px;background:color-mix(in srgb,var(--panel) 70%,var(--bg));border:1px solid var(--line)}
-.stage:after{content:"›";position:absolute;right:-9px;top:50%;transform:translateY(-50%);color:var(--ink-3);font-size:18px}
-.stage:last-child:after{content:""}
-.stage .st{display:flex;align-items:center;gap:8px;font-weight:800;font-size:13px}
-.dot{width:9px;height:9px;border-radius:50%;background:var(--ink-3);flex:none}
-.dot.ok{background:var(--ok)}.dot.error{background:var(--bad)}
-.dot.running{background:var(--flame);box-shadow:0 0 0 0 rgba(255,90,31,.6);animation:pulse 1.4s infinite}
-@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(255,90,31,.55)}70%{box-shadow:0 0 0 9px rgba(255,90,31,0)}100%{box-shadow:0 0 0 0 rgba(255,90,31,0)}}
-.stage .si{font-size:11px;color:var(--ink-3);margin-top:4px;line-height:1.35}
-.qs{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:12px}
-.qs div{text-align:center;padding:8px;border-radius:10px;background:color-mix(in srgb,var(--panel) 70%,var(--bg))}
-.qs b{display:block;font-size:18px;font-weight:800}.qs span{font-size:11px;color:var(--ink-3)}
-.job{padding:10px 0;border-top:1px solid var(--line)}
-.job:first-of-type{border-top:0}
-.job .jl{display:flex;justify-content:space-between;font-size:13px;font-weight:700;gap:10px}
-.job .jl span{color:var(--ink-3);font-weight:500;font-size:12px;white-space:nowrap}
-.job .bar{height:6px;border-radius:3px;background:var(--line);margin:7px 0 4px;overflow:hidden}
-.job .bar i{display:block;height:100%;background:var(--flame)}
-.job .js{font-size:12px;color:var(--ink-2)}
-.ev{font-size:12.5px;padding:6px 0;border-top:1px solid var(--line);display:flex;gap:10px}
-.ev:first-of-type{border-top:0}
-.ev time{color:var(--ink-3);flex:none;font-variant-numeric:tabular-nums}
-.live{font-size:11px;color:var(--ok);font-weight:700;display:inline-flex;align-items:center;gap:6px}
-.live i{width:7px;height:7px;border-radius:50%;background:var(--ok);display:inline-block;animation:pulse 1.4s infinite}
-@media (max-width:720px){.flow{grid-template-columns:1fr 1fr}.stage:after{content:""}.qs{grid-template-columns:1fr 1fr}}
-/* forecast */
-.fc{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
-.fc div{padding:12px 14px;border-radius:10px;border:1px dashed var(--line)}
-.fc b{display:block;font-size:22px;font-weight:800;letter-spacing:-.02em}
-.fc span{font-size:12px;color:var(--ink-3)}
-.goal{margin-top:14px}
-.goal .track{height:8px;background:var(--line);border-radius:4px;overflow:hidden}
-.goal .track i{display:block;height:100%;background:var(--flame)}
-.goal p{font-size:13px;color:var(--ink-2);margin:8px 0 0}
-@media (max-width:720px){.fc{grid-template-columns:1fr}}
-/* sections */
+.nl{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:10px;font-size:14px;font-weight:700;color:var(--ink2);cursor:pointer}
+.nl:hover{background:var(--panel2)}.nl.on{background:var(--panel2);color:var(--ink)}
+.nl .sw{width:10px;height:10px;border-radius:50%;flex:none}
+.nl small{margin-left:auto;font-weight:500;color:var(--ink3);font-size:12px}
+.nh{font-size:11px;color:var(--ink3);font-weight:700;letter-spacing:.06em;text-transform:uppercase;margin:16px 10px 6px}
+main{padding:22px 26px 60px;max-width:1280px}
+.top{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:18px}
+.top h1{font-size:24px;margin:0;letter-spacing:-.02em;font-weight:800}
+.top .meta{font-size:13px;color:var(--ink3);display:flex;gap:10px;align-items:center}
+.live{font-size:12px;color:var(--ok);font-weight:700;display:inline-flex;align-items:center;gap:6px}.live i{width:7px;height:7px;border-radius:50%;background:var(--ok);display:inline-block;animation:pulse 1.4s infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(61,214,140,.5)}70%{box-shadow:0 0 0 8px rgba(61,214,140,0)}100%{box-shadow:0 0 0 0 rgba(61,214,140,0)}}
+button.b{font:inherit;font-weight:700;font-size:13px;color:var(--ink2);background:transparent;border:1px solid var(--line);border-radius:999px;padding:6px 12px;cursor:pointer}
+.grid{display:grid;gap:14px}.g2{grid-template-columns:1fr 1fr}.g4{grid-template-columns:repeat(4,1fr)}
 section{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:16px 18px;margin-bottom:14px}
-h2{font-size:15px;font-weight:800;margin:0 0 10px;letter-spacing:-.01em;display:flex;justify-content:space-between;align-items:baseline}
-h2 span{font-size:12px;font-weight:500;color:var(--ink-3)}
-.row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 14px;padding:11px 0;border-top:1px solid var(--line);align-items:center}
-.row:first-of-type{border-top:0}
-.name{font-weight:700;font-size:14px}
-.sub{font-size:12px;color:var(--ink-3);margin-top:2px}
-.pill{font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;margin-left:6px;vertical-align:1px}
-.pill.active{background:color-mix(in srgb,var(--ok) 18%,transparent);color:var(--ok)}
-.pill.ended,.pill.joined{background:var(--line);color:var(--ink-2)}
-.pill.paused{background:color-mix(in srgb,var(--warn) 18%,transparent);color:var(--warn)}
-.stat{text-align:right;font-weight:800;font-size:16px;letter-spacing:-.01em}
-.stat small{display:block;font-weight:500;font-size:11px;color:var(--ink-3)}
-.track{grid-column:1/-1;height:6px;border-radius:3px;background:var(--line);overflow:hidden}
-.track i{display:block;height:100%;background:var(--violet)}
-.two{display:grid;grid-template-columns:1fr 1fr;gap:14px}
-@media (max-width:720px){.two{grid-template-columns:1fr}.split{grid-template-columns:1fr 1fr}.profit{font-size:36px}}
-.kv{display:flex;justify-content:space-between;padding:9px 0;border-top:1px solid var(--line);font-size:14px}
-.kv:first-of-type{border-top:0}
-.kv span{color:var(--ink-2)}
-.task{display:flex;gap:12px;align-items:center;padding:11px 0;border-top:1px solid var(--line);font-size:14px}
-.task:first-of-type{border-top:0}
-.task b{width:8px;height:8px;border-radius:50%;flex:none;background:var(--flame)}
-.task.join b{background:var(--gold)}.task.review b{background:var(--warn)}
-.task a{color:var(--ink-2);font-size:12px;margin-left:auto;text-decoration:none;white-space:nowrap}
-.empty{color:var(--ink-3);font-size:14px;padding:8px 0}
-/* setup gate */
-.gate{max-width:420px;margin:60px auto;background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:24px}
-.gate h1{font-size:20px;margin:0 0 6px;font-weight:800}
-.gate p{color:var(--ink-2);font-size:14px;margin:0 0 16px}
-.gate label{display:block;font-size:12px;color:var(--ink-3);margin:12px 0 4px}
-.gate input{width:100%;font:inherit;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink)}
-.gate button{margin-top:16px;width:100%;font:inherit;font-weight:800;padding:11px;border-radius:10px;border:0;background:var(--flame);color:#fff;cursor:pointer}
-.err{color:var(--bad);font-size:13px;margin-top:8px;min-height:18px}
-.banner{font-size:12px;color:var(--ink-3);text-align:center;margin:-6px 0 12px}
+h2{font-size:15px;font-weight:800;margin:0 0 12px;display:flex;justify-content:space-between;align-items:baseline}h2 span{font-size:12px;font-weight:500;color:var(--ink3)}
+.kpi{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:14px 16px}
+.kpi b{display:block;font-size:26px;font-weight:800;letter-spacing:-.02em}.kpi span{font-size:12px;color:var(--ink3)}.kpi small{display:block;font-size:12px;color:var(--ok);font-weight:700;margin-top:2px}
+table{width:100%;border-collapse:collapse;font-size:13px}th{font-size:11px;color:var(--ink3);text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);font-weight:700;cursor:pointer;white-space:nowrap}
+td{padding:9px 8px;border-bottom:1px solid var(--line);vertical-align:middle}tr:last-child td{border-bottom:0}
+td.r,th.r{text-align:right;font-variant-numeric:tabular-nums}
+.rank{width:26px;height:26px;border-radius:50%;background:var(--panel2);display:inline-flex;align-items:center;justify-content:center;font-weight:800;font-size:12px}
+.rank.g{background:var(--gold);color:#111}.rank.s{background:#C0C0C0;color:#111}.rank.b{background:#CD7F32;color:#111}
+.acct{display:flex;align-items:center;gap:10px}.av{width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;color:#fff;flex:none}
+.acct .h{font-weight:700}.acct .h a:hover{text-decoration:underline}.acct .n{font-size:11px;color:var(--ink3)}
+.pill{font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;background:var(--line);color:var(--ink2)}
+.pill.ok{background:color-mix(in srgb,var(--ok) 18%,transparent);color:var(--ok)}.pill.warn{background:color-mix(in srgb,var(--warn) 18%,transparent);color:var(--warn)}.pill.v{background:color-mix(in srgb,var(--violet) 18%,transparent);color:#B197FF}.pill.f{background:color-mix(in srgb,var(--flame) 18%,transparent);color:var(--flame)}
+.nhead{display:flex;align-items:center;gap:14px}.nhead .sw{width:14px;height:14px;border-radius:4px}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
+.card{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:14px;display:block}
+.card .row{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+.card .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}.card .stats div{font-size:11px;color:var(--ink3)}.card .stats b{display:block;font-size:15px;font-weight:800;color:var(--ink)}
+.card .links{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}.card .links a{font-size:12px;font-weight:700;padding:5px 10px;border-radius:8px;background:var(--panel);border:1px solid var(--line)}
+.steps{display:grid;grid-template-columns:repeat(8,1fr);gap:4px;margin-top:8px}
+.step{padding:8px 6px 6px;border-radius:8px;background:var(--panel);border:1px solid var(--line);text-align:center;font-size:11px;color:var(--ink3)}
+.step b{display:block;width:18px;height:18px;border-radius:50%;margin:0 auto 4px;background:var(--line);color:var(--ink2);font-size:10px;line-height:18px;font-weight:800}
+.step.done{color:var(--ink2)}.step.done b{background:var(--ok);color:#111}
+.step.cur{border-color:var(--flame);color:var(--ink)}.step.cur b{background:var(--flame);color:#fff;animation:pulse2 1.4s infinite}
+.step.err{border-color:var(--bad);color:var(--bad)}.step.err b{background:var(--bad);color:#fff}
+@keyframes pulse2{0%{box-shadow:0 0 0 0 rgba(255,90,31,.5)}70%{box-shadow:0 0 0 7px rgba(255,90,31,0)}100%{box-shadow:0 0 0 0 rgba(255,90,31,0)}}
+.src{padding:12px 0;border-top:1px solid var(--line)}.src:first-of-type{border-top:0}
+.src .t{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}.src .t b{font-size:14px}.src .t span{font-size:12px;color:var(--ink3)}
+.src .bar{height:5px;border-radius:3px;background:var(--line);overflow:hidden;margin-top:8px}.src .bar i{display:block;height:100%;background:var(--flame)}
+.drop{border:2px dashed var(--line);border-radius:12px;padding:18px;text-align:center;color:var(--ink3);font-size:13px;cursor:pointer}.drop.over{border-color:var(--flame);color:var(--ink)}.drop b{display:block;color:var(--ink);font-size:14px;margin-bottom:2px}
+.up{font-size:12px;color:var(--ink2);margin-top:8px;min-height:16px}
+.posts{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px}
+.post{background:var(--panel2);border:1px solid var(--line);border-radius:10px;overflow:hidden;display:block}
+.post .th{aspect-ratio:9/16;background:linear-gradient(160deg,var(--panel2),var(--line));display:flex;align-items:flex-end;padding:8px;background-size:cover;background-position:center}
+.post .th span{background:rgba(0,0,0,.55);color:#fff;padding:2px 6px;border-radius:6px;font-weight:700;font-size:11px}
+.post .c{padding:8px;font-size:11px;color:var(--ink3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.flow{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}.stage{position:relative;padding:12px 12px 12px 14px;border-radius:12px;background:var(--panel2);border:1px solid var(--line)}
+.stage:after{content:"›";position:absolute;right:-9px;top:50%;transform:translateY(-50%);color:var(--ink3);font-size:18px}.stage:last-child:after{content:""}
+.stage .st{display:flex;align-items:center;gap:8px;font-weight:800;font-size:13px}.dot{width:9px;height:9px;border-radius:50%;background:var(--ink3);flex:none}.dot.ok{background:var(--ok)}.dot.error{background:var(--bad)}.dot.running{background:var(--flame);animation:pulse2 1.4s infinite}
+.stage .si{font-size:11px;color:var(--ink3);margin-top:4px}
+.ev{font-size:12.5px;padding:6px 0;border-top:1px solid var(--line);display:flex;gap:10px}.ev:first-of-type{border-top:0}.ev time{color:var(--ink3);flex:none;font-variant-numeric:tabular-nums}
+.task{display:flex;gap:12px;align-items:center;padding:10px 0;border-top:1px solid var(--line);font-size:14px}.task:first-of-type{border-top:0}.task b{width:8px;height:8px;border-radius:50%;flex:none;background:var(--flame)}.task.join b{background:var(--gold)}.task.review b{background:var(--warn)}.task a{color:var(--ink2);font-size:12px;margin-left:auto}
+.bars{display:flex;align-items:flex-end;gap:6px;height:56px;margin-top:10px}.bars div{flex:1;background:var(--line);border-radius:4px 4px 0 0;position:relative;min-height:3px}.bars div.cur{background:var(--flame)}.bars div:after{content:attr(data-w);position:absolute;top:100%;left:0;right:0;text-align:center;font-size:10px;color:var(--ink3);margin-top:4px}
+.empty{color:var(--ink3);font-size:13px;padding:6px 0}
+.gate{max-width:420px;margin:60px auto;background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:24px}.gate input{width:100%;font:inherit;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink);margin:6px 0 10px}.gate button{width:100%;font:inherit;font-weight:800;padding:11px;border-radius:10px;border:0;background:var(--flame);color:#fff;cursor:pointer}
+.banner{font-size:12px;color:var(--ink3);margin:-8px 0 12px}
+@media (max-width:860px){.app{grid-template-columns:1fr}nav{position:static;height:auto;border-right:0;border-bottom:1px solid var(--line);display:flex;gap:6px;flex-wrap:wrap;padding:12px}.nh,.brand{display:none}.nl small{display:none}main{padding:14px}.g2,.g4{grid-template-columns:1fr 1fr}.flow{grid-template-columns:1fr 1fr}.stage:after{content:""}.steps{grid-template-columns:repeat(4,1fr)}}
 </style>
 </head>
-<body>
-<div class="wrap" id="app"></div>
+<body><div class="app"><nav id="nav"></nav><main id="main"></main></div>
 <script>
-const DEMO = {
-  month:"2026-09",currency:"USD",eur_rate:0.92,
-  totals:{revenue:412,costs:31,pending:96,week_delta:138},
-  history:[{week:"KW30",revenue:0},{week:"KW31",revenue:12},{week:"KW32",revenue:38},{week:"KW33",revenue:51},{week:"KW34",revenue:64},{week:"KW35",revenue:109},{week:"KW36",revenue:138}],
-  campaigns:[
-    {id:"mrbeast-book-challenge",name:"MrBeast Book Challenge",platform:"vyro",status:"active",rate_per_1k:2,clips:18,views:142000,qualified:9,earned:231,budget_used:38000,budget_total:120000},
-    {id:"tft-set-18",name:"TFT Set 18",platform:"vyro",status:"active",rate_per_1k:2,clips:11,views:88000,qualified:6,earned:154,budget_used:61000,budget_total:80000},
-    {id:"cod-mw4",name:"COD MW4 Beta",platform:"whop",status:"ended",rate_per_1k:1.75,clips:6,views:21000,qualified:2,earned:27,budget_used:105000,budget_total:105000}],
-  accounts:[
-    {id:"A",handle:"@mrbeastfire0",niche:"Momente",followers:4200,avg_views:7900,paused:false},
-    {id:"B",handle:"@beastcrewclips",niche:"Reaktionen",followers:1100,avg_views:3100,paused:false},
-    {id:"C",handle:"@…",niche:"Gaming",followers:600,avg_views:900,paused:true,reason:"Views-Einbruch"}],
-  insights:{best_hook:"Textfrage im Overlay",best_slot:"20:00",qualified_rate:0.34},
-  pipeline:{
-    stages:[
-      {key:"scout",label:"Scout",status:"ok",info:"letzte Prüfung 09:10 · 0 neue"},
-      {key:"footage",label:"Footage",status:"ok",info:"2 Kampagnen geladen"},
-      {key:"clip",label:"Clip-Job",status:"running",info:"Extreme Places · A · Schnitt 7/12"},
-      {key:"publish",label:"Publisher",status:"ok",info:"nächster Slot 14:00 · 9 in Queue"},
-      {key:"track",label:"Tracker",status:"ok",info:"vor 2 h · 6 Posts aktualisiert"}],
-    jobs:[{id:"run-5",label:"Clip-Job · Extreme Places · Account A",started:new Date(Date.now()-14*60000).toISOString(),progress:0.58,step:"Schnitt 7/12 · Face-Tracking",url:"#"},
-          {id:"run-6",label:"Clip-Job · Extreme Places · Account B",started:new Date(Date.now()-13*60000).toISOString(),progress:0.42,step:"Gemini-Momentwahl",url:"#"}],
-    queue:{ready:9,scheduled:4,posted_today:3,pending_submit:2},
-    events:[{at:new Date(Date.now()-40000).toISOString(),text:"Clip 7/12 gerendert · Extreme Places · A"},
-            {at:new Date(Date.now()-3*60000).toISOString(),text:"Gemini hat 12 Momente gewählt · B"},
-            {at:new Date(Date.now()-9*60000).toISOString(),text:"Whisper fertig (20:14 Min) · A"},
-            {at:new Date(Date.now()-14*60000).toISOString(),text:"Frame.io-Download 610 MB · A"},
-            {at:new Date(Date.now()-31*60000).toISOString(),text:"Publisher: 3 Clips für Slot 14:00 geplant"},
-            {at:new Date(Date.now()-2*3600000).toISOString(),text:"Tracker: Views für 6 Posts aktualisiert"}]},
-  tasks:[
-    {type:"submit",text:"6 Post-Links bei Vyro einreichen – Book Challenge",url:"https://app.vyro.com"},
-    {type:"join",text:"Neue Kampagne wartet auf Join – Beast Games S3, 2 $/1k",url:"https://app.vyro.com"},
-    {type:"review",text:"Account C prüfen und wieder freigeben"}]
-};
-const $=(s)=>document.querySelector(s);
-const fmt=(n)=>Math.round(n).toLocaleString("de-DE");
-const money=(n,c="$")=>fmt(n)+" "+c;
-const k=(n)=>n>=1e6?(n/1e6).toFixed(1)+"M":n>=1000?Math.round(n/1000)+"k":fmt(n);
-// FEST EINGETRAGEN – Claude Code füllt beide Werte beim Deploy. Dann lädt das Dashboard ohne Anmeldung.
-const CONFIG={ apiUrl:"https://clipforge.clipforge-xy.workers.dev", apiKey:"__DASHBOARD_READ_KEY__" };   // Platzhalter wird von scripts/deploy_dashboard.sh beim Deploy ersetzt
-const cfgKey="clipforge.cfg";
-let cfg=null;
-if(CONFIG.apiUrl&&CONFIG.apiKey){cfg={...CONFIG}}
-else{ try{cfg=JSON.parse(localStorage.getItem(cfgKey)||"null")}catch(e){cfg=null} }
+const CONFIG={apiUrl:"https://clipforge.clipforge-xy.workers.dev",apiKey:"__DASHBOARD_READ_KEY__"}; // Lese-Key wird von scripts/deploy_dashboard.sh beim Deploy eingesetzt → kein Login
+const STAGES=["Upload","Transkript","Momentwahl","Schnitt","QA","Geplant","Gepostet","Eingereicht"];
+const now=Date.now(), iso=(m)=>new Date(now-m*60000).toISOString();
+const DEMO={month:"2026-09",currency:"USD",eur_rate:0.92,goal_monthly:2000,
+ totals:{revenue:412,costs:31,pending:96,week_delta:138},
+ history:[{week:"KW30",revenue:0},{week:"KW31",revenue:12},{week:"KW32",revenue:38},{week:"KW33",revenue:51},{week:"KW34",revenue:64},{week:"KW35",revenue:109},{week:"KW36",revenue:138}],
+ niches:[{key:"mrbeast",label:"MrBeast",color:"#FF5A1F",accounts:["A","B"]},{key:"gaming",label:"Gaming",color:"#8B5CF6",accounts:["C"]},{key:"film",label:"Film & Serien",color:"#3DD68C",accounts:["D"]}],
+ accounts:[
+  {id:"A",handle:"@mrbeastfire0",niche:"mrbeast",platform:"tiktok",url:"https://www.tiktok.com/@mrbeastfire0",followers:4210,followers_7d:830,views_7d:61200,views_30d:142000,earnings_30d:231,avg_views:7900,posts_7d:21,paused:false},
+  {id:"B",handle:"@beastcrewclips",niche:"mrbeast",platform:"tiktok",url:"https://www.tiktok.com/@beastcrewclips",followers:1120,followers_7d:310,views_7d:18400,views_30d:38000,earnings_30d:64,avg_views:3100,posts_7d:14,paused:false},
+  {id:"C",handle:"@clutchclips.gg",niche:"gaming",platform:"tiktok",url:"https://www.tiktok.com/@clutchclips.gg",followers:640,followers_7d:120,views_7d:6100,views_30d:9000,earnings_30d:27,avg_views:900,posts_7d:9,paused:true,reason:"Views-Einbruch"},
+  {id:"D",handle:"@reelmoments.tv",niche:"film",platform:"tiktok",url:"https://www.tiktok.com/@reelmoments.tv",followers:0,followers_7d:0,views_7d:0,views_30d:0,earnings_30d:0,avg_views:0,posts_7d:0,paused:false}],
+ sources:[
+  {id:"s1",niche:"mrbeast",name:"We Survived The Most Extreme Places.mp4",size_mb:610,type:"paid",stage:3,progress:0.58,clips:7,added:iso(40),campaign_id:"vyro-extreme-places"},
+  {id:"s2",niche:"mrbeast",name:"Book Challenge – Patterson.mp4",size_mb:38,type:"paid",stage:7,progress:1,clips:6,added:iso(26*60)},
+  {id:"s3",niche:"mrbeast",name:"7 Days Stranded At Sea.mp4",size_mb:820,type:"fan",stage:1,progress:0.2,clips:0,added:iso(5)},
+  {id:"s4",niche:"gaming",name:"TFT Set 18 Trailer.mp4",size_mb:120,type:"paid",stage:3,progress:0,clips:0,added:iso(180),error:"Datei kürzer als 20 s Mindestlänge"}],
+ posts:[
+  {id:"p1",account:"A",niche:"mrbeast",url:"#",caption:"Imagine winning a million dollars for reading a book",posted_at:iso(60*20),views:2140,likes:96,type:"paid"},
+  {id:"p2",account:"A",niche:"mrbeast",url:"#",caption:"He had 10 seconds to decide",posted_at:iso(60*17),views:780,likes:31,type:"paid"},
+  {id:"p3",account:"B",niche:"mrbeast",url:"#",caption:"Nolan didn't know the camera was on",posted_at:iso(60*15),views:410,likes:22,type:"fan"},
+  {id:"p4",account:"A",niche:"mrbeast",url:"#",caption:"The moment the boat started sinking",posted_at:iso(60*12),views:5320,likes:240,type:"fan"},
+  {id:"p5",account:"B",niche:"mrbeast",url:"#",caption:"Chandler's face says it all",posted_at:iso(60*9),views:1290,likes:80,type:"fan"},
+  {id:"p6",account:"C",niche:"gaming",url:"#",caption:"Clutch 1v4 at 1 HP",posted_at:iso(60*30),views:230,likes:9,type:"paid"}],
+ campaigns:[
+  {id:"mrbeast-book-challenge",niche:"mrbeast",name:"MrBeast Book Challenge",platform:"vyro",status:"active",rate_per_1k:2,clips:18,views:142000,qualified:9,earned:231,paid_out_pct:38},
+  {id:"vyro-extreme-places",niche:"mrbeast",name:"Extreme Places on Earth",platform:"vyro",status:"active",rate_per_1k:1,clips:11,views:88000,qualified:6,earned:88,paid_out_pct:9},
+  {id:"tft",niche:"gaming",name:"TFT Set 18",platform:"vyro",status:"joined",rate_per_1k:2,clips:0,views:0,qualified:0,earned:0,paid_out_pct:12}],
+ insights:{best_hook:"Kontext-Zeile in eigenen Worten",best_slot:"20:00",qualified_rate:0.34},
+ pipeline:{stages:[{key:"scout",label:"Scout",status:"ok",info:"09:10 · 1 neue Kampagne"},{key:"footage",label:"Footage",status:"ok",info:"3 Quellen geladen"},{key:"clip",label:"Clip-Job",status:"running",info:"2 Jobs · Extreme Places, Stranded"},{key:"publish",label:"Publisher",status:"ok",info:"nächster Slot 14:00 · 9 in Queue"},{key:"track",label:"Tracker",status:"ok",info:"vor 2 h · 12 Posts"}],
+  jobs:[{id:"r5",label:"Clip-Job · Extreme Places · A",started:iso(14),progress:0.58,step:"Schnitt 7/12"},{id:"r6",label:"Clip-Job · Stranded At Sea · B",started:iso(5),progress:0.2,step:"Transkript"}],
+  queue:{ready:9,scheduled:4,posted_today:3,pending_submit:2},
+  events:[{at:iso(1),text:"Clip 7/12 gerendert · Extreme Places · A"},{at:iso(3),text:"Whisper gestartet · Stranded At Sea"},{at:iso(9),text:"Gemini hat 12 Momente gewählt · A"},{at:iso(31),text:"Publisher: 3 Clips für Slot 14:00 geplant"},{at:iso(120),text:"Tracker: Views für 12 Posts aktualisiert"}]},
+ tasks:[{type:"submit",text:"6 Post-Links bei Vyro einreichen – Book Challenge",url:"https://app.vyro.com"},{type:"join",text:"Neue Kampagne wartet auf Join – Beast Games S3",url:"https://app.vyro.com"},{type:"review",text:"Account C prüfen und wieder freigeben"}]};
 
-function gate(msg=""){
-  $("#app").innerHTML=`<div class="gate"><h1>ClipForge</h1><p>Verbinde das Dashboard mit deinem Worker. Beides steht in SECRETS.local.md.</p>
-  <label>Worker-URL</label><input id="u" placeholder="https://clipforge.xyz.workers.dev" value="${cfg?.apiUrl||""}">
-  <label>API-Key</label><input id="p" type="password" placeholder="CLIPFORGE_API_KEY">
-  <div class="err" id="e">${msg}</div><button id="go">Öffnen</button>
-  <div class="banner" style="margin-top:14px"><a href="#" id="demo">Mit Beispieldaten ansehen</a></div></div>`;
-  $("#go").onclick=async()=>{const apiUrl=$("#u").value.trim().replace(/\/$/,""),apiKey=$("#p").value.trim();
-    if(!apiUrl||!apiKey){$("#e").textContent="URL und Key eingeben.";return}
-    try{const d=await load({apiUrl,apiKey});localStorage.setItem(cfgKey,JSON.stringify({apiUrl,apiKey}));cfg={apiUrl,apiKey};render(d,false)}
-    catch(err){$("#e").textContent="Keine Verbindung: "+err.message}};
-  $("#demo").onclick=(e)=>{e.preventDefault();render(DEMO,true)};
-}
+const $=s=>document.querySelector(s);
+const fmt=n=>Math.round(n||0).toLocaleString("de-DE"), k=n=>n>=1e6?(n/1e6).toFixed(1)+"M":n>=1000?Math.round(n/1000)+"k":fmt(n), money=(n,c="$")=>fmt(n)+" "+c;
+const ago=i=>{const m=Math.max(0,Math.round((Date.now()-new Date(i))/60000));return m<60?`vor ${m} min`:m<1440?`vor ${Math.floor(m/60)} h`:`vor ${Math.floor(m/1440)} d`};
+const tm=i=>new Date(i).toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"});
+const monthLabel=m=>{const [y,mo]=(m||"").split("-");const n=["Januar","Februar","März","April","Mai","Juni","Juli","August","September","Oktober","November","Dezember"];return mo?`${n[+mo-1]} ${y}`:""};
+let cfg=(CONFIG.apiUrl&&CONFIG.apiKey)?{...CONFIG}:null, DATA=null, DEMO_MODE=false, sortKey="earnings_30d";
 async function load(c){const r=await fetch(c.apiUrl+"/dashboard",{headers:{"x-api-key":c.apiKey}});if(!r.ok)throw new Error("HTTP "+r.status);return r.json()}
+const route=()=>location.hash.replace("#","")||"home";
+const nicheOf=(d,key)=>(d.niches||[]).find(n=>n.key===key);
+const av=(a,d)=>`<span class="av" style="background:${nicheOf(d,a.niche)?.color||"#555"}">${a.id}</span>`;
 
-function render(d,demo){
-  const t=d.totals,profit=t.revenue-t.costs,eur=Math.round(profit*(d.eur_rate||0.92));
-  const max=Math.max(1,...d.history.map(h=>h.revenue));
-  const cur=d.campaigns.filter(c=>c.status!=="ended").length;
-  const fc=forecast(d);
-  const pl=d.pipeline||{stages:[],jobs:[],queue:{ready:0,scheduled:0,posted_today:0,pending_submit:0},events:[]};
-  $("#app").innerHTML=`
-  <header><div class="brand"><i></i>ClipForge</div>
-    <div class="meta">${monthLabel(d.month)} · ${d.accounts.length} Accounts · ${cur} aktiv <button id="rf">${demo?"Verbinden":"Aktualisieren"}</button></div></header>
-  ${demo?`<div class="banner">Beispieldaten – noch nicht mit dem Worker verbunden</div>`:""}
-  <div class="hero"><div class="hero-top"><div><div class="profit">${money(profit)}<small>≈ ${fmt(eur)} € Gewinn</small></div></div>
-    <div class="delta ${t.week_delta<0?"neg":""}">${t.week_delta>=0?"+":""}${money(t.week_delta)} diese Woche</div></div>
-    <div class="split"><div><b>${money(t.revenue)}</b><span>Umsatz ausgezahlt</span></div><div><b>${money(t.costs)}</b><span>Kosten</span></div><div><b>${money(t.pending)}</b><span>offen bei Vyro</span></div></div>
-    <div class="bars">${d.history.map((h,i)=>`<div class="${i===d.history.length-1?"cur":""}" style="height:${Math.max(4,h.revenue/max*100)}%" data-w="${h.week}" title="${money(h.revenue)}"></div>`).join("")}</div>
-    <div style="height:18px"></div></div>
+function nav(d){const r=route();
+  $("#nav").innerHTML=`<div class="brand"><i></i>ClipForge</div>
+  <a class="nl ${r==="home"?"on":""}" href="#home">Übersicht<small>${d.accounts.length} Accounts</small></a>
+  <a class="nl ${r==="pipeline"?"on":""}" href="#pipeline">Pipeline<small>${d.pipeline?.jobs?.length||0} aktiv</small></a>
+  <div class="nh">Nischen</div>
+  ${(d.niches||[]).map(n=>`<a class="nl ${r==="n:"+n.key?"on":""}" href="#n:${n.key}"><span class="sw" style="background:${n.color}"></span>${n.label}<small>${n.accounts.join(", ")}</small></a>`).join("")}
+  <div class="nh">Sonstiges</div>
+  <a class="nl ${r==="tasks"?"on":""}" href="#tasks">Aufgaben<small>${(d.tasks||[]).length}</small></a>`;}
 
-  <section><h2>Pipeline <span class="live"><i></i>live${pl.jobs.length?` · ${pl.jobs.length} Job${pl.jobs.length>1?"s":""} läuft`:" · nichts läuft"}</span></h2>
-    <div class="flow">${pl.stages.map(st=>`<div class="stage"><div class="st"><span class="dot ${st.status}"></span>${st.label}</div><div class="si">${st.info||""}</div></div>`).join("")}</div>
-    <div class="qs"><div><b>${pl.queue.ready}</b><span>Clips bereit</span></div><div><b>${pl.queue.scheduled}</b><span>geplant</span></div><div><b>${pl.queue.posted_today}</b><span>heute gepostet</span></div><div><b>${pl.queue.pending_submit}</b><span>einzureichen</span></div></div>
-    ${pl.jobs.length?`<div style="margin-top:12px">${pl.jobs.map(j=>`<div class="job"><div class="jl">${j.label}<span>seit ${ago(j.started)}</span></div><div class="bar"><i style="width:${Math.round((j.progress||0)*100)}%"></i></div><div class="js">${j.step||""}${j.url&&j.url!=="#"?` · <a href="${j.url}" target="_blank" rel="noopener">Log</a>`:""}</div></div>`).join("")}</div>`:""}
-    <div style="margin-top:12px">${pl.events.slice(0,8).map(e=>`<div class="ev"><time>${tm(e.at)}</time><div>${e.text}</div></div>`).join("")}</div>
-  </section>
+function leaderboard(d,filterNiche){
+  const acc=d.accounts.filter(a=>!filterNiche||a.niche===filterNiche).slice().sort((a,b)=>(b[sortKey]||0)-(a[sortKey]||0));
+  const th=(key,label)=>`<th class="r" data-k="${key}">${label}${sortKey===key?" ▾":""}</th>`;
+  return `<table><thead><tr><th>#</th><th>Account</th>${th("followers","Follower")}${th("followers_7d","+7d")}${th("views_7d","Views 7d")}${th("views_30d","Views 30d")}${th("avg_views","Ø/Clip")}${th("earnings_30d","Einnahmen 30d")}<th>Status</th></tr></thead><tbody>
+  ${acc.map((a,i)=>`<tr><td><span class="rank ${["g","s","b"][i]||""}">${i+1}</span></td>
+   <td><div class="acct">${av(a,d)}<div><div class="h"><a href="${a.url}" target="_blank" rel="noopener">${a.handle}</a></div><div class="n">${nicheOf(d,a.niche)?.label||a.niche} · ${a.platform||"tiktok"}</div></div></div></td>
+   <td class="r">${k(a.followers)}</td><td class="r" style="color:var(--ok)">+${k(a.followers_7d||0)}</td><td class="r">${k(a.views_7d)}</td><td class="r">${k(a.views_30d)}</td><td class="r">${k(a.avg_views)}</td><td class="r"><b>${money(a.earnings_30d)}</b></td>
+   <td>${a.paused?`<span class="pill warn">pausiert</span>`:(a.followers===0?`<span class="pill">neu</span>`:`<span class="pill ok">aktiv</span>`)}</td></tr>`).join("")}</tbody></table>`;}
 
-  <section><h2>Prognose <span>bei aktuellem Tempo</span></h2>
-    <div class="fc">
-      <div><b>${money(fc.month_end)}</b><span>Monatsende (noch ${fc.left} Tage)</span></div>
-      <div><b>${money(fc.next_month)}</b><span>nächster Monat (Trend ×${fc.growth.toFixed(1)})</span></div>
-      <div><b>${fc.camp.length?fc.camp.map(c=>money(c.rest)).join(" + "):"–"}</b><span>${fc.camp.length?"noch drin: "+fc.camp.map(c=>c.name).join(", "):"keine aktive Kampagne"}</span></div>
-    </div>
-    <div class="goal"><div class="track"><i style="width:${Math.min(100,fc.month_end/fc.goal*100)}%"></i></div>
-      <p>${fc.gap>0?`Ziel ${money(fc.goal)}: es fehlen ${money(fc.gap)} – das sind ≈ ${k(fc.views_per_day)} zählbare Views pro Tag zusätzlich.`:`Ziel ${money(fc.goal)} wird bei diesem Tempo erreicht.`}</p></div>
-  </section>
+function stepper(s){return `<div class="steps">${STAGES.map((n,i)=>{const cls=s.error&&i===s.stage?"err":i<s.stage?"done":i===s.stage?"cur":"";return `<div class="step ${cls}"><b>${i<s.stage?"✓":i+1}</b>${n}</div>`}).join("")}</div>`}
+function sourceRow(s){return `<div class="src"><div class="t"><b>${s.name}</b><span>${s.size_mb} MB · ${s.type==="paid"?`<span class="pill f">Kampagne</span>`:`<span class="pill v">Fan</span>`} · ${s.clips||0} Clips · ${ago(s.added)}</span></div>
+  ${stepper(s)}${s.error?`<div class="up" style="color:var(--bad)">⚠ ${s.error}</div>`:(s.stage<5&&s.progress>0?`<div class="bar"><i style="width:${Math.round(s.progress*100)}%"></i></div>`:"")}</div>`}
+function dropzone(n){return `<div class="drop" id="drop"><b>Video hierher ziehen oder klicken</b>MP4/MOV bis 5 GB · Nische „${n.label}" · Clip-Jobs für ${n.accounts.join(" + ")} starten automatisch<input type="file" id="file" accept="video/*" multiple style="display:none"></div><div class="up" id="upstat"></div>`}
+function postsGrid(posts){return posts.length?`<div class="posts">${posts.map(p=>`<a class="post" href="${p.url}" target="_blank" rel="noopener"><div class="th" ${p.thumb?`style="background-image:url('${p.thumb}')"`:""}><span>${k(p.views)} ▶</span></div><div class="c">${p.account} · ${p.caption}</div></a>`).join("")}</div>`:`<div class="empty">Noch keine Posts.</div>`}
+function pipelineBlock(d,compact){const pl=d.pipeline||{stages:[],jobs:[],queue:{},events:[]};
+  return `<div class="flow">${pl.stages.map(s=>`<div class="stage"><div class="st"><span class="dot ${s.status}"></span>${s.label}</div><div class="si">${s.info||""}</div></div>`).join("")}</div>
+  ${pl.jobs.length?`<div style="margin-top:12px">${pl.jobs.map(j=>`<div class="src"><div class="t"><b>${j.label}</b><span>seit ${ago(j.started).replace("vor ","")}</span></div><div class="bar"><i style="width:${Math.round((j.progress||0)*100)}%"></i></div><div class="up">${j.step||""}</div></div>`).join("")}</div>`:""}
+  ${compact?"":`<div style="margin-top:12px">${(pl.events||[]).slice(0,12).map(e=>`<div class="ev"><time>${tm(e.at)}</time><div>${e.text}</div></div>`).join("")}</div>`}`}
 
-  <section><h2>Kampagnen <span>Clips · Views · verdient</span></h2>
-    ${d.campaigns.length?d.campaigns.map(c=>`<div class="row"><div><div class="name">${c.name}<span class="pill ${c.status}">${status(c.status)}</span></div>
-      <div class="sub">${c.platform} · ${c.rate_per_1k} $/1k · ${c.clips} Clips · ${k(c.views)} Views · ${c.qualified} über Schwelle</div></div>
-      <div class="stat">${money(c.earned)}<small>Pool ${Math.round(c.budget_used/Math.max(1,c.budget_total)*100)} % verbraucht</small></div>
-      <div class="track"><i style="width:${Math.min(100,c.budget_used/Math.max(1,c.budget_total)*100)}%"></i></div></div>`).join(""):`<div class="empty">Noch keine Kampagne – der Scout meldet die nächste per Telegram.</div>`}
-  </section>
+function page(d){const r=route(); nav(d);
+  const banner=DEMO_MODE?`<div class="banner">Beispieldaten – noch nicht mit dem Worker verbunden</div>`:""; let html="";
+  if(r==="home"){const t=d.totals,profit=t.revenue-t.costs,max=Math.max(1,...d.history.map(h=>h.revenue));
+    html=`<div class="top"><h1>Übersicht</h1><div class="meta">${monthLabel(d.month)} <span class="live"><i></i>live</span><button class="b" id="rf">Aktualisieren</button></div></div>${banner}
+    <div class="grid g4" style="margin-bottom:14px"><div class="kpi"><b>${money(profit)}</b><span>Gewinn · ≈ ${fmt(profit*(d.eur_rate||0.92))} €</span><small>+${money(t.week_delta)} diese Woche</small></div><div class="kpi"><b>${money(t.revenue)}</b><span>Umsatz ausgezahlt</span></div><div class="kpi"><b>${k(d.accounts.reduce((a,x)=>a+(x.views_7d||0),0))}</b><span>Views 7 Tage · alle Accounts</span></div><div class="kpi"><b>${k(d.accounts.reduce((a,x)=>a+(x.followers||0),0))}</b><span>Follower gesamt</span><small>+${k(d.accounts.reduce((a,x)=>a+(x.followers_7d||0),0))} diese Woche</small></div></div>
+    <section><h2>Rangliste Accounts <span>Spalte anklicken = sortieren · Handle öffnet TikTok</span></h2>${leaderboard(d)}</section>
+    <div class="grid g2"><section><h2>Pipeline <span><a href="#pipeline">alles →</a></span></h2>${pipelineBlock(d,true)}</section>
+    <section><h2>Umsatz pro Woche</h2><div class="bars">${d.history.map((h,i)=>`<div class="${i===d.history.length-1?"cur":""}" style="height:${Math.max(4,h.revenue/max*100)}%" data-w="${h.week}" title="${money(h.revenue)}"></div>`).join("")}</div><div style="height:18px"></div>
+    <h2 style="margin-top:14px">Gelernt diese Woche</h2><div class="ev">Bester Hook<div style="margin-left:auto;color:var(--ink2)">${d.insights.best_hook}</div></div><div class="ev">Beste Uhrzeit<div style="margin-left:auto;color:var(--ink2)">${d.insights.best_slot}</div></div><div class="ev">Über Schwelle<div style="margin-left:auto;color:var(--ink2)">${Math.round(d.insights.qualified_rate*100)} %</div></div></section></div>
+    <section><h2>Nischen</h2><div class="cards">${d.niches.map(n=>{const acc=d.accounts.filter(a=>n.accounts.includes(a.id));const v=acc.reduce((s,a)=>s+(a.views_7d||0),0),e=acc.reduce((s,a)=>s+(a.earnings_30d||0),0);const src=d.sources.filter(s=>s.niche===n.key&&s.stage<5).length;
+      return `<a class="card" href="#n:${n.key}"><div class="row"><b style="display:flex;align-items:center;gap:8px"><span style="width:12px;height:12px;border-radius:3px;background:${n.color};display:inline-block"></span>${n.label}</b><span class="pill">${acc.length} Accounts</span></div><div class="stats"><div><b>${k(v)}</b>Views 7d</div><div><b>${money(e)}</b>30 Tage</div><div><b>${src}</b>in Arbeit</div></div></a>`}).join("")}</div></section>`;
+  } else if(r==="pipeline"){
+    html=`<div class="top"><h1>Pipeline</h1><div class="meta"><span class="live"><i></i>${d.pipeline.jobs.length} Job(s) aktiv</span><button class="b" id="rf">Aktualisieren</button></div></div>${banner}
+    <section>${pipelineBlock(d,false)}</section>
+    <section><h2>Alle Quellen im Workflow</h2>${d.sources.map(sourceRow).join("")||`<div class="empty">Keine Quellen.</div>`}</section>`;
+  } else if(r.startsWith("n:")){const n=nicheOf(d,r.slice(2)); if(!n){location.hash="home";return}
+    const acc=d.accounts.filter(a=>n.accounts.includes(a.id)), src=d.sources.filter(s=>s.niche===n.key), posts=d.posts.filter(p=>p.niche===n.key).sort((a,b)=>new Date(b.posted_at)-new Date(a.posted_at)), camps=d.campaigns.filter(c=>c.niche===n.key);
+    html=`<div class="top"><div class="nhead"><span class="sw" style="background:${n.color}"></span><h1>${n.label}</h1></div><div class="meta">${acc.length} Accounts · ${src.filter(s=>s.stage<5).length} in Arbeit <button class="b" id="rf">Aktualisieren</button></div></div>${banner}
+    <section><h2>Accounts <span>Handle öffnet das Profil</span></h2><div class="cards">${acc.map(a=>`<div class="card"><div class="row"><div class="acct">${av(a,d)}<div><div class="h"><a href="${a.url}" target="_blank" rel="noopener">${a.handle}</a></div><div class="n">${a.platform||"tiktok"} · ${a.posts_7d||0} Posts/7d</div></div></div>${a.paused?`<span class="pill warn">pausiert</span>`:`<span class="pill ok">aktiv</span>`}</div>
+      <div class="stats"><div><b>${k(a.followers)}</b>Follower <span style="color:var(--ok)">+${k(a.followers_7d||0)}</span></div><div><b>${k(a.views_7d)}</b>Views 7d</div><div><b>${money(a.earnings_30d)}</b>30 Tage</div></div>
+      <div class="links"><a href="${a.url}" target="_blank" rel="noopener">Profil ↗</a>${a.paused?`<span class="pill warn">${a.reason||"pausiert"}</span>`:""}</div></div>`).join("")}</div></section>
+    <section><h2>Footage hochladen <span>landet in R2 · Clip-Jobs starten automatisch</span></h2>${dropzone(n)}</section>
+    <section><h2>Workflow <span>jede Quelle mit aktueller Stufe</span></h2>${src.map(sourceRow).join("")||`<div class="empty">Noch keine Quelle – lade oben ein Video hoch.</div>`}</section>
+    <div class="grid g2"><section><h2>Kampagnen</h2>${camps.length?`<table><thead><tr><th>Kampagne</th><th class="r">Rate</th><th class="r">Clips</th><th class="r">Views</th><th class="r">Verdient</th><th class="r">Pool</th></tr></thead><tbody>${camps.map(c=>`<tr><td><b>${c.name}</b><div style="font-size:11px;color:var(--ink3)">${c.platform} · ${c.status}</div></td><td class="r">${c.rate_per_1k} $/1k</td><td class="r">${c.clips}</td><td class="r">${k(c.views)}</td><td class="r"><b>${money(c.earned)}</b></td><td class="r">${c.paid_out_pct??"–"} %</td></tr>`).join("")}</tbody></table>`:`<div class="empty">Keine Kampagne in dieser Nische.</div>`}</section>
+    <section><h2>Rangliste in dieser Nische</h2>${leaderboard(d,n.key)}</section></div>
+    <section><h2>Letzte Posts <span>${posts.length} · klick öffnet TikTok</span></h2>${postsGrid(posts.slice(0,18))}</section>`;
+  } else if(r==="tasks"){
+    html=`<div class="top"><h1>Aufgaben</h1><div class="meta"><button class="b" id="rf">Aktualisieren</button></div></div>${banner}<section>${(d.tasks||[]).map(x=>`<div class="task ${x.type}"><b></b>${x.text}${x.url?`<a href="${x.url}" target="_blank" rel="noopener">Öffnen ↗</a>`:""}</div>`).join("")||`<div class="empty">Nichts offen.</div>`}</section>`;
+  }
+  $("#main").innerHTML=html; const rf=$("#rf"); if(rf) rf.onclick=refresh;
+  document.querySelectorAll("th[data-k]").forEach(th=>th.onclick=()=>{sortKey=th.dataset.k;page(d)}); wireUpload(d);}
 
-  <div class="two">
-    <section><h2>Accounts</h2>${d.accounts.map(a=>`<div class="kv"><div><div class="name">${a.id} · ${a.niche}${a.paused?`<span class="pill paused">pausiert</span>`:""}</div><div class="sub">${a.handle}${a.paused&&a.reason?" · "+a.reason:""}</div></div>
-      <span style="text-align:right">${k(a.followers)} Follower<br><small>Ø ${k(a.avg_views)} Views</small></span></div>`).join("")}</section>
-    <section><h2>Diese Woche gelernt</h2>
-      <div class="kv">Bester Hook<span>${d.insights.best_hook||"–"}</span></div>
-      <div class="kv">Beste Uhrzeit<span>${d.insights.best_slot||"–"}</span></div>
-      <div class="kv">Über Schwelle<span>${Math.round((d.insights.qualified_rate||0)*100)} % der Clips</span></div>
-    </section>
-  </div>
-
-  <section><h2>Offene Aufgaben</h2>
-    ${d.tasks.length?d.tasks.map(x=>`<div class="task ${x.type}"><b></b>${x.text}${x.url?`<a href="${x.url}" target="_blank" rel="noopener">Öffnen</a>`:""}</div>`).join(""):`<div class="empty">Nichts offen.</div>`}
-  </section>`;
-  $("#rf").onclick=async()=>{if(demo||!cfg){gate();return}try{render(await load(cfg),false)}catch(err){gate("Verbindung verloren: "+err.message)}};
-}
-function forecast(d){
-  const now=new Date(), y=now.getFullYear(), m=now.getMonth();
-  const dim=new Date(y,m+1,0).getDate(), day=Math.max(1,now.getDate()), left=dim-day;
-  const f=d.forecast||{};
-  const pace=d.totals.revenue/day;
-  const month_end=f.month_end??Math.round(d.totals.revenue+pace*left);
-  const h=d.history||[], last4=h.slice(-4).map(x=>x.revenue), prev4=h.slice(-8,-4).map(x=>x.revenue);
-  const sum=a=>a.reduce((x,y)=>x+y,0);
-  const growth=prev4.length&&sum(prev4)>0?Math.min(2.5,Math.max(0.5,sum(last4)/sum(prev4))):1.3;
-  const next_month=f.next_month??Math.round(month_end*growth);
-  const goal=d.goal_monthly||2000;
-  const rate=d.campaigns.length?d.campaigns.reduce((a,c)=>a+c.rate_per_1k,0)/d.campaigns.length:2;
-  const gap=Math.max(0,goal-month_end);
-  const views_per_day=Math.round(gap/rate*1000/Math.max(1,left));
-  const camp=d.campaigns.filter(c=>c.status==="active").map(c=>{
-    const remain=Math.max(0,c.budget_total-c.budget_used);
-    const daily=c.earned/day;
-    return {name:c.name,rest:Math.round(Math.min(remain, daily*left))};
-  });
-  return {month_end,next_month,goal,gap,views_per_day,left:f.days_left??left,growth,camp};
-}
-function ago(iso){const m=Math.max(0,Math.round((Date.now()-new Date(iso))/60000));return m<60?`${m} min`:`${Math.floor(m/60)} h ${m%60} min`}
-function tm(iso){const d=new Date(iso);return d.toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"})}
-function status(s){return {active:"aktiv",ended:"beendet",joined:"beigetreten",paused:"pausiert"}[s]||s}
-function monthLabel(m){const [y,mo]=(m||"").split("-");const n=["Januar","Februar","März","April","Mai","Juni","Juli","August","September","Oktober","November","Dezember"];return mo?`${n[+mo-1]} ${y}`:""}
-
-(async()=>{ if(cfg){try{render(await load(cfg),false);return}catch(e){}} gate(); })();
-setInterval(async()=>{ if(cfg&&document.querySelector(".live")){try{render(await load(cfg),false)}catch(e){}} },30000);
+function wireUpload(d){const drop=$("#drop"),file=$("#file"),stat=$("#upstat");if(!drop)return;const n=nicheOf(d,route().slice(2));
+  drop.onclick=()=>file.click();drop.ondragover=e=>{e.preventDefault();drop.classList.add("over")};drop.ondragleave=()=>drop.classList.remove("over");
+  drop.ondrop=e=>{e.preventDefault();drop.classList.remove("over");upload([...e.dataTransfer.files])};file.onchange=()=>upload([...file.files]);
+  async function upload(files){if(DEMO_MODE||!cfg){stat.textContent="Beispielmodus – Upload erst mit verbundenem Worker.";return}
+    for(const f of files){try{stat.textContent=`${f.name}: vorbereiten…`;
+      const pre=await (await fetch(cfg.apiUrl+"/sources/presign",{method:"POST",headers:{"x-api-key":cfg.apiKey,"Content-Type":"application/json"},body:JSON.stringify({niche:n.key,name:f.name,size:f.size,type:"fan"})})).json();
+      if(!pre.source_id) throw new Error(pre.error||"presign fehlgeschlagen");
+      // Upload in Teilstücken (Multipart nach R2 über den Worker) – große Dateien bis 5 GB, Fortschritt je Teil
+      const PART=pre.part_size||25*1024*1024, total=Math.ceil(f.size/PART); let done=0;
+      for(let i=0;i<total;i++){const blob=f.slice(i*PART,Math.min(f.size,(i+1)*PART)); let ok=false;
+        for(let tries=0;tries<3&&!ok;tries++){try{await new Promise((res,rej)=>{const x=new XMLHttpRequest();x.open("PUT",`${pre.upload_url}?part=${i+1}`);x.setRequestHeader("x-api-key",cfg.apiKey);x.setRequestHeader("Content-Type","application/octet-stream");
+          x.upload.onprogress=e=>{if(e.lengthComputable)stat.textContent=`${f.name}: ${Math.round((done+e.loaded)/f.size*100)} % hochgeladen (Teil ${i+1}/${total})`};
+          x.onload=()=>x.status<300?res():rej(new Error("HTTP "+x.status));x.onerror=()=>rej(new Error("Upload fehlgeschlagen"));x.send(blob)});ok=true}catch(e){if(tries===2)throw e}}
+        done+=blob.size;}
+      stat.textContent=`${f.name}: abschließen…`;
+      const fin=await (await fetch(cfg.apiUrl+"/sources/complete",{method:"POST",headers:{"x-api-key":cfg.apiKey,"Content-Type":"application/json"},body:JSON.stringify({source_id:pre.source_id})})).json();
+      if(fin.error) throw new Error(fin.error);
+      stat.textContent=`${f.name}: fertig – Clip-Job für ${n.accounts.join(" + ")} gestartet.`;}catch(err){stat.textContent=`${f.name}: ${err.message}`}}
+    refresh();}}
+async function refresh(){if(DEMO_MODE||!cfg){gate();return}try{DATA=await load(cfg);page(DATA)}catch(e){gate("Verbindung verloren: "+e.message)}}
+function gate(msg=""){$("#nav").innerHTML="";$("#main").innerHTML=`<div class="gate"><h1 style="font-size:20px;margin:0 0 6px">ClipForge</h1><p style="color:var(--ink2);font-size:14px;margin:0 0 12px">Mit dem Worker verbinden (Werte aus SECRETS.local.md).</p><input id="u" placeholder="Worker-URL" value="${cfg?.apiUrl||""}"><input id="p" type="password" placeholder="Dashboard-Lese-Key"><div style="color:var(--bad);font-size:13px;min-height:18px;margin-bottom:8px">${msg}</div><button id="go">Öffnen</button><div class="banner" style="margin-top:12px;text-align:center"><a href="#" id="demo">Mit Beispieldaten ansehen</a></div></div>`;
+  $("#go").onclick=async()=>{const c={apiUrl:$("#u").value.trim().replace(/\/$/,""),apiKey:$("#p").value.trim()};try{DATA=await load(c);cfg=c;localStorage.setItem("clipforge.cfg",JSON.stringify(c));DEMO_MODE=false;page(DATA)}catch(e){gate("Keine Verbindung: "+e.message)}};
+  $("#demo").onclick=e=>{e.preventDefault();DEMO_MODE=true;DATA=DEMO;page(DATA)}}
+window.addEventListener("hashchange",()=>{if(DATA)page(DATA)});
+(async()=>{ if(!cfg){try{cfg=JSON.parse(localStorage.getItem("clipforge.cfg")||"null")}catch(e){}}
+  if(cfg){try{DATA=await load(cfg);page(DATA);return}catch(e){}} gate(); })();
+setInterval(async()=>{if(cfg&&!DEMO_MODE){try{DATA=await load(cfg);page(DATA)}catch(e){}}},30000);
 </script>
 </body>
 </html>

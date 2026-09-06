@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
     inputs:
       campaign: { required: true, type: string }
-      account:  { required: true, type: string }   # A | B | AB (fan: ein Schnitt, Verteilung nach Rang)
+      account:  { required: true, type: string }   # A | B | AB… (mehrere Buchstaben = alle Accounts der Nische, ein Schnitt, Verteilung nach Rang)
       preview:  { required: false, type: string, default: "false" }   # "true": Standbilder + Caption per Telegram (Stufen-Test)
 # Nur ein Clip-Job gleichzeitig (YouTube-Cookies rotieren bei jedem Download): die Serialisierung macht der Worker
 # (fan.ts startet erst den nächsten Job, wenn keiner mehr läuft) – GitHub-Concurrency-Gruppen würden wartende Runs abbrechen.
@@ -15,7 +15,6 @@ jobs:
       CLIPFORGE_API_URL: ${{ secrets.CLIPFORGE_API_URL }}
       CLIPFORGE_API_KEY: ${{ secrets.CLIPFORGE_API_KEY }}
       GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
-      YT_COOKIES_B64: ${{ secrets.YT_COOKIES_B64 }}   # optional: base64 cookies.txt gegen YouTube-Bot-Checks
       PREVIEW: ${{ inputs.preview }}
     steps:
       - uses: actions/checkout@v4
@@ -52,16 +51,6 @@ jobs:
       - name: system packages
         run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-dejavu-core libegl1 libgles2 libgl1 libopengl0 libglib2.0-0
       # CPU-Torch (kein CUDA, spart ~2 GB); pyannote/HF nur bei --split-screen nötig
-      # yt-dlp braucht für YouTube eine JS-Laufzeit (Deno empfohlen) + yt-dlp-ejs (Challenge-Solver), sonst fehlen Formate
-      - uses: denoland/setup-deno@v2
-        with: { deno-version: v2.x }
-      # PO-Token-Provider (bgutil): YouTube verlangt von Rechenzentrums-IPs (GitHub-Runner) sonst „Sign in to confirm you're not a bot“,
-      # auch mit gültigen Cookies. Der Server erzeugt die Tokens lokal; das yt-dlp-Plugin (pip) fragt ihn automatisch ab.
-      - name: po-token provider
-        run: |
-          docker run -d --name bgutil -p 4416:4416 brainicism/bgutil-ytdlp-pot-provider >/dev/null
-          for i in $(seq 1 30); do curl -sf http://127.0.0.1:4416/ping >/dev/null && break; sleep 1; done
-          curl -s http://127.0.0.1:4416/ping || echo "::warning::bgutil ping fehlgeschlagen"
       - name: pip install
         run: pip install --extra-index-url https://download.pytorch.org/whl/cpu -r pipeline/requirements.txt -r vendor/opensource-clipping/requirements.txt
       - name: clip pipeline

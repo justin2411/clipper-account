@@ -5,9 +5,12 @@ import json, sys, yaml
 from pathlib import Path
 
 cfg = yaml.safe_load((Path(__file__).resolve().parent.parent / "config/accounts.yaml").read_text())
-out = {a["id"]: {"slots": a["slots_utc"], "handle": a.get("handle", ""), "style": a.get("style", ""),
+out = {a["id"]: {"slots": a["slots_utc"], "handle": a.get("handle", ""), "style": a.get("style", ""), "niche": a.get("niche", ""),
                  "blotato": {k: str(v) for k, v in (a.get("blotato") or {}).items() if v}} for a in cfg["accounts"]}
-missing = [a for a, v in out.items() if not v["blotato"].get("tiktok")]
+out["_niches"] = {k: {"label": v.get("label", k), "color": v.get("color", "#8B5CF6"), "accounts": v.get("accounts") or [],
+                      "caption": v.get("caption", ""), "hashtags": v.get("hashtags") or [], "channels": v.get("channels") or {}}
+                  for k, v in (cfg.get("niches") or {}).items()}
+missing = [a for a, v in out.items() if not a.startswith("_") and not v["blotato"].get("tiktok")]
 if missing:
     print(f"WARN: keine Blotato-TikTok-ID für {missing} – Publisher überspringt diese Accounts", file=sys.stderr)
 print(json.dumps(out, separators=(",", ":")))

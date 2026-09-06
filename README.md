@@ -75,9 +75,7 @@ Lokal entwickeln: `cd worker && npm ci && npm run migrate:local && npm run dev` 
 ## Hinweise
 - **Blotato liefert keine Views.** `views_*` in `posts` bleiben leer, bis eine Quelle angebunden ist (V2). Der Views-Kill-Switch greift erst dann; der Ablehnungs-Kill-Switch (Spam/Automation) funktioniert sofort.
 - Cron-Zeiten sind UTC (`worker/wrangler.toml`); Slots in `config/accounts.yaml` ebenfalls (5 Slots/Account/Tag alle 3,5 h, A und B um 105 min versetzt).
-- YouTube-Download in GitHub Actions braucht Cookies (Bot-Check): einmal `python scripts/yt_cookies.py <cookies.txt>` (Zweitkonto); danach erneuert
-  yt-dlp die Cookies bei jedem Job und die Pipeline speichert sie in D1 (`kv.yt_cookies`). Bleibt der Download 2× am Bot-Check hängen, pausiert der
-  Fan-Lauf (Telegram-Hinweis) bis neue Cookies hinterlegt sind.
+- Dashboard-Uploads landen unter `uploads/<nische>/<id>/` in R2; die Pipeline lädt sie über `/media/<key>` und transcodiert HEVC/AV1 nach H.264.
 - Telegram informiert nur (Kampagne angelegt, Clip-Job fertig, Post live, Einreichliste, Kill-Switch); es gibt keine Freigabe-Schleife.
 - Kampagnen-Budget für das Dashboard: `campaigns.budget_total_usd` / `budget_used_usd` manuell pflegen (`PATCH /api/campaigns/:id`).
 
