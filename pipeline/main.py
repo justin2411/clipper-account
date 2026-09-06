@@ -36,7 +36,14 @@ def main():
     video_id = (campaign.get("footage") or {}).get("video_id")
     label = a.account.upper()
 
-    sources = download.fetch(campaign["footage"], WORK / "src")
+    try:
+        sources = download.fetch(campaign["footage"], WORK / "src")
+    except Exception as e:                            # z.B. YouTube-Bot-Check → Video als Fehler markieren, Job sauber beenden
+        err = str(e).replace("\n", " ")[-160:]
+        db.log(a.campaign, f"footage_error account={label} err={err[:120]}")
+        if video_id: db.patch_video(video_id, status="error", note=("bot check" if "not a bot" in err else "download: " + err[:100]))
+        db.notify(f"⚠️ Footage-Download fehlgeschlagen: {campaign['name']}\n{err[:200]}")
+        sys.exit(0)
     if not sources:
         db.log(a.campaign, f"footage_missing account={label}")
         if video_id: db.patch_video(video_id, status="error", note="download failed")
