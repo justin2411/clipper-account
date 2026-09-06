@@ -6,7 +6,7 @@ Aufruf: python -m pipeline.main --campaign <id> --account A|B|AB
   (A: 1,3,5… B: 2,4,6…), immer mit Hook-Text (nie roh), Caption „<Hook> · Credit @mrbeast #mrbeast“.
 Env: CLIPFORGE_API_URL, CLIPFORGE_API_KEY, GOOGLE_API_KEY (Gemini), PREVIEW=true (Standbilder per Telegram)
 """
-import argparse, os, re, sys, yaml
+import copy, argparse, os, re, sys, yaml
 from pathlib import Path
 from pipeline import download, overlay, checks, storage, db, clipper, ai
 from platforms import REGISTRY
@@ -130,11 +130,20 @@ def main():
         staged = overlay.apply(clip, overlay_text, WORK / "stage", name=name)                # Pflicht-Overlay (paid, falls gesetzt)
         if not context_line.strip():                                                          # nie roh (Fan wie paid)
             db.insert_clip(a.campaign, acc, str(staged), status="rejected_precheck", note="no_hook", hook=hook, video_id=video_id, rank=rank); continue
-        vis = ((eff.get(acc) or {}).get("settings") or {}).get("visual") or {}
+        eff_acc = copy.deepcopy((eff.get(acc) or {}).get("settings") or {})
+        variant = None
+        ab = (eff.get(acc) or {}).get("ab") or {}                                            # A/B-Test (Stufe 4): Clips abwechselnd mit den Varianten rendern
+        if ab.get("variable") and len(ab.get("variants") or []) >= 2 and ab.get("niche") in (None, niche_key):
+            val = ab["variants"][i % len(ab["variants"])]
+            path = str(ab["variable"]).split("."); node = eff_acc
+            for k in path[:-1]: node = node.setdefault(k, {})
+            node[path[-1]] = float(val) if re.fullmatch(r"-?\d+(\.\d+)?", str(val)) else val
+            variant = f"{ab['variable']}={val}"
+        vis = eff_acc.get("visual") or {}
         style = brand_of(acc) or str(th.get("style", "bar"))
         if vis.get("font"):                                                                  # Dashboard-Look (Feinjustierung) überschreibt brand.yaml
             style = {**(style if isinstance(style, dict) else {}), **overlay.style_from_visual(vis)}
-        capset = ((eff.get(acc) or {}).get("settings") or {}).get("caption") or {}
+        capset = eff_acc.get("caption") or {}
         if kind == "fan" and capset.get("template"):
             caption = capset["template"].replace("{hook}", context_line)
         final, cover_jpg = overlay.apply_text_hook(staged, context_line, WORK / "final", name=name,
@@ -145,7 +154,7 @@ def main():
         dur = checks.duration_of(final)
         if not ok:
             db.insert_clip(a.campaign, acc, str(final), status="rejected_precheck", note=reason, duration_s=dur, hook=hook,
-                           pinned_comment=pinned, video_id=video_id, rank=rank, context_line=context_line); continue
+                           pinned_comment=pinned, video_id=video_id, rank=rank, context_line=context_line, variant=variant); continue
         prefix = f"{a.campaign}/{acc}"
         url = storage.upload(final, prefix=prefix)
         thumb_url = cover_url = None
@@ -158,7 +167,7 @@ def main():
             print("thumbnail failed:", e)
         r = db.insert_clip(a.campaign, acc, url, status="review" if review_mode.get(acc) else "ready", caption=caption, hook_type=overlay.hook_type_of(clip),
                            duration_s=dur, hook=hook, pinned_comment=pinned, video_id=video_id, rank=rank, thumb_url=thumb_url,
-                           context_line=context_line, cover_url=cover_url, scores=meta.get("scores"))
+                           context_line=context_line, cover_url=cover_url, scores=meta.get("scores"), variant=variant)
         kept[acc] += 1
         if preview_on and previews[acc] < 3:                                                 # Vorschau: Standbild (Hook sichtbar) + Caption
             previews[acc] += 1

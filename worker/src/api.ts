@@ -29,6 +29,7 @@ import { runPublisher, publishClipNow, publishCampaignSpaced, plannedPosts, rele
 import { runTracker } from "./tracker";
 import { runNotify, dailyOverview, weeklyReport } from "./notify";
 import { runWeeklyReport, getReport, listReports } from "./report";
+import { abStats, startExperiment, stopExperiment, applyWinner, getExperiment, AB_VARIABLES } from "./ab";
 import { runFan, startUploadJob } from "./fan";
 import { getSettings, effectiveSettings, validateSettings, diffSettings, putSettings, listVersions, getVersion, defaultSettings, deepMerge } from "./settings";
 import { listTasks, completeTask, resumeAccount, syncTasks } from "./tasks";
@@ -135,7 +136,7 @@ export async function handleRequest(req: Request, env: Env, ctx: ExecutionContex
     return json({ error: "method not allowed" }, 405);
   }
   // Dashboard-Aktionen (Header x-api-key = DASHBOARD_READ_KEY oder CLIPFORGE_API_KEY, CORS): Review, Settings, Aufgaben, Resume
-  if (["review", "settings", "tasks", "report"].includes(seg[0]) || (seg[0] === "accounts" && seg[2] === "resume")) {
+  if (["review", "settings", "tasks", "report", "ab"].includes(seg[0]) || (seg[0] === "accounts" && seg[2] === "resume")) {
     const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "x-api-key, content-type", "Access-Control-Allow-Methods": "GET, POST, PUT, OPTIONS" };
     const J = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status, headers: { "Content-Type": "application/json", ...cors } });
     if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
@@ -154,7 +155,12 @@ export async function handleRequest(req: Request, env: Env, ctx: ExecutionContex
       }
       if (seg[0] === "review" && seg[1] && req.method === "POST") { const body = await b(); return J(await reviewAction(env, seg[1], body as any, ws)); }
       if (seg[0] === "settings" && !seg[1] && req.method === "GET") return J(await getSettings(env, ws));
-      if (seg[0] === "settings" && seg[1] === "effective" && req.method === "GET") return J(await effectiveSettings(env, url.searchParams.get("account") ?? "A", ws));
+      if (seg[0] === "settings" && seg[1] === "effective" && req.method === "GET") return J({ ...(await effectiveSettings(env, url.searchParams.get("account") ?? "A", ws)), ab: await getExperiment(env, ws) });
+      // A/B-Test (Stufe 4)
+      if (seg[0] === "ab" && !seg[1] && req.method === "GET") return J({ ...(await abStats(env, ws)), variables: AB_VARIABLES });
+      if (seg[0] === "ab" && !seg[1] && req.method === "POST") { const r = await startExperiment(env, (await b()) as any, ws); return J(r, r.ok ? 200 : 400); }
+      if (seg[0] === "ab" && seg[1] === "stop" && req.method === "POST") return J(await stopExperiment(env, ws));
+      if (seg[0] === "ab" && seg[1] === "apply" && req.method === "POST") { const body = (await b()) as any; const r = await applyWinner(env, String(body.value ?? ""), !!body.confirm, ws); return J(r, r.ok || r.preview ? 200 : 400); }
       if (seg[0] === "settings" && !seg[1] && req.method === "PUT") {
         const body = (await b()) as any;
         const cur = await getSettings(env, ws);
@@ -395,7 +401,7 @@ export async function handleRequest(req: Request, env: Env, ctx: ExecutionContex
     if (rest[0] === "shadow_release" && req.method === "POST") return json(await releaseShadow(env));
 
     // Pipeline: wirksame Einstellungen je Account + Few-Shot-Feedback (Momentwahl/QA)
-    if (rest[0] === "settings" && rest[1] === "effective" && req.method === "GET") return json(await effectiveSettings(env, url.searchParams.get("account") ?? "A"));
+    if (rest[0] === "settings" && rest[1] === "effective" && req.method === "GET") return json({ ...(await effectiveSettings(env, url.searchParams.get("account") ?? "A")), ab: await getExperiment(env) });
     if (rest[0] === "settings" && !rest[1] && req.method === "GET") return json(await getSettings(env));
     if (rest[0] === "feedback" && req.method === "GET") return json(await feedbackHints(env, url.searchParams.get("niche")));
 

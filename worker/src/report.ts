@@ -5,6 +5,7 @@
 import { Env, db, nowIso, telegram, nichesOf, nicheOfAccount } from "./shared";
 import { accountsOf } from "./publisher";
 import { fanStock } from "./fan";
+import { abStats } from "./ab";
 
 export interface ReportAccount {
   id: string; handle: string; niche: string; posts: number; live: number; shadow: number; views: number; avg_views: number; likes: number;
@@ -19,6 +20,8 @@ export interface WeeklyReport {
   accounts: ReportAccount[];
   top_posts: { url: string; account: string; views: number; likes: number; hook: string; kind: string; campaign: string; posted_at: string }[];
   learned: { best_slot: string; best_hook_type: string; best_font: string; best_account: string };
+  ab: { variable: string; leader: string | null; lift_pct: number | null; hint: string; variants: { value: string; posts: number; avg_views: number }[] } | null;
+  changes: { at: string; text: string }[];
   suggestions: { text: string; action?: { kind: string; label: string; href?: string } }[];
   summary: string[];
 }
@@ -133,14 +136,25 @@ export async function buildWeeklyReport(env: Env, week = "current", ws = "defaul
   if (totals.submitted < live.filter((p) => p.kind === "paid").length) suggestions.push({ text: `${live.filter((p) => p.kind === "paid").length - totals.submitted} Paid-Posts noch nicht bei Vyro eingereicht.`, action: { kind: "submit", label: "Aufgaben", href: "#tasks" } });
   if (!suggestions.length) suggestions.push({ text: "Alles im Rahmen – nichts zu entscheiden." });
 
+  // Laufender A/B-Test (Tendenz) + was das System in der Woche umgestellt hat (Settings-Versionen, Reset, A/B-Gewinner, Kill-Switch)
+  let ab: WeeklyReport["ab"] = null;
+  try { const st = await abStats(env, ws); if (st.experiment) ab = { variable: st.experiment.variable, leader: st.leader, lift_pct: st.lift_pct, hint: st.hint, variants: st.variants.map((v) => ({ value: v.value, posts: v.posts, avg_views: v.avg_views })) }; } catch { /* optional */ }
+  const evs = await db.all<{ event: string; at: string }>(env,
+    "SELECT event, at FROM events WHERE at >= ? AND at < ? AND (event LIKE 'settings_%' OR event LIKE 'ab_%' OR event LIKE 'kill_switch%' OR event LIKE 'account_paused%' OR event LIKE 'shadow_release%') ORDER BY id DESC LIMIT 12", from, to);
+  const changes = evs.map((e) => ({ at: e.at, text: e.event.startsWith("settings_saved") ? `Feinjustierung gespeichert (${e.event.replace(/.*changes=(\d+).*/, "$1")} Änderungen)`
+    : e.event.startsWith("settings_reset") ? "Einstellungen zurückgesetzt" : e.event.startsWith("ab_applied") ? `A/B-Gewinner übernommen: ${e.event.replace(/^ab_applied\s*/, "").split(" ")[0]}`
+    : e.event.startsWith("ab_started") ? `A/B-Test gestartet: ${e.event.replace(/^ab_started\s*/, "").split(" ")[0]}` : e.event.startsWith("ab_stopped") ? "A/B-Test beendet" : e.event.slice(0, 80) }));
   const pct = (a: number, b: number) => (b ? `${a >= b ? "+" : ""}${Math.round(((a - b) / b) * 100)} %` : (a ? "neu" : "±0"));
   const summary = [
     `${totals.live} Posts live (${totals.shadow} Schatten), ${totals.views.toLocaleString("de-DE")} Views, Ø ${totals.avg_views} pro Post (${pct(totals.views, prevT.views)} zur Vorwoche).`,
     `${totals.followers_delta >= 0 ? "+" : ""}${totals.followers_delta} Follower, ${totals.payouts_usd} $ ausgezahlt, ${totals.clips} Clips produziert (${totals.clips_rejected} verworfen).`,
     `Bester Account: ${learned.best_account}${top[0]?.views ? ` · Top-Post ${top[0].views.toLocaleString("de-DE")} Views: „${top[0].hook}"` : " · noch keine Views-Daten"}.`,
   ];
+  const systemLine = changes.length ? `Umgestellt: ${changes.slice(0, 3).map((c) => c.text).join("; ")}.` : "Umgestellt: nichts – Einstellungen unverändert.";
+  summary.push(ab ? `A/B-Test ${ab.variable}: ${ab.hint}` : systemLine);
+  if (ab) summary.push(systemLine);
   return { week: isoWeek(start), from, to, generated_at: nowIso(), partial, totals, prev: prev.posts.length || prev.payouts ? prevT : null, by_kind: byKind,
-           accounts, top_posts: top, learned, suggestions: suggestions.slice(0, 3), summary };
+           accounts, top_posts: top, learned, ab, changes, suggestions: suggestions.slice(0, 3), summary };
 }
 
 export async function saveWeeklyReport(env: Env, rep: WeeklyReport, ws = "default") {
