@@ -50,7 +50,8 @@ def montage_jobs(a, campaign, sources, targets, eff, by_id, brand_of, review_mod
             r = montage.render_clip(src, clip, words, WORK / "final" / name, WORK / "mont" / f"{acc}{i + 1}",
                                     account=acc, hook_style=hook_style, sub_style=sub_style)
         except Exception as e:
-            db.log(a.campaign, f"montage_fehler account={acc} clip={i + 1} err={str(e)[:120]}"); continue
+            grund = getattr(e, "stderr", "") or str(e)
+            db.log(a.campaign, f"montage_fehler account={acc} clip={i + 1} err={str(grund)[-200:]}"); continue
         final = Path(r["path"])
         qa = r["qa"]
         caption = platform_caption(campaign, clip, eff, acc, kind)
