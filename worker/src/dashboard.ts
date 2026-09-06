@@ -8,6 +8,7 @@ import { listTasks, syncTasks } from "./tasks";
 import { listReview } from "./review";
 import { getReport, listReports } from "./report";
 import { abStats, AB_VARIABLES } from "./ab";
+import { listLog, LOG_CATS } from "./log";
 
 const BLOTATO_FIXED_USD = 29, LLM_PER_CLIP_USD = 0.01, EUR_RATE = 0.92, GOAL_MONTHLY = 2000;
 const NICHE: Record<string, string> = { moments: "Momente", reactions: "Reaktionen" };
@@ -135,8 +136,9 @@ export async function buildDashboard(env: Env) {
   const sources = await buildSources(env, allCamps, cfg);
   const report = { latest: await getReport(env, "latest"), weeks: await listReports(env) };   // Stufe 2: zuletzt gespeicherter Wochenbericht + Wochenliste
   const ab = { ...(await abStats(env)), variables: AB_VARIABLES };                                // Stufe 4: A/B-Test
+  const log = { ...(await listLog(env, { cat: "all", limit: 60 })), cats: LOG_CATS };            // Stufe 5: Ereignis-Log (erste Seite)
   return {
-    pipeline, niches, sources, posts: postList, review, settings, settings_versions, report, ab,
+    pipeline, niches, sources, posts: postList, review, settings, settings_versions, report, ab, log,
     month, currency: "USD", eur_rate: EUR_RATE,
     totals: { revenue: Math.round(rev?.s ?? 0), costs, pending, week_delta: Math.round(revWeek?.s ?? 0) },
     history, campaigns, accounts, insights, tasks, goal_monthly: GOAL_MONTHLY,

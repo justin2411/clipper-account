@@ -46,6 +46,8 @@
                 top_posts:[{url,account,views,likes,hook,kind,campaign,posted_at}], learned:{best_slot,best_hook_type,best_font,best_account}, suggestions:[{text,action?:{kind,label,href}}], summary:[3 Sätze] }
               -> GET /report?week=latest|current|<YYYY-Www> (Dashboard-Key), GET /report/weeks. Sonntags 09:00 Berlin: Bericht in kv + Telegram-Kurzfassung mit Link auf #report.
               WeeklyReport zusätzlich: ab:{variable,leader,lift_pct,hint,variants:[{value,posts,avg_views}]}|null, changes:[{at,text}] (was das System umgestellt hat)
+  log (Stufe 5): { items:[{id, at, campaign_id, text, cat:"error|reject|killswitch|upload|post|job|settings|other", run_id}], counts:{all,error,...}, repo, next_before, cats:{key:label} }
+              -> GET /log?cat=&q=&limit=&before=<id> (Dashboard-Key). run_id aus "run=<id>" im Ereignis (Pipeline hängt GITHUB_RUN_ID an) → Link https://github.com/<repo>/actions/runs/<id>
   ab (Stufe 4): { experiment:{variable,variants:[..],niche,started_at}|null, variants:[{value,clips,posts,views,avg_views,likes,engagement,watchtime,completion}], min_n:20, significant, leader, lift_pct, hint, variables:{<pfad>:{label,values?,kind}} }
               -> GET /ab · POST /ab {variable,variants:[a,b],niche} · POST /ab/stop · POST /ab/apply {value, confirm} (ohne confirm nur Diff) – Gewinner wird in die Nische geschrieben (Version), Test endet.
               Pipeline liest GET /api/settings/effective (Feld ab) und rendert Clips abwechselnd mit den Varianten (clips.variant = "<variable>=<wert>").
@@ -267,6 +269,10 @@ details.more{border:1px solid var(--line);border-radius:var(--r);background:var(
 .abv{border:1px solid var(--line);border-radius:12px;padding:12px 14px;background:var(--panel2)}.abv.lead{border-color:var(--ok)}.abv b{font-size:20px;font-weight:800}.abv .t{font-weight:800;font-size:13px;margin-bottom:6px;display:flex;justify-content:space-between}.abv .m{font-size:12px;color:var(--ink3)}.abv .m span{display:inline-block;margin-right:10px}
 .abform{display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:8px;align-items:end}.abform label{font-size:11px;color:var(--ink3);display:block;margin-bottom:3px}.abform select,.abform input{width:100%;font:inherit;font-size:13px;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink)}
 @media (max-width:700px){.abform{grid-template-columns:1fr 1fr}}
+.lg{display:grid;grid-template-columns:auto auto 1fr auto;gap:10px;align-items:baseline;padding:8px 0;border-top:1px solid var(--line);font-size:13px}.lg:first-child{border-top:0}.lg time{font-size:11px;color:var(--ink3);white-space:nowrap;font-variant-numeric:tabular-nums}.lg .tx{word-break:break-word}.lg .tx small{color:var(--ink3)}.lg a{font-size:12px;font-weight:700;color:var(--flame);white-space:nowrap}
+.pill.error{background:color-mix(in srgb,var(--bad) 18%,transparent);color:var(--bad)}.pill.reject{background:color-mix(in srgb,var(--warn) 18%,transparent);color:var(--warn)}.pill.killswitch{background:color-mix(in srgb,var(--bad) 12%,transparent);color:var(--bad)}.pill.upload{background:color-mix(in srgb,var(--violet) 18%,transparent);color:#B197FF}.pill.post{background:color-mix(in srgb,var(--ok) 18%,transparent);color:var(--ok)}.pill.job{background:color-mix(in srgb,var(--flame) 18%,transparent);color:var(--flame)}
+.chips{display:flex;gap:6px;flex-wrap:wrap;align-items:center}.chips input{font:inherit;font-size:13px;padding:6px 10px;border:1px solid var(--line);border-radius:999px;background:var(--panel);color:var(--ink);min-width:160px;flex:1}
+@media (max-width:600px){.lg{grid-template-columns:auto 1fr;grid-template-areas:"t c" "x x" "a a"}.lg time{grid-area:t}.lg .pill{grid-area:c;justify-self:start}.lg .tx{grid-area:x}.lg a{grid-area:a}}
 main{min-width:0;overflow-x:hidden}section,.kpi,.tk,.card,.rv{min-width:0}
 .urls{white-space:pre-wrap;word-break:break-all}
 @media (max-width:480px){.g2,.g4,.flow,.cards{grid-template-columns:1fr}.steps{grid-template-columns:repeat(2,1fr)}table{display:block;overflow-x:auto}}
@@ -351,7 +357,7 @@ const fmt=n=>Math.round(n||0).toLocaleString("de-DE"), k=n=>n>=1e6?(n/1e6).toFix
 const ago=i=>{const m=Math.max(0,Math.round((Date.now()-new Date(i))/60000));return m<60?`vor ${m} min`:m<1440?`vor ${Math.floor(m/60)} h`:`vor ${Math.floor(m/1440)} d`};
 const tm=i=>new Date(i).toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"});
 const monthLabel=m=>{const [y,mo]=(m||"").split("-");const n=["Januar","Februar","März","April","Mai","Juni","Juli","August","September","Oktober","November","Dezember"];return mo?`${n[+mo-1]} ${y}`:""};
-let REP=null;
+let REP=null, LOG=null, logCat="all", logQ="";
 let cfg=(CONFIG.apiUrl&&CONFIG.apiKey)?{...CONFIG}:null, DATA=null, DEMO_MODE=false, sortKey="earnings_30d", setNiche=null, PEND=null, expert=false, pvAcc="", pvUI=true, pvZoom=true, pvSrc="clip", howSel=-1, howSub=-1, fcScen="konsequent", FC=null;
 const get=(o,p)=>p.split(".").reduce((x,k)=>x?.[k],o);
 const setp=(o,p,v)=>{const ks=p.split(".");let x=o;ks.slice(0,-1).forEach(k=>{x[k]=x[k]||{};x=x[k]});x[ks.at(-1)]=v};
@@ -374,6 +380,7 @@ function nav(d){const r=route();
   <div class="nh">Sonstiges</div>
   <a class="nl ${r==="tasks"?"on":""}" href="#tasks">Aufgaben<small>${(d.tasks||[]).length}</small></a>
   <a class="nl ${r==="report"?"on":""}" href="#report">Wochenbericht<small>${d.report?.latest?.week?.replace(/^\d{4}-W/,"KW")||""}</small></a>
+  <a class="nl ${r==="log"?"on":""}" href="#log">Ereignis-Log<small>${d.log?.counts?.error?`${d.log.counts.error} Fehler`:""}</small></a>
   <a class="nl ${r==="how"?"on":""}" href="#how">So funktioniert es</a>
   <a class="nl ${r==="forecast"?"on":""}" href="#forecast">Hochrechnung</a>`;}
 
@@ -504,11 +511,17 @@ function page(d){const r=route(); nav(d);
     html=`<div class="top"><h1>Wochenbericht</h1><div class="meta">${rep?`${rep.week.replace(/^\d{4}-W/,"KW ")}${rep.partial?" · bisher":""}`:""}<button class="b" id="rf">Aktualisieren</button></div></div>${banner}
     <section style="padding:10px 18px"><div class="tools" style="margin:0;flex-wrap:wrap">${weeks.map(w=>`<button class="b ${rep&&rep.week===w.week&&!rep.partial?"on":""}" data-week="${w.week}">${w.week.replace(/^\d{4}-W/,"KW ")}</button>`).join("")}<button class="b ${rep&&rep.partial?"on":""}" data-week="current">Diese Woche bisher</button><span id="repstat" style="font-size:12px;color:var(--ink3)"></span></div></section>
     ${rep?reportBody(rep,d):`<section><div class="empty">Noch kein Bericht – der erste kommt Sonntag 09:00 (Berlin). Oder jetzt: <button class="b" data-week="current">für diese Woche berechnen</button></div></section>`}`;
+  } else if(r==="log"){
+    const lg=LOG||d.log||{items:[],counts:{},cats:{}};const cats={all:"Alle",...(lg.cats||{})};
+    html=`<div class="top"><h1>Ereignis-Log</h1><div class="meta">${lg.counts?.all||0} Ereignisse (letzte 500) <button class="b" id="rf">Aktualisieren</button></div></div>${banner}
+    <section style="padding:10px 18px"><div class="chips">${Object.entries(cats).filter(([k])=>k==="all"||lg.counts?.[k]).map(([k,l])=>`<button class="b ${logCat===k?"on":""}" data-logcat="${k}">${l}${lg.counts?.[k]!=null?` <span style="opacity:.7">${lg.counts[k]}</span>`:""}</button>`).join("")}<input id="logq" placeholder="Suche (Text oder Kampagne)" value="${logQ.replace(/"/g,"&quot;")}"></div></section>
+    <section>${lg.items.length?lg.items.map(logRow.bind(null,lg)).join(""):`<div class="empty">Keine Ereignisse${logCat!=="all"||logQ?" für diesen Filter":""}.</div>`}
+    ${lg.next_before?`<div class="tools" style="margin-top:12px"><button class="b" id="logmore" data-before="${lg.next_before}">Mehr laden</button></div>`:""}</section>`;
   } else if(r==="tasks"){
     html=`<div class="top"><h1>Aufgaben</h1><div class="meta">${(d.tasks||[]).length} offen <button class="b" id="rf">Aktualisieren</button></div></div>${banner}<section>${(d.tasks||[]).map(t=>taskCard(t,d)).join("")||`<div class="empty">Nichts offen – alles läuft.</div>`}</section>`;
   }
   $("#main").innerHTML=html; const rf=$("#rf"); if(rf) rf.onclick=refresh;
-  document.querySelectorAll("th[data-k]").forEach(th=>th.onclick=()=>{sortKey=th.dataset.k;page(d)}); wireUpload(d); wireTasks(d); wireStudio(d); wireHow(d); wireReport(d); wireAb(d);}
+  document.querySelectorAll("th[data-k]").forEach(th=>th.onclick=()=>{sortKey=th.dataset.k;page(d)}); wireUpload(d); wireTasks(d); wireStudio(d); wireHow(d); wireReport(d); wireAb(d); wireLog(d);}
 
 // Wochenbericht (Stufe 2) – Tiefe 1: Kennzahlen + 3 Sätze + Vorschläge; Tiefe 2: Accounts / Paid vs Fan (zu); Tiefe 3: Top-Posts, Gelernt, Produktion (zu)
 function reportBody(rep,d){const t=rep.totals,p=rep.prev||{};
@@ -742,6 +755,14 @@ function wireStudio(d){
     const pv=await post(body);if(pv.errors){showDiff({title:"Zurücksetzen nicht möglich",errors:pv.errors});return}
     if(!pv.diff||!pv.diff.length){showDiff({title:"Nichts zu tun",sub:"Dieser Stand ist bereits aktiv."});return}
     showDiff({title:`Zurücksetzen auf ${pv.target}`,sub:`${pv.diff.length} Änderung${pv.diff.length>1?"en":""} – der Zustand wird als neue Version gespeichert`,diff:pv.diff,onConfirm:async()=>{const r=await post({...body,confirm:true});if(r.ok){PEND=null;refresh()}else showDiff({title:"Fehler",errors:r.errors||[r.error||"unbekannt"]})}})});}
+// Ereignis-Log (Stufe 5): Zeile = Zeit · Kategorie · Text (+ Kampagne) · Actions-Link
+function logRow(lg,e){const cats={...(lg.cats||{})};const link=e.run_id&&lg.repo?`https://github.com/${lg.repo}/actions/runs/${e.run_id}`:(e.cat==="job"&&lg.repo?`https://github.com/${lg.repo}/actions/workflows/clip.yml`:null);
+  return `<div class="lg"><time>${tm(e.at)}</time><span class="pill ${e.cat}">${cats[e.cat]||e.cat}</span><div class="tx">${e.text.replace(/\s*run=\d+/,"")}${e.campaign_id?` <small>· ${e.campaign_id}</small>`:""}</div>${link?`<a href="${link}" target="_blank" rel="noopener">${e.run_id?"Lauf ↗":"Actions ↗"}</a>`:"<span></span>"}</div>`}
+async function loadLog(d,more){if(DEMO_MODE||!cfg)return;const q=new URLSearchParams({cat:logCat,q:logQ,limit:"60"});if(more)q.set("before",more);
+  try{const r=await (await fetch(cfg.apiUrl+"/log?"+q,{headers:{"x-api-key":cfg.apiKey}})).json();LOG=more&&LOG?{...r,items:[...LOG.items,...r.items]}:r;page(d)}catch(e){console.log(e)}}
+function wireLog(d){if(route()!=="log")return;document.querySelectorAll("[data-logcat]").forEach(b=>b.onclick=()=>{logCat=b.dataset.logcat;loadLog(d)});
+  const q=$("#logq");if(q){let t;q.oninput=()=>{clearTimeout(t);t=setTimeout(()=>{logQ=q.value.trim();loadLog(d)},350)};q.onkeydown=e=>{if(e.key==="Enter"){logQ=q.value.trim();loadLog(d)}}}
+  const m=$("#logmore");if(m)m.onclick=()=>loadLog(d,m.dataset.before)}
 // A/B-Panel (Stufe 4) – Tiefe 1: aktive Variable, Karten je Variante, Signifikanz-Hinweis, „Gewinner übernehmen"; ohne Test: Start-Formular (zugeklappt)
 function abPanel(d){const ab=d.ab;if(!ab)return "";const vars=ab.variables||{};
   if(!ab.experiment){const opts=Object.entries(vars).map(([k,v])=>`<option value="${k}">${v.label} (${k})</option>`).join("");
@@ -783,7 +804,7 @@ async function refresh(){if(DEMO_MODE||!cfg){gate();return}try{DATA=await load(c
 function gate(msg=""){$("#nav").innerHTML="";$("#main").innerHTML=`<div class="gate"><h1 style="font-size:20px;margin:0 0 6px">ClipForge</h1><p style="color:var(--ink2);font-size:14px;margin:0 0 12px">Mit dem Worker verbinden (Werte aus SECRETS.local.md).</p><input id="u" placeholder="Worker-URL" value="${cfg?.apiUrl||""}"><input id="p" type="password" placeholder="Dashboard-Lese-Key"><div style="color:var(--bad);font-size:13px;min-height:18px;margin-bottom:8px">${msg}</div><button id="go">Öffnen</button><div class="banner" style="margin-top:12px;text-align:center"><a href="#" id="demo">Mit Beispieldaten ansehen</a></div></div>`;
   $("#go").onclick=async()=>{const c={apiUrl:$("#u").value.trim().replace(/\/$/,""),apiKey:$("#p").value.trim()};try{DATA=await load(c);cfg=c;localStorage.setItem("clipforge.cfg",JSON.stringify(c));DEMO_MODE=false;page(DATA)}catch(e){gate("Keine Verbindung: "+e.message)}};
   $("#demo").onclick=e=>{e.preventDefault();DEMO_MODE=true;DATA=DEMO;page(DATA)}}
-window.addEventListener("hashchange",()=>{if(route()!=="settings")PEND=null;if(route()!=="report")REP=null;if(DATA)page(DATA)});
+window.addEventListener("hashchange",()=>{if(route()!=="settings")PEND=null;if(route()!=="report")REP=null;if(route()!=="log"){LOG=null;logCat="all";logQ=""}if(DATA)page(DATA)});
 (async()=>{ if(!cfg){try{cfg=JSON.parse(localStorage.getItem("clipforge.cfg")||"null")}catch(e){}}
   if(cfg){try{DATA=await load(cfg);page(DATA);return}catch(e){}} gate(); })();
 setInterval(async()=>{if(cfg&&!DEMO_MODE){try{DATA=await load(cfg);page(DATA)}catch(e){}}},30000);
