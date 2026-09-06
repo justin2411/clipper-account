@@ -136,14 +136,16 @@ export async function runFan(env: Env) {
   //    dann keine weiteren Jobs starten (Actions-Minuten), bis wieder ein Download geklappt hat (Cookies/YT_COOKIES_B64)
   stats.stock = await fanStock(env);
   const since = new Date(Date.now() - 6 * 3600000).toISOString();
-  const bot = await db.first<{ n: number }>(env, "SELECT COUNT(*) AS n FROM videos WHERE status = 'error' AND note = 'bot check' AND updated_at >= ?", since);
+  const bot = await db.first<{ n: number; last: string | null }>(env, "SELECT COUNT(*) AS n, MAX(updated_at) AS last FROM videos WHERE status = 'error' AND note = 'bot check' AND updated_at >= ?", since);
   const okSince = await db.first<{ n: number }>(env, "SELECT COUNT(*) AS n FROM videos WHERE status = 'clipped' AND updated_at >= ?", since);
-  if ((bot?.n ?? 0) >= 2 && !(okSince?.n ?? 0)) {
+  const cookies = await db.first<{ updated_at: string }>(env, "SELECT updated_at FROM kv WHERE key = 'yt_cookies' AND COALESCE(value,'') != ''");
+  const freshCookies = !!(cookies?.updated_at && bot?.last && cookies.updated_at > bot.last);   // neue Cookies seit dem letzten Fehler → wieder versuchen
+  if ((bot?.n ?? 0) >= 2 && !(okSince?.n ?? 0) && !freshCookies) {
     (stats as any).blocked = "youtube bot check";
     const warned = await db.first(env, "SELECT id FROM events WHERE event LIKE 'fan blocked%' AND at >= ? LIMIT 1", new Date(Date.now() - 24 * 3600000).toISOString());
     if (!warned) {
       await logEvent(env, `fan blocked: youtube bot check (${bot?.n} Fehler in 6 h) – Backlog-Jobs pausiert bis YT_COOKIES_B64 gesetzt ist`);
-      await telegram(env, `⛔ Fan-Content pausiert: YouTube blockt den Download in GitHub Actions („Sign in to confirm you're not a bot“).\nLösung: GitHub-Secret YT_COOKIES_B64 setzen (Anleitung NEXT_STEPS.md). Danach: python scripts/run_fn.py fan`);
+      await telegram(env, `⛔ Fan-Content pausiert: YouTube blockt den Download in GitHub Actions („Sign in to confirm you're not a bot“).\nLösung: cookies.txt eines (Zweit-)Kontos exportieren und hinterlegen: python scripts/yt_cookies.py <cookies.txt> – danach läuft es von allein weiter (Cookies werden bei jedem Job erneuert).`);
     }
     return stats;
   }

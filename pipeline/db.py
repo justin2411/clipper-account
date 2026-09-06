@@ -74,3 +74,16 @@ def mark_submitted(cid):
 
 def run(fn):
     return _req("POST", f"/run/{fn}")
+
+
+def kv_get(key):
+    """Wert aus dem Key-Value-Speicher (None, wenn nicht vorhanden)."""
+    r = requests.get(f"{URL}/api/kv/{key}", headers=H, timeout=30)
+    return r.json().get("value") if r.ok else None
+
+
+def kv_put(key, value):
+    r = requests.put(f"{URL}/api/kv/{key}", headers={"Authorization": H["Authorization"], "Content-Type": "text/plain; charset=utf-8"},
+                     data=value.encode("utf-8"), timeout=60)
+    r.raise_for_status()
+    return r.json()
