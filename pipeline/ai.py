@@ -101,3 +101,35 @@ Never exceed the word limit; shorten the idea instead of cutting a sentence."""
     except Exception as e:
         print("[ai] enrich failed:", str(e)[:120])
         return fallback
+
+
+def judge_stills(images: list[bytes], hook: str, subtitles: bool) -> dict:
+    """Qualitätsprüfung mit Gemini an drei Standbildern: Hook lesbar, Gesicht frei, Text im sicheren Bereich,
+    Schnitt nicht hektisch. Rückgabe {ok, checks:{...}, notes:[...]}. Ohne Schlüssel oder bei Fehlern: bestanden
+    mit Hinweis – die automatischen Prüfungen greifen weiterhin."""
+    key = os.environ.get("GOOGLE_API_KEY")
+    if not key or not images:
+        return {"ok": True, "checks": {}, "notes": ["Bildprüfung übersprungen (kein Schlüssel oder keine Bilder)"]}
+    try:
+        from google import genai
+        from google.genai import types
+        client = genai.Client(api_key=key)
+        frage = f"""These are three stills from one vertical TikTok clip (1080x1920), in order: beginning, middle, end.
+On-screen hook text (first 3 seconds): "{hook}". Burned-in subtitles: {"yes" if subtitles else "no"}.
+
+Return JSON: {{"hook_legible": bool, "face_free": bool, "text_safe": bool, "pacing_ok": bool, "notes": [string]}}
+- hook_legible: is the hook text readable against the background (contrast, not cut off)?
+- face_free: is a face visible and NOT covered by text or graphics? true if no face is expected in the shot.
+- text_safe: is all text inside the safe area (not under the TikTok buttons on the right, not in the bottom 15 %)?
+- pacing_ok: do the three stills look like one coherent clip rather than a hectic, jumpy edit?
+- notes: one short sentence per problem, in German. Empty if everything is fine."""
+        parts = [types.Part.from_bytes(data=b, mime_type="image/jpeg") for b in images[:3]]
+        r = client.models.generate_content(model=MODEL, contents=[*parts, frage],
+                                           config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.2))
+        d = json.loads(r.text)
+        checks = {k: bool(d.get(k, True)) for k in ("hook_legible", "face_free", "text_safe", "pacing_ok")}
+        notes = [str(x) for x in (d.get("notes") or [])][:4]
+        return {"ok": all(checks.values()), "checks": checks, "notes": notes}
+    except Exception as e:
+        print("[ai] Bildprüfung fehlgeschlagen:", str(e)[:120])
+        return {"ok": True, "checks": {}, "notes": [f"Bildprüfung nicht möglich: {str(e)[:80]}"]}

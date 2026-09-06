@@ -119,3 +119,15 @@ def feedback_hints(niche=None):
         return r.json() if r.ok else {}
     except Exception as e:
         print("feedback_hints failed:", e); return {}
+
+
+def record_usage(video_id, segments, clip_id=None, account=None):
+    """Sperrliste: jede verwendete Stelle eines Quellvideos festhalten (Montage nutzt 3–4 Stellen je Clip)."""
+    if not video_id or not segments:
+        return None
+    try:
+        return _req("POST", f"/videos/{video_id}/usage",
+                    json={"clip_id": clip_id, "account": account,
+                          "segments": [{"start_s": s.get("start"), "end_s": s.get("end"), "note": s.get("role")} for s in segments]})
+    except SystemExit as e:
+        print("record_usage failed:", e); return None

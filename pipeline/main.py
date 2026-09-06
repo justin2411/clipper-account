@@ -20,6 +20,77 @@ MIN_SOURCE_HEIGHT = 480   # alte Videos: unter 480p aussortieren, 480–1079p au
 def load_yaml(p): return yaml.safe_load(Path(p).read_text())
 
 
+def montage_jobs(a, campaign, sources, targets, eff, by_id, brand_of, review_mode, video_id, WORK, kind):
+    """Automatische Montage: 3–4 Stellen des Quellvideos zu einer Linie, Untertitel, Hook, Ton, Prüfung.
+    Rückgabe: Anzahl angelegter Clips je Account. Liefert die Auswahl nichts, greift der alte Weg."""
+    from pipeline import montage, transcribe, subtitles as SUB
+    src = sources[0]
+    db.log(a.campaign, f"stage=transcript account={''.join(targets)} montage")
+    tr = transcribe.transcribe(src, WORK / "tr")
+    words = tr.get("words") or []
+    if not words:
+        db.log(a.campaign, "montage_abbruch kein Transkript"); return {}
+    _, _, dur = montage.probe(src)
+    n = max(2, int(((eff.get(targets[0]) or {}).get("settings") or {}).get("select", {}).get("render_top", 6)))
+    db.log(a.campaign, f"stage=moments account={''.join(targets)} montage kandidaten={n}")
+    kandidaten = montage.select(tr.get("text") or "", dur, n)
+    if not kandidaten:
+        db.log(a.campaign, "montage_abbruch keine gültige Auswahl"); return {}
+    kept = {t: 0 for t in targets}
+    for i, clip in enumerate(kandidaten):
+        acc = targets[i % len(targets)]
+        vis = ((eff.get(acc) or {}).get("settings") or {}).get("visual") or {}
+        hook_style = {**(brand_of(acc) if isinstance(brand_of(acc), dict) else {}), **{k: v for k, v in vis.items() if not isinstance(v, dict)}}
+        sub_style = {k: v for k, v in {"font": vis.get("font"), "color": vis.get("color"), "accent": vis.get("accent")}.items() if v}
+        name = f"{acc}_montage{i + 1}.mp4"
+        try:
+            r = montage.render_clip(src, clip, words, WORK / "final" / name, WORK / "mont" / f"{acc}{i + 1}",
+                                    account=acc, hook_style=hook_style, sub_style=sub_style)
+        except Exception as e:
+            db.log(a.campaign, f"montage_fehler account={acc} clip={i + 1} err={str(e)[:120]}"); continue
+        final = Path(r["path"])
+        qa = r["qa"]
+        caption = platform_caption(campaign, clip, eff, acc, kind)
+        prefix = f"{a.campaign}/{acc}"
+        url = storage.upload(final, prefix=prefix)
+        thumb_url = cover_url = None
+        try:
+            still = overlay.frame(final, WORK / "final" / f"{final.stem}.jpg", at=1.0)
+            thumb_url = storage.upload(still, prefix=prefix)
+            cover = overlay.cover_frame(final, str(clip.get("hook_text") or ""), hook_style, clip.get("accent_word"),
+                                        WORK / "final" / f"{final.stem}.cover.png", WORK / "final" / f"{final.stem}.cover.jpg",
+                                        cover_style=overlay.cover_style_from_visual(vis))
+            cover_url = storage.upload(WORK / "final" / f"{final.stem}.cover.jpg", prefix=prefix)
+            void = cover; del void
+        except Exception as e:
+            print("Standbild/Cover fehlgeschlagen:", e)
+        status = "review" if (review_mode.get(acc) or not qa["ok"]) else "ready"
+        note = None if qa["ok"] else "QA: " + " · ".join(qa["notes"][:2])
+        seg = (clip.get("segments") or [{}])[0]
+        rec = db.insert_clip(a.campaign, acc, url, status=status, caption=caption, hook_type="montage",
+                             duration_s=r["duration_s"], hook=str(clip.get("hook_text") or ""), pinned_comment=str(clip.get("pinned_comment") or ""),
+                             video_id=video_id, rank=i + 1, thumb_url=thumb_url, context_line=str(clip.get("context_line") or ""),
+                             cover_url=cover_url, scores=None, qa={**qa, "line": clip.get("line"), "segments": clip.get("segments")},
+                             variant=None, start_s=seg.get("start"), end_s=seg.get("end"),
+                             probe=1 if int(os.environ.get("PROBE") or 0) else 0)
+        if video_id:
+            db.record_usage(video_id, clip.get("segments") or [], (rec or {}).get("id"), acc)   # Sperrliste: jede Stelle
+        kept[acc] += 1
+        db.log(a.campaign, f"montage_clip account={acc} {r['duration_s']}s teile={len(r['plan']['parts'])} qa={qa['score']} "
+                           f"{'ok' if qa['ok'] else 'zur Vorschau: ' + (qa['notes'][0] if qa['notes'] else '')}"[:180])
+    return kept
+
+
+def platform_caption(campaign, clip, eff, acc, kind):
+    from platforms import REGISTRY
+    hook = str(clip.get("context_line") or clip.get("hook_text") or "")
+    caption = REGISTRY[campaign["platform"]].caption(campaign, hook=hook)
+    capset = ((eff.get(acc) or {}).get("settings") or {}).get("caption") or {}
+    if kind == "fan" and capset.get("template"):
+        caption = capset["template"].replace("{hook}", hook)
+    return caption
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--campaign", required=True); ap.add_argument("--account", required=True)
@@ -98,6 +169,19 @@ def main():
         db.log(a.campaign, f"footage_missing account={label} alle Quellen unter {MIN_SOURCE_HEIGHT}p")
         db.notify(f"⏭ Quelle aussortiert (unter {MIN_SOURCE_HEIGHT}p): {campaign['name']}")
         return
+
+    # Automatische Montage (Standard): 3–4 Stellen des Quellvideos zu einer Linie, mit Untertiteln.
+    # Liefert die Auswahl nichts Gültiges, greift der alte Weg (ein Ausschnitt je Clip) als Rückfall.
+    montage_an = str(((eff.get(targets[0]) or {}).get("settings") or {}).get("montage", {}).get("enabled", True)).lower() not in ("false", "0", "no")
+    if montage_an and os.environ.get("MONTAGE", "1").lower() not in ("0", "false", "no"):
+        kept_m = montage_jobs(a, campaign, sources, targets, eff, by_id, brand_of, review_mode, video_id, WORK, kind)
+        if sum(kept_m.values()):
+            db.log(a.campaign, f"pipeline_done montage clips={sum(kept_m.values())} " + " ".join(f"{k}={v}" for k, v in kept_m.items()))
+            if video_id: db.patch_video(video_id, status="clipped")
+            up = (campaign.get("footage") or {}).get("upload_id")
+            if up: db.patch_upload(up, status="clipped")
+            return
+        db.log(a.campaign, "montage leer – alter Weg (ein Ausschnitt je Clip)")
 
     # Schnitt: paid → je Account eigener Stil; fan → ein Schnitt (fan-Profil), Verteilung nach Rang
     jobs: list[tuple[str, int, Path, dict, int]] = []   # (account, src-index, clip, meta, rank)
