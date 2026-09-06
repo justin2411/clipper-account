@@ -10,7 +10,7 @@ import { getReport, listReports } from "./report";
 import { abStats, AB_VARIABLES } from "./ab";
 import { listLog, LOG_CATS } from "./log";
 import { onboardingStatus } from "./onboarding";
-import { listSuggestions } from "./suggest";
+import { suggestionLists } from "./catalog";
 import { accountHealth } from "./health";
 import { listInbox, getRules } from "./inbox";
 import { chatBudget } from "./chat";
@@ -156,8 +156,14 @@ export async function buildDashboard(env: Env, ws = "default") {
   const payouts = await buildPayouts(env, 90, ws);                                                                    // Nachtrag 5
   const library = await listLibrary(env, { limit: 24 }, ws);                                                          // Nachtrag 6: erste Seite
   const anomalies = await lastAnomalies(env, ws);                                                                     // Nachtrag 7: letzter Anomalie-Check
-  const suggestions: Record<string, any[]> = {};
-  for (const n of nichesCfg) { try { suggestions[n.key] = await listSuggestions(env, n.key, ws, 8); } catch { suggestions[n.key] = []; } }   // Vorschläge je Nische
+  // Vorschläge je Nische: zwei Listen (frisch < 14 Tage, Archiv > 6 Monate nach Aufrufen × Bewertung) plus die alte flache Liste
+  const suggestions: Record<string, any> = {};
+  for (const n of nichesCfg) {
+    try {
+      const lists = await suggestionLists(env, n.key, ws, 8);
+      suggestions[n.key] = { ...lists, items: [...lists.archive, ...lists.fresh] };
+    } catch { suggestions[n.key] = { fresh: [], archive: [], items: [], blocked: 0, unrated: 0 }; }
+  }
   return {
     pipeline, niches, sources, posts: postList, review, settings, settings_versions, report, ab, log, onboarding, suggestions, inbox, chat, calendar, payouts, library, anomalies,
     month, currency: "USD", eur_rate: EUR_RATE,

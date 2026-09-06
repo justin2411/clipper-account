@@ -33,6 +33,7 @@ import { abStats, startExperiment, stopExperiment, applyWinner, getExperiment, A
 import { listLog, LOG_CATS } from "./log";
 import { onboardingStatus } from "./onboarding";
 import { listSuggestions, pickSuggestion, cancelPick } from "./suggest";
+import { suggestionLists, rateVideos, recordUsage, usedSegments, segmentTaken } from "./catalog";
 import { listInbox, markNotification, getRules, putRules, recordNotification } from "./inbox";
 import { handleChat, confirmAction, listConversations, getConversation, chatBudget } from "./chat";
 import { buildCalendar, moveCalendarPost } from "./calendar";
@@ -53,7 +54,7 @@ export const FUNCTIONS: Record<string, (env: Env) => Promise<unknown>> = {
   scout: runScout, fan: (env) => runFan(env, env.PUBLIC_ORIGIN ?? ""), publisher: runPublisher, tracker: runTracker, notify: runNotify,
   daily: (env) => dailyOverview(env, true), weekly: weeklyReport,
   report: (env) => runWeeklyReportAI(env, true), report_cron: (env) => runWeeklyReportAI(env, false), anomaly: (env) => runAnomalyCheck(env),
-  reconcile: (env) => reconcilePosts(env, 14), pacer: (env) => runPacer(env),
+  reconcile: (env) => reconcilePosts(env, 14), pacer: (env) => runPacer(env), rate: (env) => rateVideos(env, 20),
   report_plain: (env) => runWeeklyReport(env, true),
 };
 
@@ -150,7 +151,7 @@ export async function handleRequest(req: Request, env: Env, ctx: ExecutionContex
     return json({ error: "method not allowed" }, 405);
   }
   // Dashboard-Aktionen (Header x-api-key = DASHBOARD_READ_KEY oder CLIPFORGE_API_KEY, CORS): Review, Settings, Aufgaben, Resume
-  if (["review", "settings", "tasks", "report", "ab", "log", "onboarding", "suggest", "inbox", "chat", "calendar", "payouts", "library", "anomalies", "reconcile", "pacer"].includes(seg[0]) || (seg[0] === "accounts" && seg[2] === "resume")) {
+  if (["review", "settings", "tasks", "report", "ab", "log", "onboarding", "suggest", "inbox", "chat", "calendar", "payouts", "library", "anomalies", "reconcile", "pacer", "catalog"].includes(seg[0]) || (seg[0] === "accounts" && seg[2] === "resume")) {
     const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "x-api-key, content-type", "Access-Control-Allow-Methods": "GET, POST, PUT, OPTIONS" };
     const J = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status, headers: { "Content-Type": "application/json", ...cors } });
     if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
@@ -209,6 +210,15 @@ export async function handleRequest(req: Request, env: Env, ctx: ExecutionContex
       if (seg[0] === "inbox" && seg[1] === "rules" && req.method === "GET") return J(await getRules(env, ws));
       if (seg[0] === "inbox" && seg[1] === "rules" && req.method === "PUT") return J(await putRules(env, (await b()) as any, ws));
       if (seg[0] === "inbox" && seg[1] && ["read", "done", "unread", "reopen"].includes(seg[2] ?? "") && req.method === "POST") return J(await markNotification(env, seg[1] === "all" ? "all" : Number(seg[1]), seg[2] as any, ws));
+      // Katalog (Nachschub-Agent): GET /catalog?niche= liefert beide Listen (frisch / Archiv) · POST /catalog/rate?limit= bewertet offene Videos
+      // GET /catalog/usage?video= zeigt die Sperrliste eines Videos · GET /catalog/segment?video=&start=&end= prüft eine Stelle
+      if (seg[0] === "catalog" && !seg[1] && req.method === "GET")
+        return J(await suggestionLists(env, url.searchParams.get("niche") ?? nichesOf(env)[0]?.key ?? "", ws, Number(url.searchParams.get("limit") || 8)));
+      if (seg[0] === "catalog" && seg[1] === "rate" && req.method === "POST") return J(await rateVideos(env, Number(url.searchParams.get("limit") || 20), ws));
+      if (seg[0] === "catalog" && seg[1] === "usage" && req.method === "GET") return J(await usedSegments(env, url.searchParams.get("video") ?? "", ws));
+      if (seg[0] === "catalog" && seg[1] === "segment" && req.method === "GET")
+        return J({ taken: await segmentTaken(env, url.searchParams.get("video") ?? "", Number(url.searchParams.get("start") || 0), Number(url.searchParams.get("end") || 0), ws) });
+
       // Vorschläge (Nischen-Seite): GET /suggest?niche= · POST /suggest/pick {video_id} · POST /suggest/cancel {upload_id}
       if (seg[0] === "suggest" && !seg[1] && req.method === "GET") return J(await listSuggestions(env, url.searchParams.get("niche") ?? nichesOf(env)[0]?.key ?? "", ws, Number(url.searchParams.get("limit") || 8)));
       if (seg[0] === "suggest" && seg[1] === "pick" && req.method === "POST") { const body = (await b()) as any; const r = await pickSuggestion(env, String(body.video_id ?? ""), ws, false); return J(r, r.ok ? 200 : 400); }
@@ -406,6 +416,10 @@ export async function handleRequest(req: Request, env: Env, ctx: ExecutionContex
           b.duration_s ?? null, b.hook ?? null, b.pinned_comment ?? null, b.video_id ?? null, b.rank ?? null, b.thumb_url ?? null,
           b.context_line ?? null, b.cover_url ?? null, j(b.scores), j(b.qa), b.variant ?? null, b.campaign_id);
         const row = await db.first<{ seq: number }>(env, "SELECT seq FROM clips WHERE id = ?", id);
+        if (b.video_id && (b.start_s != null || b.end_s != null))          // Sperrliste: verwendete Stelle des Quellvideos festhalten
+          await recordUsage(env, { video_id: String(b.video_id), clip_id: id, account: String(b.account ?? ""),
+                                   start_s: b.start_s == null ? null : Number(b.start_s), end_s: b.end_s == null ? null : Number(b.end_s),
+                                   note: b.status === "rejected_precheck" ? "verworfen" : null });   // Pipeline schreibt in den Standard-Workspace
         return json({ id, seq: row?.seq ?? null }, 201);
       }
     }
@@ -440,7 +454,7 @@ export async function handleRequest(req: Request, env: Env, ctx: ExecutionContex
       }
       if (req.method === "PATCH" && rest[1]) {
         const b = await body();
-        const fields = ["status", "note", "duration_s", "views", "is_short", "campaign_id"].filter((k) => k in b);
+        const fields = ["status", "note", "duration_s", "views", "is_short", "campaign_id", "height"].filter((k) => k in b);   // height: echte Auflösung der Quelle (Pipeline)
         if (!fields.length) return json({ error: "keine Felder" }, 400);
         await db.run(env, `UPDATE videos SET ${fields.map((k) => `${k} = ?`).join(", ")}, updated_at = ? WHERE id = ?`, ...fields.map((k) => b[k] ?? null), nowIso(), rest[1]);
         return json(await db.first(env, "SELECT * FROM videos WHERE id = ?", rest[1]));

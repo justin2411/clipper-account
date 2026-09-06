@@ -206,6 +206,17 @@ async function addUsage(env: Env, ws: string, amount: number) {
   await db.run(env, "INSERT INTO chat_usage (workspace_id, day, usd, calls) VALUES (?, ?, ?, 1) ON CONFLICT(workspace_id, day) DO UPDATE SET usd = usd + excluded.usd, calls = calls + 1", ws, day, amount);
 }
 
+/** Einzelne Modellfrage ohne Werkzeuge (für Jobs wie die Katalog-Bewertung): Antworttext, Kosten werden aufs Tagesbudget gebucht. */
+export async function askModel(env: Env, prompt: string, o: { system?: string; strong?: boolean; maxTokens?: number; ws?: string } = {}): Promise<string | null> {
+  if (!env.ANTHROPIC_API_KEY) return null;
+  const ws = o.ws ?? "default";
+  if ((await chatBudget(env, ws)).exhausted) return null;
+  const model = o.strong ? strongModel(env) : fastModel(env);
+  const j = await anthropic(env, model, o.system ?? "", [{ role: "user", content: prompt }], [], o.maxTokens ?? 1500);
+  await addUsage(env, ws, usd(model, j?.usage));
+  return (j?.content ?? []).filter((c: any) => c.type === "text").map((c: any) => c.text).join("\n").trim() || null;
+}
+
 // ---------- Router ----------
 const ACTION_RE = /\b(pausier|pause|stopp|freigeb|freischalt|resume|verschieb|leg[e]? .* (auf|um)|ändere|änder|setz[e]? |stell[e]? .* (auf|um)|erledig|abhak|ablehn|reject|approve|genehmig|neu rendern|redo|aktivier|deaktivier)/i;
 const ANALYSIS_RE = /^(analysiere|analyse|warum|wieso|weshalb|erkläre|vergleich|bewerte|was sollte|empfiehl|strategie|woran liegt)/i;

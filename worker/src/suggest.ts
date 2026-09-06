@@ -2,11 +2,14 @@
 // Ranking: neue Videos (< 30 Tage) zuerst, dann Backlog nach Aufrufen; bereits verwendete Videos und Videos unter der Mindestlänge
 // der Nische (cut.min_s, Dauer unbekannt = zugelassen, Shorts nie) ausgeschlossen. „Nehmen" legt eine Quelle mit needs_download an
 // (uploads-Zeile ohne Datei) + Aufgabe „Video herunterladen & hochladen"; der Upload in der Aufgabe hängt sich an diese Quelle.
-// Automatik (runFan): fällt der Fan-Vorrat einer Nische unter stock_days (Feinjustierung, Standard 2), wird der oberste Vorschlag
-// selbst gezogen – sichtbar im Workflow mit „automatisch gewählt", abbrechbar. Telegram informiert, fragt nicht.
+// Automatik (runFan): fällt der Fan-Vorrat einer Nische unter stock_days (Feinjustierung, Standard 2), wird selbst gezogen –
+// sichtbar im Workflow mit „automatisch gewählt", abbrechbar. Telegram informiert, fragt nicht.
+// Seit dem Nachschub-Agenten kommen die Kandidaten aus catalog.ts: zwei Listen (frisch / Archiv), Sperrliste der schon
+// verwendeten Videos und Stellen, und beim Selbstbefüllen die Mischung 70 % Archiv zu 30 % frisch.
 import { Env, db, nowIso, logEvent, telegram, nichesOf } from "./shared";
 import { getSettings } from "./settings";
 import { completeTask } from "./tasks";
+import { suggestionLists, pickForAgent } from "./catalog";
 
 export interface Suggestion { id: string; title: string; url: string; channel: string; duration_s: number | null; views: number; published_at: string | null; age_days: number | null; fresh: boolean; reason: string }
 
@@ -15,34 +18,14 @@ const fmtViews = (v: number) => (v >= 1e6 ? `${(v / 1e6).toFixed(v >= 1e7 ? 0 : 
 const fmtDur = (s: number | null) => (s == null ? "Länge unbekannt" : `${Math.round(s / 60)} min`);
 
 export async function listSuggestions(env: Env, niche: string, ws = "default", limit = 8): Promise<Suggestion[]> {
-  const n = nichesOf(env).find((x) => x.key === niche);
-  if (!n) return [];
-  const s = await getSettings(env, ws);
-  const minS = Number(s.niches[niche]?.cut?.min_s ?? 15);
-  const minSource = Math.max(180, minS * 4);                       // Quelle muss deutlich länger als ein Clip sein (Shorts/Trailer raus)
-  const since = new Date(Date.now() - 30 * 86400000).toISOString();
-  const channelIds = Object.keys(n.channels ?? {});
-  const rows = await db.all<any>(env,
-    `SELECT v.id, v.title, v.url, v.channel_name, v.duration_s, v.views, v.published_at
-     FROM videos v
-     WHERE v.workspace_id = ? AND (v.niche_id = ? ${channelIds.length ? `OR v.channel_id IN (${channelIds.map(() => "?").join(",")})` : ""})
-       AND v.status = 'new' AND COALESCE(v.is_short, 0) = 0 AND v.campaign_id IS NULL
-       AND (v.duration_s IS NULL OR v.duration_s >= ?)
-       AND NOT EXISTS (SELECT 1 FROM uploads u WHERE u.video_id = v.id AND u.status NOT IN ('cancelled','error'))
-     ORDER BY CASE WHEN v.published_at >= ? THEN 0 ELSE 1 END, CASE WHEN v.published_at >= ? THEN v.published_at END DESC, v.views DESC
-     LIMIT ?`, ws, niche, ...channelIds, minSource, since, since, limit);
-  return rows.map((v) => {
-    const age = v.published_at ? Math.max(0, Math.round((Date.now() - new Date(v.published_at).getTime()) / 86400000)) : null;
-    const fresh = !!v.published_at && v.published_at >= since;
-    const reason = fresh ? `Neu (vor ${age} Tag${age === 1 ? "" : "en"}) · ${fmtViews(v.views ?? 0)} Aufrufe · ${fmtDur(v.duration_s)}`
-      : `Backlog-Top nach Aufrufen: ${fmtViews(v.views ?? 0)} · ${fmtDur(v.duration_s)}${age != null ? ` · ${Math.round(age / 30)} Monate alt` : ""}`;
-    return { id: v.id, title: v.title ?? v.id, url: v.url ?? yt(v.id), channel: v.channel_name ?? "", duration_s: v.duration_s ?? null, views: v.views ?? 0,
-             published_at: v.published_at ?? null, age_days: age, fresh, reason };
-  });
+  const { fresh, archive } = await suggestionLists(env, niche, ws, limit);
+  const mix = [...archive, ...fresh].slice(0, limit);               // eine Liste für Aufrufer, die nur eine erwarten (Archiv zuerst)
+  return mix.map((c) => ({ id: c.id, title: c.title, url: c.url, channel: c.channel, duration_s: c.duration_s, views: c.views,
+                           published_at: c.published_at, age_days: c.age_days, fresh: c.list === "fresh", reason: c.reason }));
 }
 
 /** „Nehmen": Quelle mit needs_download + Aufgabe zum Herunterladen/Hochladen. auto = vom System gewählt. */
-export async function pickSuggestion(env: Env, videoId: string, ws = "default", auto = false): Promise<{ ok: boolean; error?: string; upload_id?: string; task_id?: string }> {
+export async function pickSuggestion(env: Env, videoId: string, ws = "default", auto = false, list?: "fresh" | "archive"): Promise<{ ok: boolean; error?: string; upload_id?: string; task_id?: string }> {
   const v = await db.first<any>(env, "SELECT * FROM videos WHERE id = ? AND workspace_id = ?", videoId, ws);
   if (!v) return { ok: false, error: "Video nicht im Katalog" };
   const open = await db.first<any>(env, "SELECT id FROM uploads WHERE video_id = ? AND status NOT IN ('cancelled','error')", videoId);
@@ -51,7 +34,8 @@ export async function pickSuggestion(env: Env, videoId: string, ws = "default", 
   const id = crypto.randomUUID().replace(/-/g, "").slice(0, 16);
   await db.run(env,
     "INSERT INTO uploads (id, niche_id, key, title, size, kind, video_id, status, note, workspace_id, created_at, updated_at) VALUES (?, ?, ?, ?, 0, 'fan', ?, 'needs_download', ?, ?, ?, ?)",
-    id, niche, `pending/${niche}/${id}`, String(v.title ?? videoId).slice(0, 120), videoId, auto ? "automatisch gewählt" : null, ws, nowIso(), nowIso());
+    id, niche, `pending/${niche}/${id}`, String(v.title ?? videoId).slice(0, 120), videoId,
+    auto ? `automatisch gewählt${list ? ` (${list === "archive" ? "Archiv" : "frisch"})` : ""}` : null, ws, nowIso(), nowIso());
   await db.run(env, "UPDATE videos SET status = 'picked', updated_at = ? WHERE id = ?", nowIso(), videoId);
   const taskId = crypto.randomUUID().replace(/-/g, "").slice(0, 12);
   const nl = nichesOf(env).find((n) => n.key === niche)?.label ?? niche;
@@ -92,9 +76,9 @@ export async function autoPick(env: Env, stock: Record<string, { ready: number; 
       "SELECT COUNT(*) AS n FROM uploads WHERE workspace_id = ? AND niche_id = ? AND status IN ('needs_download','uploading','uploaded','dispatched') AND updated_at >= ?",
       ws, n.key, new Date(Date.now() - 48 * 3600000).toISOString());
     if (inflight?.n) continue;                                   // schon etwas unterwegs (gewählt/lädt/Clip-Job läuft)
-    const [top] = await listSuggestions(env, n.key, ws, 1);
+    const top = await pickForAgent(env, n.key, ws);               // Mischung 70 % Archiv, 30 % frisch
     if (!top) { await logEvent(env, `stock_low niche=${n.key} days=${out.days[n.key]} keine Vorschläge`); continue; }
-    const r = await pickSuggestion(env, top.id, ws, true);
+    const r = await pickSuggestion(env, top.id, ws, true, top.list);
     if (r.ok) out.picked.push(top.id);
   }
   return out;

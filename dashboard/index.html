@@ -91,7 +91,9 @@
   accounts[].health (Nachtrag 1): { color:"green|yellow|red|grey", headline, reasons:[..], question:"Warum ist A rot?",
               metrics:{posts_with_views, avg_last10, avg_prev10, trend_pct, under_200_pct, engagement_pct, days_since_post, paused, pause_reason, kill_switches_30d}, history:[{at,text}] }
               Ampel in Rangliste/Nischen-Karten (Tiefe 1), Kennzahlen per Klick (Tiefe 2), Kill-Switch-Historie (Tiefe 3); rot/gelb → Deep-Link #chat:<Frage>
-  suggestions: { <niche>: [{id, title, url, channel, duration_s, views, published_at, age_days, fresh, reason}] } -> GET /suggest?niche= (RSS neu < 30 Tage zuerst, dann Backlog nach Aufrufen;
+  suggestions: { <niche>: { fresh:[Kandidat], archive:[Kandidat], items:[…], blocked, unrated } } -> GET /catalog?niche=
+              Kandidat = {id, title, url, channel, duration_s, views, published_at, age_days, list:"fresh|archive", score, fit_a, fit_b, account, rank_value, height, reason}
+              frisch = letzte 14 Tage (neueste zuerst), Archiv = älter als 6 Monate (Aufrufe × Bewertung). Gesperrt: Video in den letzten 90 Tagen schon verwendet. (alt: GET /suggest?niche= nach Aufrufen;
               verwendete Videos und Quellen unter der Mindestlänge ausgeschlossen). POST /suggest/pick {video_id} → Quelle needs_download (sources[].pending, auto = automatisch gewählt) + Aufgabe
               "Video herunterladen & hochladen" (urls=[YouTube-Link]); Upload in der Aufgabe (presign mit video_id) hängt sich an die Quelle. POST /suggest/cancel {upload_id}.
               Automatik: Vorrat < settings.niches.<key>.stock_days (Regler "Vorrat in Tagen", Standard 2) → oberster Vorschlag automatisch, Telegram informiert.
@@ -1334,11 +1336,19 @@ function wireInbox(d){if(route()!=="inbox")return;const H={"x-api-key":cfg?.apiK
   document.querySelectorAll("[data-inbmark]").forEach(b=>b.onclick=async()=>{if(DEMO_MODE||!cfg)return;const [id,act]=b.dataset.inbmark.split("|");await fetch(cfg.apiUrl+"/inbox/"+id+"/"+act,{method:"POST",headers:H});INB=null;refresh()});
   document.querySelectorAll("[data-rule]").forEach(c=>c.onchange=async()=>{if(DEMO_MODE||!cfg)return;const rules={};document.querySelectorAll("[data-rule]").forEach(x=>rules[x.dataset.rule]={telegram:x.checked,push:false});const r=await (await fetch(cfg.apiUrl+"/inbox/rules",{method:"PUT",headers:H,body:JSON.stringify(rules)})).json();if(INB)INB.rules=r;if(d.inbox)d.inbox.rules=r});
   const m=$("#inbmore");if(m)m.onclick=()=>loadInbox(d,m.dataset.before)}
-// Vorschläge (Nischen-Seite) – Tiefe 1: bis zu 5 Kandidaten mit Titel, Länge, Aufrufen, Alter, Begründung, „Nehmen“; Rest per „mehr“
-function suggestBlock(d,n){const list=(d.suggestions||{})[n.key]||[];const dur=s=>s==null?"–":Math.round(s/60)+" min";const age=a=>a==null?"–":a<1?"heute":a<30?`vor ${a} Tag${a===1?"":"en"}`:`vor ${Math.round(a/30)} Mon.`;
-  const row=v=>`<div class="sug"><div class="w"><div class="t"><a href="${v.url}" target="_blank" rel="noopener">${v.title}</a></div><div class="r">${v.channel} · ${dur(v.duration_s)} · ${k(v.views)} Aufrufe · ${age(v.age_days)} · ${v.reason}</div></div>${v.fresh?`<span class="pill ok">neu</span>`:`<span class="pill">Backlog</span>`}<button class="b" data-pick="${v.id}">Nehmen</button></div>`;
-  return `<section><h2>Vorschläge <span>${list.length?`${list.length} Kandidaten · neu zuerst, dann nach Aufrufen`:"keine Kandidaten (Backlog leer oder alles verwendet)"} · Automatik ab Vorrat &lt; ${get(d.settings?.niches?.[n.key]||{},"stock_days")||2} Tage</span></h2>
-    ${list.slice(0,5).map(row).join("")}${list.length>5?`<details style="margin-top:6px"><summary style="cursor:pointer;font-size:12px;color:var(--ink3)">${list.length-5} weitere</summary>${list.slice(5).map(row).join("")}</details>`:""}</section>`}
+// Vorschläge (Nischen-Seite) – zwei Listen: Frisch (letzte 14 Tage, aktuelle Aufmerksamkeit, viel Konkurrenz) und
+// Archiv (älter als 6 Monate, wenig Konkurrenz, nach Aufrufen × Bewertung). Tiefe 1: fünf Kandidaten je Liste, Rest per „mehr".
+function suggestBlock(d,n){const sg=(d.suggestions||{})[n.key]||{};const fresh=sg.fresh||[],arch=sg.archive||[];
+  const dur=s=>s==null?"–":Math.round(s/60)+" min";const age=a=>a==null?"–":a<1?"heute":a<30?`vor ${a} Tag${a===1?"":"en"}`:`vor ${Math.round(a/30)} Mon.`;
+  const row=v=>`<div class="sug"><div class="w"><div class="t"><a href="${v.url}" target="_blank" rel="noopener">${v.title}</a></div><div class="r">${v.channel} · ${dur(v.duration_s)} · ${k(v.views)} Aufrufe · ${age(v.age_days)}${v.score!=null?` · Bewertung ${v.score}`:""}${v.account?` · passt zu ${v.account}`:""}</div><div class="r">${v.reason}</div></div>${v.list==="fresh"?`<span class="pill ok">frisch</span>`:`<span class="pill v">Archiv</span>`}<button class="b" data-pick="${v.id}">Nehmen</button></div>`;
+  const list=(items,leer)=>items.length?`${items.slice(0,5).map(row).join("")}${items.length>5?`<details style="margin-top:6px"><summary style="cursor:pointer;font-size:12px;color:var(--ink3)">${items.length-5} weitere</summary>${items.slice(5).map(row).join("")}</details>`:""}`:`<div class="empty">${leer}</div>`;
+  const stock=get(d.settings?.niches?.[n.key]||{},"stock_days")||2;
+  return `<section><h2>Vorschläge <span>Automatik ab Vorrat &lt; ${stock} Tage · Mischung 70 % Archiv / 30 % frisch${sg.blocked?` · ${sg.blocked} gesperrt (90 Tage)`:""}${sg.unrated?` · ${sg.unrated} noch unbewertet`:""}</span></h2>
+    <div class="hint">Frisch: aktuelle Aufmerksamkeit, dafür viel Konkurrenz. Archiv: wenig Konkurrenz, hohe Gesamtaufrufe.</div>
+    <h3 style="font-size:13px;margin:6px 0 4px">Frisch <span style="font-weight:500;color:var(--ink3)">letzte 14 Tage</span></h3>
+    ${list(fresh,"Kein frisches Video offen.")}
+    <h3 style="font-size:13px;margin:12px 0 4px">Archiv <span style="font-weight:500;color:var(--ink3)">älter als 6 Monate, nach Aufrufen × Bewertung</span></h3>
+    ${list(arch,"Kein Archivvideo offen.")}</section>`}
 function wireSuggest(d){const H={"x-api-key":cfg?.apiKey,"Content-Type":"application/json"};
   document.querySelectorAll("[data-pick]").forEach(b=>b.onclick=async()=>{if(DEMO_MODE||!cfg)return;b.disabled=true;b.textContent="…";const r=await (await fetch(cfg.apiUrl+"/suggest/pick",{method:"POST",headers:H,body:JSON.stringify({video_id:b.dataset.pick})})).json();if(!r.ok){b.textContent=r.error||"Fehler";return}refresh()});
   document.querySelectorAll("[data-cancelpick]").forEach(b=>b.onclick=async()=>{if(DEMO_MODE||!cfg)return;await fetch(cfg.apiUrl+"/suggest/cancel",{method:"POST",headers:H,body:JSON.stringify({upload_id:b.dataset.cancelpick})});refresh()})}
