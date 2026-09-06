@@ -127,9 +127,8 @@ def main():
             accent_word = ai._pick_accent(context_line)
         caption = platform.caption(campaign, hook=context_line)
         name = f"{acc}_s{i}_{clip.name}"
-        staged = overlay.apply(clip, overlay_text, WORK / "stage", name=name)                # Pflicht-Overlay (paid, falls gesetzt)
         if not context_line.strip():                                                          # nie roh (Fan wie paid)
-            db.insert_clip(a.campaign, acc, str(staged), status="rejected_precheck", note="no_hook", hook=hook, video_id=video_id, rank=rank); continue
+            db.insert_clip(a.campaign, acc, str(clip), status="rejected_precheck", note="no_hook", hook=hook, video_id=video_id, rank=rank); continue
         eff_acc = copy.deepcopy((eff.get(acc) or {}).get("settings") or {})
         variant = None
         ab = (eff.get(acc) or {}).get("ab") or {}                                            # A/B-Test (Stufe 4): Clips abwechselnd mit den Varianten rendern
@@ -143,13 +142,18 @@ def main():
         style = brand_of(acc) or str(th.get("style", "bar"))
         if vis.get("font"):                                                                  # Dashboard-Look (Feinjustierung) überschreibt brand.yaml
             style = {**(style if isinstance(style, dict) else {}), **overlay.style_from_visual(vis)}
+        staged, ov_geom = overlay.apply(clip, overlay_text, WORK / "stage", name=name,       # Overlay oben: eigener Layer (show/Position/Dauer aus visual.overlay)
+                                        style=overlay.overlay_style_from_visual(vis), fallback=context_line)
         capset = eff_acc.get("caption") or {}
         if kind == "fan" and capset.get("template"):
             caption = capset["template"].replace("{hook}", context_line)
-        final, cover_jpg = overlay.apply_text_hook(staged, context_line, WORK / "final", name=name,
+        final, cover_jpg, qa_render = overlay.apply_text_hook(staged, context_line, WORK / "final", name=name,
                                                    seconds=float(th.get("seconds", 2)), color=str(th.get("color", "white")),
                                                    accent=str(th.get("accent", "#FF5A1F")), style=style,
-                                                   accent_word=accent_word, cover=True)
+                                                   accent_word=accent_word, cover=True,
+                                                   cover_style=overlay.cover_style_from_visual(vis), overlay_geom=ov_geom)
+        if qa_render.get("notes"):
+            db.log(a.campaign, f"render_layout account={acc} {qa_render['notes'][0][:120]}")
         ok, reason = checks.validate(final, rules, forbidden=campaign.get("forbidden", {}))
         dur = checks.duration_of(final)
         if not ok:
@@ -165,9 +169,11 @@ def main():
                 cover_url = storage.upload(cover_jpg, prefix=prefix)
         except Exception as e:
             print("thumbnail failed:", e)
+        qa_report = {"notes": qa_render.get("notes", []), "overlay": {"used": bool(ov_geom.get("used")), "bottom_pct": ov_geom.get("bottom_pct", 0)},
+                     "hook_moved_px": qa_render.get("hook_moved_px", 0), "overlap_risk": bool(qa_render.get("overlap_risk"))}
         r = db.insert_clip(a.campaign, acc, url, status="review" if review_mode.get(acc) else "ready", caption=caption, hook_type=overlay.hook_type_of(clip),
                            duration_s=dur, hook=hook, pinned_comment=pinned, video_id=video_id, rank=rank, thumb_url=thumb_url,
-                           context_line=context_line, cover_url=cover_url, scores=meta.get("scores"), variant=variant)
+                           context_line=context_line, cover_url=cover_url, scores=meta.get("scores"), qa=qa_report, variant=variant)
         kept[acc] += 1
         if preview_on and previews[acc] < 3:                                                 # Vorschau: Standbild (Hook sichtbar) + Caption
             previews[acc] += 1

@@ -42,7 +42,7 @@ import { runWeeklyReportAI, runAnomalyCheck, detectAnomalies, lastAnomalies } fr
 import { reconcilePosts } from "./reconcile";
 import { resolveWorkspace, listWorkspaces, createWorkspace, patchWorkspace } from "./workspace";
 import { runFan, startUploadJob } from "./fan";
-import { getSettings, effectiveSettings, validateSettings, diffSettings, putSettings, listVersions, getVersion, defaultSettings, deepMerge } from "./settings";
+import { getSettings, effectiveSettings, validateAll, diffSettings, putSettings, listVersions, getVersion, defaultSettings, deepMerge } from "./settings";
 import { listTasks, completeTask, resumeAccount, syncTasks } from "./tasks";
 import { listReview, reviewAction, feedbackHints } from "./review";
 import { buildDashboard } from "./dashboard";
@@ -218,10 +218,10 @@ export async function handleRequest(req: Request, env: Env, ctx: ExecutionContex
         const body = (await b()) as any;
         const cur = await getSettings(env, ws);
         const next = { global: { ...cur.global, ...(body.global ?? {}) }, niches: body.niches ?? cur.niches, accounts: body.accounts ?? cur.accounts };
-        const errors = validateSettings(next);
+        const { errors, warnings } = await validateAll(env, next, ws, cur);
         if (errors.length) return J({ ok: false, errors }, 400);
         const diff = diffSettings(env, cur, next);
-        if (!body.confirm || body.preview || url.searchParams.get("preview") === "1") return J({ ok: false, preview: true, diff, hint: "Mit confirm:true senden, um zu schreiben" });   // Stufe 3: Diff zuerst, Bestätigung nötig
+        if (!body.confirm || body.preview || url.searchParams.get("preview") === "1") return J({ ok: false, preview: true, diff, warnings, hint: "Mit confirm:true senden, um zu schreiben" });   // Stufe 3: Diff zuerst, Bestätigung nötig
         if (!diff.length) return J({ ok: true, unchanged: true, diff });
         const r = await putSettings(env, next, ws, diff);
         await logEvent(env, `settings_saved changes=${diff.length} version=${r.version}`);
@@ -236,10 +236,10 @@ export async function handleRequest(req: Request, env: Env, ctx: ExecutionContex
         const def = defaultSettings(env, ws), niches: Record<string, any> = {};
         for (const k of Object.keys(def.niches)) niches[k] = deepMerge(def.niches[k], target.niches?.[k] ?? {});   // ältere Stände ohne neue Felder: Defaults auffüllen
         const next = { global: { ...cur.global, shadow: target.global?.shadow ?? cur.global.shadow }, niches, accounts: target.accounts ?? cur.accounts };
-        const errors = validateSettings(next);
+        const { errors, warnings } = await validateAll(env, next, ws, cur);
         if (errors.length) return J({ ok: false, errors }, 400);
         const diff = diffSettings(env, cur, next);
-        if (!body.confirm) return J({ ok: false, preview: true, diff, target: body.version ? `Version ${body.version}` : "Standard" });
+        if (!body.confirm) return J({ ok: false, preview: true, diff, warnings, target: body.version ? `Version ${body.version}` : "Standard" });
         if (!diff.length) return J({ ok: true, unchanged: true, diff });
         const r = await putSettings(env, next, ws, diff);
         await logEvent(env, `settings_reset target=${body.version ? "v" + body.version : "default"} changes=${diff.length} version=${r.version}`);

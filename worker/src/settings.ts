@@ -14,10 +14,27 @@ export interface NicheSettings {
             // Feinjustierung Hook-Text (Dashboard v4): Größe in px bei 1080 Breite, Dicke nur bei variablen Fonts (Montserrat, Oswald)
             hook_size: number; hook_weight: number; hook_spacing: number; hook_line_h: number; hook_align: "left" | "center" | "right"; hook_x_pct: number; hook_w_pct: number;
             hook_case: "upper" | "none"; box: "none" | "solid" | "blur"; box_color: string; box_opacity: number; box_pad: number; box_radius: number; shadow: number;
-            anim: "none" | "pop" | "slide" | "typewriter"; accent_mode: "none" | "last2" | "first" | "keyword"; align?: string };
+            anim: "none" | "pop" | "slide" | "typewriter"; accent_mode: "none" | "last2" | "first" | "keyword"; align?: string;
+            // Overlay oben (Pflichttext der Kampagne) – eigener Layer, erbt nichts vom Hook
+            overlay: OverlaySettings; cover: CoverSettings };
   audio: { lufs: number; true_peak: number; normalize: boolean };
   caption: { template: string; hashtags: string[]; pinned_comment: boolean; tone: string };
   qa: { threshold: number; checks: Record<string, boolean> };
+}
+export interface OverlaySettings {
+  show: "auto" | "always" | "never";      // auto = nur wenn die Kampagne einen Pflichttext vorgibt
+  text: string;                            // leer = Kampagnentext bzw. Kontext-Zeile
+  font: string; size: number; weight: number; color: string; case: "upper" | "none";
+  y_pct: number; x_pct: number; w_pct: number; align: "left" | "center" | "right"; lines: number;
+  box: "none" | "solid" | "blur"; box_color: string; box_opacity: number; box_pad: number; box_radius: number;
+  outline_px: number; shadow: number; anim: "none" | "fade" | "slide"; duration: number;   // duration 0 = ganzer Clip
+}
+export interface CoverSettings {
+  mode: "hook" | "custom" | "none";        // none = nur Bild
+  text: string; font: string; size: number; weight: number; color: string; accent: string; case: "upper" | "none";
+  align: "left" | "center" | "right"; y_pct: number; x_pct: number; w_pct: number; max_words: number; lines: number;
+  outline_px: number; shadow: number; box: "none" | "solid" | "blur"; box_color: string; box_opacity: number; box_pad: number; box_radius: number;
+  frame: "motion" | "face" | "first" | "manual"; frame_skip_s: number; dim: number;
 }
 export interface Settings { global: { shadow: boolean; workspace?: string }; niches: Record<string, NicheSettings>; accounts: Record<string, Partial<NicheSettings> | Record<string, any>> }
 
@@ -29,6 +46,19 @@ export const HOOK_DEFAULTS: Pick<NicheSettings["visual"], "hook_size" | "hook_we
   hook_size: 52, hook_weight: 800, hook_spacing: -1, hook_line_h: 1.05, hook_align: "center", hook_x_pct: 50, hook_w_pct: 84, hook_case: "upper",
   box: "none", box_color: "#000000", box_opacity: 55, box_pad: 10, box_radius: 10, shadow: 2, anim: "pop", accent_mode: "last2",
 };
+export const OVERLAY_DEFAULTS: OverlaySettings = {
+  show: "auto", text: "", font: "Montserrat", size: 34, weight: 700, color: "#FFFFFF", case: "none",
+  y_pct: 14, x_pct: 50, w_pct: 84, align: "center", lines: 2,
+  box: "solid", box_color: "#000000", box_opacity: 55, box_pad: 10, box_radius: 10,
+  outline_px: 2, shadow: 1, anim: "fade", duration: 0,
+};
+export const COVER_DEFAULTS: CoverSettings = {
+  mode: "hook", text: "", font: "Anton", size: 92, weight: 800, color: "#FFFFFF", accent: "#FF6A00", case: "upper",
+  align: "center", y_pct: 45, x_pct: 50, w_pct: 78, max_words: 6, lines: 3,
+  outline_px: 8, shadow: 2, box: "none", box_color: "#000000", box_opacity: 55, box_pad: 14, box_radius: 14,
+  frame: "motion", frame_skip_s: 1, dim: 15,
+};
+
 /** Altformat (box:true/false, align) → v4-Felder. */
 function normalizeVisual(v: any): any {
   if (!v || typeof v !== "object") return v;
@@ -36,6 +66,8 @@ function normalizeVisual(v: any): any {
   if (typeof o.box === "boolean") o.box = o.box ? "solid" : "none";
   if (o.align && !o.hook_align) o.hook_align = o.align;
   delete o.align;
+  if (o.overlay && typeof o.overlay.box === "boolean") o.overlay.box = o.overlay.box ? "solid" : "none";
+  if (o.cover && typeof o.cover.box === "boolean") o.cover.box = o.cover.box ? "solid" : "none";
   return o;
 }
 
@@ -50,7 +82,8 @@ export function defaultNiche(env: Env, key: string): NicheSettings {
     cut: { min_s: 15, max_s: 35, cold_open: true, pad_start_ms: 120, pad_end_ms: 250, silence_trim_s: 0.6, word_boundary: true, end_style: "freeze" },
     select: { candidates: 20, render_top: 8, dedupe_s: 25, weights: { surprise: 2, stakes: 2, reaction: 1, cliffhanger: 2, context: 2, clarity: 2 }, min_score: 7, context_line: true },
     visual: { font: "Anton", color: "#FFFFFF", accent: "#FF6A00", outline_px: 5, hook_y_pct: 68, hook_max_words: 8, hook_max_lines: 2, zoom_pct: 8, zoom_max_per_clip: 2, zoom_ease_ms: 400,
-              safe_top_px: 140, safe_bottom_px: 400, safe_right_px: 180, cover_text: true, ...HOOK_DEFAULTS },
+              safe_top_px: 140, safe_bottom_px: 400, safe_right_px: 180, cover_text: true, ...HOOK_DEFAULTS,
+              overlay: { ...OVERLAY_DEFAULTS }, cover: { ...COVER_DEFAULTS } },
     audio: { lufs: -14, true_peak: -1.5, normalize: true },
     caption: { template: `{hook} · ${cap} ${tags.join(" ")}`.trim(), hashtags: tags, pinned_comment: true, tone: "knapp" },
     qa: { threshold: 7, checks: { hook_legible: true, no_overlap: true, face_in_frame: true, not_blurry: true, safe_zone: true } },
@@ -119,6 +152,27 @@ const num = (v: any, lo: number, hi: number, name: string, errs: string[]) => {
   return n;
 };
 
+const FONTS = ["Anton", "Bangers", "Bebas Neue", "Luckiest Guy", "Montserrat", "Oswald", "Archivo Black"];
+const OVERLAY_RANGES: Record<string, [number, number]> = { size: [12, 72], weight: [400, 900], y_pct: [4, 40], x_pct: [0, 100], w_pct: [20, 100],
+  lines: [1, 4], box_opacity: [0, 100], box_pad: [0, 40], box_radius: [0, 40], outline_px: [0, 10], shadow: [0, 6], duration: [0, 60] };
+const OVERLAY_ENUMS: Record<string, string[]> = { show: ["auto", "always", "never"], case: ["upper", "none"], align: ["left", "center", "right"],
+  box: ["none", "solid", "blur"], anim: ["none", "fade", "slide"], font: FONTS };
+const COVER_RANGES: Record<string, [number, number]> = { size: [24, 160], weight: [400, 900], y_pct: [5, 90], x_pct: [0, 100], w_pct: [20, 100],
+  max_words: [1, 12], lines: [1, 4], box_opacity: [0, 100], box_pad: [0, 40], box_radius: [0, 40], outline_px: [0, 14], shadow: [0, 8],
+  frame_skip_s: [0, 30], dim: [0, 60] };
+const COVER_ENUMS: Record<string, string[]> = { mode: ["hook", "custom", "none"], case: ["upper", "none"], align: ["left", "center", "right"],
+  box: ["none", "solid", "blur"], frame: ["motion", "face", "first", "manual"], font: FONTS };
+
+/** Ein Unterblock (overlay, cover): Zahlenbereiche, Auswahlfelder, Hex-Farben. */
+function checkBlock(b: any, where: string, ranges: Record<string, [number, number]>, enums: Record<string, string[]>, colors: string[], errs: string[]) {
+  if (b === undefined) return;
+  if (!b || typeof b !== "object" || Array.isArray(b)) { errs.push(`${where}: Objekt erwartet`); return; }
+  for (const [k, [lo, hi]] of Object.entries(ranges)) if (b[k] !== undefined) num(b[k], lo, hi, `${where}.${k}`, errs);
+  for (const [k, ok] of Object.entries(enums)) if (b[k] !== undefined && !ok.includes(String(b[k]))) errs.push(`${where}.${k}: ${ok.join("|")}`);
+  for (const c of colors) if (b[c] !== undefined && !/^#[0-9a-fA-F]{6}$/.test(String(b[c]))) errs.push(`${where}.${c}: Hex-Farbe`);
+  if (b.text !== undefined && String(b.text).length > 200) errs.push(`${where}.text: höchstens 200 Zeichen`);
+}
+
 /** Validierung: bekannte Felder, Wertebereiche, Slots HH:MM. Rückgabe: Fehlerliste. */
 export function validateSettings(s: Settings): string[] {
   const errs: string[] = [];
@@ -146,7 +200,9 @@ export function validateSettings(s: Settings): string[] {
       const enums: Record<string, string[]> = { hook_align: ["left", "center", "right"], hook_case: ["upper", "none"], box: ["none", "solid", "blur"], anim: ["none", "pop", "slide", "typewriter"], accent_mode: ["none", "last2", "first", "keyword"],
         font: ["Anton", "Bangers", "Bebas Neue", "Luckiest Guy", "Montserrat", "Oswald", "Archivo Black"] };
       for (const [k, ok] of Object.entries(enums)) if (v[k] !== undefined && !ok.includes(String(v[k]))) errs.push(`${where}.visual.${k}: ${ok.join("|")}`);
-      for (const c of ["color", "accent", "box_color"]) if (v[c] !== undefined && !/^#[0-9a-fA-F]{6}$/.test(String(v[c]))) errs.push(`${where}.visual.${c}: Hex-Farbe`); }
+      for (const c of ["color", "accent", "box_color"]) if (v[c] !== undefined && !/^#[0-9a-fA-F]{6}$/.test(String(v[c]))) errs.push(`${where}.visual.${c}: Hex-Farbe`);
+      checkBlock(v.overlay, `${where}.visual.overlay`, OVERLAY_RANGES, OVERLAY_ENUMS, ["color", "box_color"], errs);
+      checkBlock(v.cover, `${where}.visual.cover`, COVER_RANGES, COVER_ENUMS, ["color", "accent", "box_color"], errs); }
     if (n.audio) { if (n.audio.lufs !== undefined) num(n.audio.lufs, -24, -8, `${where}.audio.lufs`, errs); if (n.audio.true_peak !== undefined) num(n.audio.true_peak, -6, 0, `${where}.audio.true_peak`, errs); }
     if (n.qa?.threshold !== undefined) num(n.qa.threshold, 0, 10, `${where}.qa.threshold`, errs);
     if (n.caption?.template !== undefined && !String(n.caption.template).includes("{hook}")) errs.push(`${where}.caption.template muss {hook} enthalten`);
@@ -155,6 +211,60 @@ export function validateSettings(s: Settings): string[] {
   for (const [k, n] of Object.entries(s.niches ?? {})) checkNiche(n, `niches.${k}`);
   for (const [k, n] of Object.entries(s.accounts ?? {})) checkNiche(n, `accounts.${k}`, true);
   return errs;
+}
+
+/** Praktische Tageslimits je Plattform – mehr Posts schadet der Reichweite mehr, als es bringt. */
+export const PLATFORM_MAX_PER_DAY: Record<string, number> = { tiktok: 10, instagram: 10, youtube: 5 };
+
+/** Harte Prüfungen gegen die laufenden Kampagnen (die Warnungen aus dem Dashboard, serverseitig durchgesetzt).
+ *  1. Hook-Höhe höchstens 72 % (sonst verdeckt TikToks Caption-Leiste den Text) – der Bereich steckt schon in validateSettings.
+ *  2. cut.min_s nie unter der Mindestlänge einer aktiven Kampagne der Nische.
+ *  3. overlay.show = never, obwohl eine aktive Kampagne einen Pflichttext vorgibt → abgelehnt.
+ *  4. posts_per_day höchstens so hoch wie das Limit der schwächsten gewählten Plattform. */
+export async function validateAgainstCampaigns(env: Env, s: Settings, ws = "default"): Promise<string[]> {
+  const errs: string[] = [];
+  const rows = await db.all<{ niche_id: string | null; name: string; min_seconds: number | null; required: string | null }>(env,
+    "SELECT niche_id, name, min_seconds, required FROM campaigns WHERE workspace_id = ? AND COALESCE(status,'active') IN ('active','joined') AND COALESCE(kind,'paid') = 'paid'", ws).catch(() => []);
+  const overlayTextOf = (r: { required: string | null }) => { try { return String((JSON.parse(r.required || "{}") as any)?.overlay_text ?? "").trim(); } catch { return ""; } };
+  const forNiche = (key: string | null) => rows.filter((r) => !key || !r.niche_id || r.niche_id === key);
+  const nicheOfAccount = (id: string) => (accountsOf(env)[id] as any)?.niche ?? nichesOf(env).find((n) => n.accounts.includes(id))?.key ?? null;
+
+  const check = (part: any, where: string, nicheKey: string | null, base: any) => {
+    if (!part || typeof part !== "object") return;
+    const camps = forNiche(nicheKey);
+    const minS = part.cut?.min_s ?? base?.cut?.min_s;
+    if (minS !== undefined) {
+      const longest = camps.reduce((a, r) => Math.max(a, Number(r.min_seconds ?? 0)), 0);
+      const who = camps.filter((r) => Number(r.min_seconds ?? 0) === longest && longest > 0).map((r) => r.name)[0];
+      if (longest > 0 && Number(minS) < longest) errs.push(`${where}.cut.min_s: ${minS} s liegt unter der Mindestlänge der Kampagne „${who}" (${longest} s)`);
+    }
+    const show = part.visual?.overlay?.show ?? base?.visual?.overlay?.show;
+    if (show === "never") {
+      const withText = camps.filter((r) => overlayTextOf(r)).map((r) => r.name);
+      if (withText.length) errs.push(`${where}.visual.overlay.show: „never" nicht möglich – ${withText.slice(0, 2).join(", ")} schreibt einen Pflichttext vor`);
+    }
+    const ppd = part.posts_per_day ?? base?.posts_per_day;
+    const platforms: string[] = part.platforms ?? base?.platforms ?? ["tiktok"];
+    if (ppd !== undefined && Array.isArray(platforms) && platforms.length) {
+      const limit = Math.min(...platforms.map((pl) => PLATFORM_MAX_PER_DAY[pl] ?? 10));
+      const worst = platforms.find((pl) => (PLATFORM_MAX_PER_DAY[pl] ?? 10) === limit);
+      if (Number(ppd) > limit) errs.push(`${where}.posts_per_day: ${ppd} über dem Limit von ${worst} (${limit} pro Tag)`);
+    }
+  };
+  for (const [k, n] of Object.entries(s.niches ?? {})) check(n, `niches.${k}`, k, null);
+  for (const [k, n] of Object.entries(s.accounts ?? {})) { const key = nicheOfAccount(k); check(n, `accounts.${k}`, key, key ? s.niches?.[key] : null); }
+  return errs;
+}
+
+/** Beide Prüfungen: Wertebereiche (immer) und die harten Kampagnenregeln.
+ *  Blockiert wird nur, was dieser Speichervorgang neu einbringt – ein Verstoß, der im gespeicherten Stand schon steckt,
+ *  kommt als Warnung zurück, sonst ließe sich nichts mehr ändern, bis er behoben ist. */
+export async function validateAll(env: Env, next: Settings, ws = "default", cur?: Settings): Promise<{ errors: string[]; warnings: string[] }> {
+  const base = validateSettings(next);
+  const now = await validateAgainstCampaigns(env, next, ws);
+  const before = cur ? await validateAgainstCampaigns(env, cur, ws) : [];
+  const old = new Set(before);
+  return { errors: [...base, ...now.filter((e) => !old.has(e))], warnings: now.filter((e) => old.has(e)) };
 }
 
 /** Diff zwischen zwei Settings-Objekten: [{field, old, new, accounts}] – für Bestätigung vor dem Schreiben (Stufe 3). */

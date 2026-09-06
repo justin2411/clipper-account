@@ -18,6 +18,11 @@ OV_TOP, OV_BOTTOM, OV_MAX_FONT, OV_MIN_FONT = 0.10, 0.22, 54, 30
 # Hook-Text (unten)
 HOOK_TOP, HOOK_BOTTOM, HOOK_MAX_FONT, HOOK_MIN_FONT = 0.65, 0.72, 72, 36
 HOOK_MAX_WORDS, HOOK_MAX_LINES = 8, 2
+# Safe-Zones (1080×1920): oben 140 px, unten 400 px, rechts 180 px frei; Hook nie unter 72 % Höhe.
+SAFE_TOP, SAFE_BOTTOM, SAFE_RIGHT = 140, 400, 180
+HOOK_MAX_Y = 0.72
+ANIM_S = 0.4                                                       # Einblendung (fade/pop/slide/typewriter) in Sekunden
+OVERLAY_HOOK_GAP = 0.08                                            # Mindestabstand Overlay ↔ Hook: 8 % der Höhe
 
 
 def probe_size(p: Path) -> tuple[int, int]:
@@ -113,37 +118,97 @@ def _render(src: Path, vf: str, out: Path) -> None:
                    check=True, capture_output=True)
 
 
-def apply(src: Path, text: str, out_dir: Path, name: str | None = None) -> Path:
-    """Pflicht-Overlay der Kampagne: weiße Schrift auf halbtransparenter Box, Block in 10–22 % Höhe."""
+OVERLAY_STYLE_DEFAULTS = {"show": "auto", "text": "", "font": "Montserrat", "size": 34, "weight": 700, "color": "#FFFFFF",
+                          "case": "none", "y_pct": 14, "x_pct": 50, "w_pct": 84, "align": "center", "lines": 2,
+                          "box": "solid", "box_color": "#000000", "box_opacity": 55, "box_pad": 10, "box_radius": 10,
+                          "outline_px": 2, "shadow": 1, "anim": "fade", "duration": 0,
+                          "safe_top": SAFE_TOP, "safe_right": SAFE_RIGHT}
+
+
+def overlay_style_from_visual(vis: dict) -> dict:
+    """settings.visual.overlay (Dashboard → Feinjustierung) → Tokens für apply(). Erbt nichts vom Hook."""
+    o = dict((vis or {}).get("overlay") or {})
+    st = {**OVERLAY_STYLE_DEFAULTS, **{k: v for k, v in o.items() if v is not None}}
+    if isinstance(st.get("box"), bool): st["box"] = "solid" if st["box"] else "none"
+    st["safe_top"] = int((vis or {}).get("safe_top_px") or SAFE_TOP)
+    st["safe_right"] = int((vis or {}).get("safe_right_px") or SAFE_RIGHT)
+    return st
+
+
+def overlay_png(text: str, st: dict, width: int, height: int, out: Path) -> tuple[Path, int, int, int]:
+    """Overlay oben als PNG (eigener Layer, unabhängig vom Hook). Rückgabe (png, x, y, Höhe).
+    Der Block sitzt mit seiner Oberkante bei y_pct, bleibt aber immer unter der oberen Safe-Zone."""
+    from pipeline import text as T
+    scale = width / 1080
+    box_w = max(200, int(width * float(st.get("w_pct", 84)) / 100))
+    margin = 60
+    hi = width - int(st.get("safe_right", SAFE_RIGHT)) - margin
+    box_w = min(box_w, max(200, hi - margin))
+    img = T.render(text, box_w, int(height * 0.28),
+                   font=str(st.get("font") or "Montserrat").lower().replace(" ", "-"),
+                   size_max=int(round(float(st.get("size", 34)) * scale)), size_min=max(14, int(round(float(st.get("size", 34)) * scale * 0.6))),
+                   color=str(st.get("color", "#FFFFFF")), outline_px=int(st.get("outline_px", 2)), outline_color="#000000",
+                   accent_color=None, accent_idx=set(), box=str(st.get("box", "solid")), box_color=str(st.get("box_color", "#000000")),
+                   box_opacity=float(st.get("box_opacity", 55)), box_pad=int(round(float(st.get("box_pad", 10)) * scale)),
+                   box_radius=int(round(float(st.get("box_radius", 10)) * scale)), align=str(st.get("align", "center")),
+                   max_lines=int(st.get("lines", 2)), weight=st.get("weight"), case=str(st.get("case", "none")),
+                   shadow=int(st.get("shadow", 0)))
+    T.save(img, out)
+    cx = int(width * float(st.get("x_pct", 50)) / 100)
+    left = max(margin, min(cx - box_w // 2, hi - box_w))
+    if str(st.get("align")) == "left": x = left
+    elif str(st.get("align")) == "right": x = left + box_w - img.width
+    else: x = left + (box_w - img.width) // 2
+    y = max(int(st.get("safe_top", SAFE_TOP)), int(height * float(st.get("y_pct", 14)) / 100))
+    y = min(y, int(height * 0.45) - img.height)                     # nie in die untere Hälfte rutschen
+    return out, int(max(0, x)), int(max(0, y)), int(img.height)
+
+
+def apply(src: Path, text: str, out_dir: Path, name: str | None = None, style: dict | None = None,
+          fallback: str = "") -> tuple[Path, dict]:
+    """Overlay oben als eigener Layer (Pflichttext der Kampagne oder eigener Text).
+    show: auto = nur wenn die Kampagne einen Pflichttext vorgibt, always = immer, never = nie.
+    duration > 0 blendet nach n Sekunden aus, anim fade/slide als 0,4-s-Einblendung.
+    Rückgabe: (Video, Geometrie) – die Geometrie braucht der Kollisionsschutz für den Hook."""
     out_dir.mkdir(parents=True, exist_ok=True)
     out = out_dir / (name or src.name)
-    if not text or not text.strip():                    # kein Pflichttext → Clip unverändert übernehmen
+    st = {**OVERLAY_STYLE_DEFAULTS, **{k: v for k, v in (style or {}).items() if v is not None}}
+    required = (text or "").strip()
+    show = str(st.get("show", "auto"))
+    body = (str(st.get("text") or "").strip() or required or (fallback or "").strip())
+    geom = {"used": False, "text": "", "top_px": 0, "bottom_px": 0, "bottom_pct": 0.0}
+    if show == "never" or not body or (show == "auto" and not required):
         shutil.copyfile(src, out)
-        return out
+        return out, geom
     w, h = probe_size(src)
-    lines, size = layout(text, w, h)
-    textfile = _textfile(lines)
-    pad = max(10, size // 4)
-    vf = (f"drawtext=fontfile={FONT}:textfile={textfile}:fontcolor=white:fontsize={size}:line_spacing={LINE_SP}:"
-          f"box=1:boxcolor=black@0.55:boxborderw={pad}:x=(w-text_w)/2:y=h*{OV_TOP}+{pad}")
-    _render(src, vf, out)
-    Path(textfile).unlink(missing_ok=True)
-    return out
+    png, x, y, ph = overlay_png(body, st, w, h, out_dir / f"{out.stem}.ov.png")
+    dur = float(st.get("duration") or 0)
+    en = f":enable='between(t,0,{dur:g})'" if dur > 0 else ""
+    anim = str(st.get("anim") or "none")
+    inputs = ["-i", str(src), "-loop", "1", "-i", str(png)]
+    if anim == "slide":                                             # von oben hereinfahren (der Layer sitzt oben)
+        fc = (f"[1:v]format=rgba,fade=t=in:st=0:d={ANIM_S}:alpha=1[ov];"
+              f"[0:v][ov]overlay=x={x}:y='{y}-160*(1-{_ease()})'{en}[v]")
+    elif anim == "fade":
+        fc = f"[1:v]format=rgba,fade=t=in:st=0:d={ANIM_S}:alpha=1[ov];[0:v][ov]overlay=x={x}:y={y}{en}[v]"
+    else:
+        fc = f"[0:v][1:v]overlay=x={x}:y={y}{en}[v]"
+    subprocess.run(["ffmpeg", "-y", *inputs, "-filter_complex", fc, "-map", "[v]", "-map", "0:a?", "-shortest",
+                    "-c:v", "libx264", "-crf", "20", "-preset", "medium", "-pix_fmt", "yuv420p", "-c:a", "copy", str(out)],
+                   check=True, capture_output=True)
+    geom = {"used": True, "text": body, "top_px": int(y), "bottom_px": int(y + ph), "bottom_pct": round((y + ph) / h * 100, 1)}
+    return out, geom
 
 
 def _hex_to_ffmpeg(c: str) -> str:
     return c.replace("#", "0x") if c.startswith("#") else c
 
 
-# Safe-Zones (1080×1920): oben 140 px, unten 400 px, rechts 180 px frei; Hook nie unter 72 % Höhe.
-SAFE_TOP, SAFE_BOTTOM, SAFE_RIGHT = 140, 400, 180
-HOOK_MAX_Y = 0.72
 DEFAULT_STYLE = {"font": "dejavu-bold", "color": "#FFFFFF", "outline_px": 5, "outline_color": "#000000", "accent_color": None,
                  "accent_mode": "bar", "box_color": None, "align": "center", "y_pct": 0.685, "max_lines": 2, "size_max": 72, "size_min": 36,
                  # Feinjustierung (settings.visual): size = px bei 1080 Breite, weight nur für variable Fonts
                  "size": None, "weight": None, "spacing": 0, "line_h": None, "x_pct": 50, "w_pct": 84, "case": "none",
                  "box": None, "box_opacity": 55, "box_pad": 10, "box_radius": 10, "shadow": 0, "anim": "none", "safe_right": SAFE_RIGHT, "safe_top": SAFE_TOP}
-ANIM_S = 0.4                                                       # Einblendung (pop/slide/typewriter) in Sekunden
 
 
 def style_from_visual(vis: dict) -> dict:
@@ -214,8 +279,10 @@ def hook_box(st: dict, width: int) -> tuple[int, int]:
 
 
 def hook_png(text: str, style: dict, width: int, height: int, accent_word: str | None, out: Path,
-             visible_words: int | None = None) -> tuple[Path, int, int]:
-    """Hook-Text als PNG (pipeline/text.py). Rückgabe: (png, x, y) für ffmpeg overlay – Block um y_pct zentriert, nie unter 72 %."""
+             visible_words: int | None = None, info: dict | None = None) -> tuple[Path, int, int]:
+    """Hook-Text als PNG (pipeline/text.py). Rückgabe: (png, x, y) für ffmpeg overlay – Block um y_pct zentriert, nie unter 72 %.
+    min_top (Kollisionsschutz): Oberkante, die das Overlay oben freihält – der Hook wird nach unten geschoben.
+    `info` nimmt die Lage auf: gewünschtes y, tatsächliches y, wie weit geschoben, ob der Abstand trotzdem zu klein bleibt."""
     from pipeline import text as T
     st = _style(style)
     left, box_w = hook_box(st, width)
@@ -223,7 +290,15 @@ def hook_png(text: str, style: dict, width: int, height: int, accent_word: str |
     img = T.render(text, box_w, max_h, visible_words=visible_words, **_hook_render_args(st, text, accent_word, width))
     T.save(img, out)
     y_center = int(height * float(st["y_pct"]))
-    y = min(y_center - img.height // 2, int(height * HOOK_MAX_Y) - img.height)
+    y_cap = int(height * HOOK_MAX_Y) - img.height                                  # unterste erlaubte Lage (Safe-Zone unten)
+    y_want = min(y_center - img.height // 2, y_cap)
+    min_top = max(int(st.get("safe_top", SAFE_TOP)), int(st.get("min_top") or 0))
+    y = max(y_want, min_top)
+    if y > y_cap:                                                                  # Overlay drückt den Hook unter die Safe-Zone → dort halten
+        y = y_cap
+    if info is not None:
+        info.update(height=img.height, y_wanted=int(y_want), y=int(y), moved=int(max(0, y - y_want)),
+                    min_top=int(min_top), too_tight=bool(min_top > y_cap))
     y = max(y, int(st.get("safe_top", SAFE_TOP)))
     if st["align"] == "left": x = left
     elif st["align"] == "right": x = left + box_w - img.width
@@ -267,29 +342,131 @@ def _frame_luma(src: Path, at: float) -> float:
     return float(m.group(1)) if m else 0.0
 
 
-def cover_frame(src: Path, text: str, style: dict, accent_word: str | None, out_png: Path, out_jpg: Path | None = None) -> Path:
-    """Cover: Frame mit der stärksten Bewegung im ersten Drittel (select='gt(scene,0.4)', sonst 1.0 s), Hook-Text groß
-    (innerhalb der Safe-Zones, Mitte ≈ 45 % Höhe). PNG für das Video (erster Frame), JPEG für R2/Blotato-Vorschau."""
+COVER_STYLE_DEFAULTS = {"mode": "hook", "text": "", "font": "Anton", "size": 92, "weight": 800, "color": "#FFFFFF",
+                        "accent": "#FF6A00", "case": "upper", "align": "center", "y_pct": 45, "x_pct": 50, "w_pct": 78,
+                        "max_words": 6, "lines": 3, "outline_px": 8, "shadow": 2, "box": "none", "box_color": "#000000",
+                        "box_opacity": 55, "box_pad": 14, "box_radius": 14, "frame": "motion", "frame_skip_s": 1, "dim": 15}
+
+
+def cover_style_from_visual(vis: dict) -> dict:
+    """settings.visual.cover → Cover-Tokens. Das Cover erbt nichts mehr vom Hook, nur die Safe-Zones gelten weiter."""
+    c = dict((vis or {}).get("cover") or {})
+    st = {**COVER_STYLE_DEFAULTS, **{k: v for k, v in c.items() if v is not None}}
+    if isinstance(st.get("box"), bool): st["box"] = "solid" if st["box"] else "none"
+    st["safe_top"] = int((vis or {}).get("safe_top_px") or SAFE_TOP)
+    st["safe_right"] = int((vis or {}).get("safe_right_px") or SAFE_RIGHT)
+    return st
+
+
+def _first_face_frame(src: Path, skip_s: float, window_s: float, step_s: float = 0.5) -> float | None:
+    """Erster Zeitpunkt mit einem erkannten Gesicht (OpenCV-Haarcascade). None, wenn keins gefunden wird oder cv2 fehlt."""
+    try:
+        import cv2
+    except Exception:
+        return None
+    cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
+    if cascade.empty():
+        return None
+    cap = cv2.VideoCapture(str(src))
+    try:
+        t = float(skip_s)
+        while t <= skip_s + window_s:
+            cap.set(cv2.CAP_PROP_POS_MSEC, t * 1000)
+            ok, frame = cap.read()
+            if not ok:
+                break
+            small = cv2.resize(frame, (0, 0), fx=360 / max(1, frame.shape[1]), fy=360 / max(1, frame.shape[1]))
+            gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY)
+            if len(cascade.detectMultiScale(gray, 1.15, 5, minSize=(40, 40))):
+                return t
+            t += step_s
+    finally:
+        cap.release()
+    return None
+
+
+def pick_cover_time(src: Path, st: dict, dur: float) -> float:
+    """Standbild wählen: motion = größte Szenenänderung nach frame_skip_s, face = erster Frame mit Gesicht,
+    first = erster Frame nach dem Übersprung, manual = später aus der Vorschau (bis dahin wie first).
+    Fällt die Wahl aus, greift immer der erste Frame nach dem Übersprung."""
+    skip = max(0.0, min(float(st.get("frame_skip_s", 1) or 0), max(0.0, dur - 0.5)))
+    mode = str(st.get("frame") or "motion")
+    at = float(st.get("frame_at") or 0) if mode == "manual" else 0.0
+    if mode == "manual" and at > 0:
+        return min(at, max(0.0, dur - 0.1))
+    if mode == "face":
+        t = _first_face_frame(src, skip, max(2.0, min(15.0, dur - skip)))
+        if t is not None:
+            return t
+    if mode == "motion":
+        t = best_motion_frame(src, max(1.0, dur / 3))
+        if t >= skip:
+            return t
+    return skip
+
+
+def cover_frame(src: Path, text: str, style: dict, accent_word: str | None, out_png: Path, out_jpg: Path | None = None,
+                cover_style: dict | None = None) -> Path:
+    """Cover (Standbild im Profil) nach eigenen Werten: Frame nach `frame`, Bild um `dim` % abgedunkelt, Text nach den
+    Cover-Werten (Schrift, Größe, Dicke, Großschreibung, Ausrichtung, max. Wörter/Zeilen, Position, Breite, Farbe mit Akzent
+    auf den letzten zwei Wörtern, Outline, Schatten, Box). mode = none → nur Bild.
+    PNG für das Video (erster Frame), JPEG für R2/Blotato-Vorschau."""
     from PIL import Image
     from pipeline import text as T
     w, h = probe_size(src)
     dur = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(src)],
                                capture_output=True, text=True).stdout.strip() or 10)
+    cst = {**COVER_STYLE_DEFAULTS, **{k: v for k, v in (cover_style or {}).items() if v is not None}}
     tmp = out_png.with_suffix(".base.png")
-    at = best_motion_frame(src, max(1.0, dur / 3))
-    subprocess.run(["ffmpeg", "-y", "-ss", f"{at:.3f}", "-i", str(src), "-frames:v", "1", str(tmp)], check=True, capture_output=True)
+    at = pick_cover_time(src, cst, dur)
+    def grab(t: float) -> bool:
+        r = subprocess.run(["ffmpeg", "-y", "-ss", f"{t:.3f}", "-i", str(src), "-frames:v", "1", str(tmp)], capture_output=True)
+        return r.returncode == 0 and tmp.exists() and tmp.stat().st_size > 0
+    if not grab(at):                                                  # Fallback: erster Frame nach dem Übersprung, sonst Sekunde 0
+        skip = max(0.0, min(float(cst.get("frame_skip_s", 1) or 0), max(0.0, dur - 0.5)))
+        if not grab(skip):
+            grab(0.0)
     base = Image.open(tmp).convert("RGBA")
-    st = _style(style)
-    args = _hook_render_args(st, text, accent_word, w)
-    args.update(size_max=140, size_min=64, outline_px=8, align="center", max_lines=3, box_pad=int(args["box_pad"] * 1.6), box_radius=int(args["box_radius"] * 1.6))
-    img = T.render(text, w - SAFE_RIGHT - 120, int(h * 0.30), **args)
-    x = 60 + (w - SAFE_RIGHT - 120 - img.width) // 2
-    y = int(h * 0.45) - img.height // 2
-    base.alpha_composite(img, (max(0, x), max(SAFE_TOP, y)))
+    dim = float(cst.get("dim", 0) or 0)
+    if dim > 0:                                                       # Bild abdunkeln, damit der Text sicher lesbar bleibt
+        base = Image.alpha_composite(base, Image.new("RGBA", base.size, (0, 0, 0, round(255 * min(60.0, dim) / 100))))
+    mode = str(cst.get("mode") or "hook")
+    body = (str(cst.get("text") or "").strip() if mode == "custom" else (text or "").strip()) or (text or "").strip()
+    if mode != "none" and body:
+        words = body.split()
+        max_words = int(cst.get("max_words", 6) or 6)
+        if len(words) > max_words:
+            body = " ".join(words[:max_words]).rstrip(",;:–-") + "…"
+        scale = w / 1080
+        margin = 60
+        hi = w - int(cst.get("safe_right", SAFE_RIGHT)) - margin
+        box_w = max(200, min(int(w * float(cst.get("w_pct", 78)) / 100), hi - margin))
+        toks = (body.upper() if str(cst.get("case")) == "upper" else body).split()
+        accent_idx = {len(toks) - 2, len(toks) - 1} if len(toks) >= 2 else {0}      # Akzent auf den letzten zwei Wörtern
+        img = T.render(body, box_w, int(h * 0.34),
+                       font=str(cst.get("font") or "Anton").lower().replace(" ", "-"),
+                       size_max=int(round(float(cst.get("size", 92)) * scale)), size_min=max(24, int(round(float(cst.get("size", 92)) * scale * 0.5))),
+                       color=str(cst.get("color", "#FFFFFF")), outline_px=int(cst.get("outline_px", 8)), outline_color="#000000",
+                       accent_color=str(cst.get("accent") or "") or None, accent_idx=accent_idx,
+                       box=str(cst.get("box", "none")), box_color=str(cst.get("box_color", "#000000")),
+                       box_opacity=float(cst.get("box_opacity", 55)), box_pad=int(round(float(cst.get("box_pad", 14)) * scale)),
+                       box_radius=int(round(float(cst.get("box_radius", 14)) * scale)), align=str(cst.get("align", "center")),
+                       max_lines=int(cst.get("lines", 3)), weight=cst.get("weight"), case=str(cst.get("case", "upper")),
+                       shadow=int(cst.get("shadow", 2)))
+        cx = int(w * float(cst.get("x_pct", 50)) / 100)
+        left = max(margin, min(cx - box_w // 2, hi - box_w))
+        if str(cst.get("align")) == "left": x = left
+        elif str(cst.get("align")) == "right": x = left + box_w - img.width
+        else: x = left + (box_w - img.width) // 2
+        y = int(h * float(cst.get("y_pct", 45)) / 100) - img.height // 2
+        y = max(int(cst.get("safe_top", SAFE_TOP)), min(y, h - int(SAFE_BOTTOM) - img.height))
+        base.alpha_composite(img, (max(0, int(x)), max(0, int(y))))
     base.convert("RGB").save(out_png, "PNG")
     if out_jpg:
         base.convert("RGB").save(out_jpg, "JPEG", quality=88)
     tmp.unlink(missing_ok=True)
+    void_accent = accent_word                                         # Akzentwort ist beim Cover fest auf die letzten zwei Wörter gelegt
+    del void_accent, style
     return out_png
 
 
@@ -313,13 +490,14 @@ def _ease(t_expr: str = "t") -> str:
     return f"(1-pow(1-min(1,{t_expr}/{ANIM_S}),3))"
 
 
-def _hook_filters(src: Path, text: str, st: dict, w: int, h: int, seconds: float, accent_word: str | None, out_dir: Path, stem: str) -> tuple[list[str], list[str], int]:
+def _hook_filters(src: Path, text: str, st: dict, w: int, h: int, seconds: float, accent_word: str | None, out_dir: Path, stem: str,
+                  info: dict | None = None) -> tuple[list[str], list[str], int]:
     """Baut Eingaben + filter_complex-Kette für den Hook-Text: Box (solid im PNG, blur per boxblur auf dem Video),
     Einblendung anim = none | pop (Scale 0.5→1) | slide (von unten) | typewriter (Wort für Wort). Rückgabe (inputs, filters, png_height).
     Der Kette liegt [0:v] an, sie endet in [hv]."""
     from PIL import Image
     en = f"enable='between(t,0,{seconds})'"
-    png, x, y = hook_png(text, st, w, h, accent_word, out_dir / f"{stem}.hook.png")
+    png, x, y = hook_png(text, st, w, h, accent_word, out_dir / f"{stem}.hook.png", info=info)
     pw, ph = Image.open(png).size
     inputs, fc = [], []
     cur = "[0:v]"
@@ -364,15 +542,17 @@ def _hook_filters(src: Path, text: str, st: dict, w: int, h: int, seconds: float
 
 def apply_text_hook(src: Path, text: str, out_dir: Path, name: str | None = None, seconds: float = 2.0,
                     color: str = "white", accent: str = "#FF5A1F", style: str | dict = "bar", accent_word: str | None = None,
-                    cover: bool = True, ending: dict | None = None) -> tuple[Path, Path | None]:
+                    cover: bool = True, ending: dict | None = None, cover_style: dict | None = None,
+                    overlay_geom: dict | None = None) -> tuple[Path, Path | None, dict]:
     """Hook-Text (Zone 65–72 %, `seconds` s) + Cover-Frame als erster Frame (2 Frames, Blotato videoCoverTimestamp=0).
     style: 'bar' (A: weiß, Akzentbalken) | 'box' (B: Text auf Box) | dict mit Tokens aus config/brand.yaml / settings.visual.
-    Rückgabe: (Video, Cover-JPEG oder None). Ohne Text → Kopie."""
+    overlay_geom: Lage des oberen Overlays (aus apply) – der Hook hält 8 % der Höhe Abstand und rückt sonst nach unten.
+    Rückgabe: (Video, Cover-JPEG oder None, QA-Vermerke). Ohne Text → Kopie."""
     out_dir.mkdir(parents=True, exist_ok=True)
     out = out_dir / (name or src.name)
     if not text or not text.strip():
         shutil.copyfile(src, out)
-        return out, None
+        return out, None, {}
     w, h = probe_size(src)
     if isinstance(style, dict):
         st = _style(style)
@@ -382,7 +562,17 @@ def apply_text_hook(src: Path, text: str, out_dir: Path, name: str | None = None
         st = _style({"font": "dejavu-bold", "color": color, "accent_color": accent, "accent_mode": "bar", "align": "center"})
     seconds = float(st.get("hook_seconds", seconds))
     ending = ending if ending is not None else st.get("ending")
-    extra_inputs, fc, _ = _hook_filters(src, text, st, w, h, seconds, accent_word, out_dir, out.stem)
+    if overlay_geom and overlay_geom.get("used"):                      # Kollisionsschutz: 8 % der Höhe unter dem Overlay bleiben frei
+        st["min_top"] = int(overlay_geom.get("bottom_px", 0)) + int(h * OVERLAY_HOOK_GAP)
+    info: dict = {}
+    extra_inputs, fc, _ = _hook_filters(src, text, st, w, h, seconds, accent_word, out_dir, out.stem, info=info)
+    qa: dict = {}
+    if info.get("moved"):
+        qa["hook_moved_px"] = info["moved"]
+        qa["notes"] = [f"Hook um {info['moved']} px nach unten geschoben (Mindestabstand {int(OVERLAY_HOOK_GAP * 100)} % zum Overlay oben)."]
+    if info.get("too_tight"):
+        qa.setdefault("notes", []).append("Overlay und Hook liegen enger als 8 % der Höhe – der Hook steht an der unteren Safe-Zone.")
+        qa["overlap_risk"] = True
     inputs = ["-i", str(src), *extra_inputs]
     dur = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(src)], capture_output=True, text=True).stdout.strip() or 0)
     vf_end, af_end = _ending_filters(ending, dur)
@@ -392,7 +582,8 @@ def apply_text_hook(src: Path, text: str, out_dir: Path, name: str | None = None
         audio_src = "[ae]"
     cover_jpg = None
     if cover:
-        cover_png = cover_frame(src, text, st, accent_word, out_dir / f"{out.stem}.cover.png", out_dir / f"{out.stem}.cover.jpg")
+        cover_png = cover_frame(src, text, st, accent_word, out_dir / f"{out.stem}.cover.png", out_dir / f"{out.stem}.cover.jpg",
+                                cover_style=cover_style)
         cover_jpg = out_dir / f"{out.stem}.cover.jpg"
         ci = inputs.count("-i")
         inputs += ["-loop", "1", "-t", "0.067", "-i", str(cover_png)]
@@ -403,7 +594,7 @@ def apply_text_hook(src: Path, text: str, out_dir: Path, name: str | None = None
     subprocess.run(["ffmpeg", "-y", *inputs, "-filter_complex", ";".join(fc), *maps, "-c:v", "libx264", "-crf", "19", "-preset", "medium",
                     "-pix_fmt", "yuv420p", "-r", "30", "-g", "60", "-keyint_min", "60", "-sc_threshold", "0",
                     "-c:a", "aac", "-b:a", "160k", "-ar", "48000", "-movflags", "+faststart", str(out)], check=True, capture_output=True)
-    return out, cover_jpg
+    return out, cover_jpg, qa
 
 
 def frame(src: Path, out_path: Path, at: float = 1.0, width: int = 540) -> Path:
