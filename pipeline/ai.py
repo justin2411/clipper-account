@@ -1,24 +1,36 @@
-"""Kleine Gemini-Aufrufe der Pipeline (google-genai, GOOGLE_API_KEY): Hook-Satz für die Caption (≤12 Wörter),
-kurzer Hook für den Text im Video (≤8 Wörter, vollständiger Satz) und Vorschlag für einen angepinnten Kommentar
-(Frage, ≤15 Wörter). Zu lange Antworten werden nie mitten im Satz gekappt: erst Satz-/Klauselgrenze, sonst Fallback
-auf die kürzere Variante. Fällt bei Fehlern auf den Titel zurück."""
+"""Gemini-Aufrufe der Pipeline (google-genai, GOOGLE_API_KEY).
+enrich(): Originalität pro Clip – eine Kontextzeile in EIGENEN Worten (≤8 Wörter, kein Zitat aus dem Transkript),
+die als Hook-Text ins Bild und als erster Satz der Caption geht; dazu ein Akzentwort und eine Kommentar-Frage.
+Zitate werden per 4-Wort-Fenster gegen das Transkript geprüft; bei Treffer ein zweiter Versuch, sonst Fallback."""
 import json, os, re
 
 MODEL = os.environ.get("CLIPFORGE_GEMINI_MODEL", "gemini-2.5-flash")
-
-
-def _words(s: str, n: int) -> str:
-    w = str(s or "").strip().split()
-    return " ".join(w[:n]).rstrip(",;:") if len(w) > n else " ".join(w)
+MAX_WORDS = 8
 
 
 def _clean(s: str) -> str:
     return re.sub(r"\s+", " ", str(s or "")).strip()
 
 
+def _words(s: str, n: int) -> str:
+    w = _clean(s).split()
+    return " ".join(w[:n]).rstrip(",;:") if len(w) > n else " ".join(w)
+
+
+def _norm_tokens(s: str) -> list[str]:
+    return re.findall(r"[a-z0-9']+", (s or "").lower())
+
+
+def quotes_transcript(line: str, transcript: str, n: int = 4) -> bool:
+    """True, wenn ein Fenster aus n aufeinanderfolgenden Wörtern der Zeile wörtlich im Transkript vorkommt."""
+    a, t = _norm_tokens(line), " ".join(_norm_tokens(transcript))
+    if len(a) < n:
+        return len(a) >= 3 and " ".join(a) in t
+    return any(" ".join(a[i:i + n]) in t for i in range(len(a) - n + 1))
+
+
 def fit_sentence(s: str, n: int) -> str:
-    """Satz auf ≤ n Wörter bringen, ohne mitten im Satz abzubrechen: erster vollständiger Satz, sonst erste
-    Klausel (bis , ; : – oder -) innerhalb des Limits, sonst leer (→ Aufrufer nimmt die kürzere Variante)."""
+    """Satz auf ≤ n Wörter, ohne mitten im Satz abzubrechen: erster vollständiger Satz, sonst erste Klausel, sonst leer."""
     s = _clean(s)
     if len(s.split()) <= n:
         return s
@@ -28,14 +40,24 @@ def fit_sentence(s: str, n: int) -> str:
     best = ""
     for m in re.finditer(r"[,;:–-]\s", s):
         part = s[:m.start()].strip()
-        if len(part.split()) <= n and len(part.split()) >= 3:
+        if 3 <= len(part.split()) <= n:
             best = part
     return best
 
 
+def _pick_accent(line: str) -> str:
+    ws = [w.strip(".,!?\"'") for w in line.split()]
+    for w in ws:                                         # Zahlen/Beträge zuerst, dann Großbuchstaben, sonst längstes Wort
+        if re.search(r"\d", w):
+            return w
+    caps = [w for w in ws if len(w) > 2 and w.isupper()]
+    return caps[0] if caps else max(ws, key=len, default="")
+
+
 def enrich(title: str, description: str, transcript: str, campaign_name: str) -> dict:
-    """→ {"caption_hook": str, "pinned_comment": str}"""
-    fallback = {"caption_hook": _words(description or title, 12), "overlay_hook": _words(title, 8), "pinned_comment": ""}
+    """→ {context_line, accent_word, caption_hook, overlay_hook, pinned_comment}"""
+    fb_line = _words(title or description, MAX_WORDS)
+    fallback = {"context_line": fb_line, "accent_word": _pick_accent(fb_line), "caption_hook": fb_line, "overlay_hook": fb_line, "pinned_comment": ""}
     key = os.environ.get("GOOGLE_API_KEY")
     if not key:
         return fallback
@@ -43,26 +65,39 @@ def enrich(title: str, description: str, transcript: str, campaign_name: str) ->
         from google import genai
         from google.genai import types
         client = genai.Client(api_key=key)
-        prompt = f"""You write TikTok captions for short clips from "{campaign_name}".
+        base = f"""You write on-screen text for a short vertical clip from "{campaign_name}".
 Clip title: {title}
 Clip summary: {description}
-Transcript excerpt: {transcript[:1200]}
+Transcript excerpt (for understanding only – NEVER quote it): {transcript[:1500]}
 
 Return JSON with exactly three fields:
-- "caption_hook": ONE complete sentence for the caption, STRICTLY 12 words or fewer, opens with a question or tension, understandable without context, no hashtags, no emoji, no clickbait.
-- "overlay_hook": a COMPLETE short phrase for on-screen text, STRICTLY 8 words or fewer (count them), same idea as caption_hook but shorter, no trailing cut-off, no hashtags, no emoji.
+- "context_line": ONE line in YOUR OWN WORDS that gives the viewer the context of this moment in {MAX_WORDS} words or fewer
+  (count them). It must be understandable without watching the video, create tension or curiosity, and must NOT reuse any
+  phrase of 3+ consecutive words from the transcript. No hashtags, no emoji, no quotation marks, no clickbait lies.
+- "accent_word": exactly one word from context_line that carries the most weight (a number, a stake, the twist).
 - "pinned_comment": ONE question (max 15 words) to pin as a comment that makes viewers answer or argue.
-Never exceed the word limits; shorten the idea instead of cutting a sentence."""
-        r = client.models.generate_content(model=MODEL, contents=prompt,
-                                           config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.7))
-        d = json.loads(r.text)
-        overlay = fit_sentence(d.get("overlay_hook") or "", 8)
-        caption = fit_sentence(d.get("caption_hook") or "", 12) or overlay
-        overlay = overlay or fit_sentence(caption, 8)
-        out = {"caption_hook": caption or fallback["caption_hook"],
-               "overlay_hook": overlay or fallback["overlay_hook"],
-               "pinned_comment": _clean(_words(d.get("pinned_comment") or "", 18))}
-        return out
+Never exceed the word limit; shorten the idea instead of cutting a sentence."""
+        stricter = "\n\nYour previous answer quoted the transcript or was too long. Rephrase completely in your own words, max 8 words."
+        line, accent, pinned = "", "", ""
+        for attempt in range(2):
+            r = client.models.generate_content(model=MODEL, contents=base + (stricter if attempt else ""),
+                                               config=types.GenerateContentConfig(response_mime_type="application/json", temperature=0.8 if attempt else 0.6))
+            d = json.loads(r.text)
+            cand = _clean(d.get("context_line") or "").strip("\"'“”")
+            pinned = pinned or _clean(_words(d.get("pinned_comment") or "", 18))
+            if cand and len(cand.split()) <= MAX_WORDS and not quotes_transcript(cand, transcript):
+                line, accent = cand, _clean(d.get("accent_word") or "")
+                break
+            if cand and len(cand.split()) > MAX_WORDS:
+                short = fit_sentence(cand, MAX_WORDS)
+                if short and not quotes_transcript(short, transcript):
+                    line, accent = short, _clean(d.get("accent_word") or ""); break
+        if not line:
+            print("[ai] context_line: Fallback (Zitat/zu lang)")
+            line = fb_line
+        if not accent or accent.lower().strip(".,!?\"'") not in [w.lower().strip(".,!?\"'") for w in line.split()]:
+            accent = _pick_accent(line)
+        return {"context_line": line, "accent_word": accent, "caption_hook": line, "overlay_hook": line, "pinned_comment": pinned}
     except Exception as e:
         print("[ai] enrich failed:", str(e)[:120])
         return fallback

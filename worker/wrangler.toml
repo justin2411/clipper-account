@@ -29,7 +29,8 @@ bucket_name = "clips"
 # Nicht-geheime Konfiguration. Geheimnisse (BLOTATO_API_KEY, TELEGRAM_*, GMAIL_*, GITHUB_TOKEN, ACCOUNTS_JSON,
 # CLIPFORGE_API_KEY) kommen per `wrangler secret put` bzw. scripts/cf_bootstrap.sh aus .env.
 [vars]
-PUBLISH_MODE = "shadow"                 # shadow: alles läuft, Publisher schreibt nur in D1 + Tagesübersicht 20:00 | live | draft
+PUBLISH_MODE = "live"                   # paid-Kampagnen: live (Blotato-Schedule) | shadow | draft
+PUBLISH_MODE_FAN = "shadow"             # Fan-Content: shadow bis zur Freigabe (Publisher schreibt nur in D1, Tagesübersicht 20:00)
 MAX_CLIPS_PER_DAY = "5"                 # Posts je Account/Tag im Dauerbetrieb (5 Slots alle 3–4 h, config/accounts.yaml)
 RAMP_DAYS = "7"                         # neue Accounts: erste 7 Tage ab erstem Live-Post …
 RAMP_MAX_PER_DAY = "3"                  # … höchstens 3 Posts/Tag

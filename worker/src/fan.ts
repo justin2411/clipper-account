@@ -77,7 +77,7 @@ export async function checkRss(env: Env): Promise<{ checked: number; added: stri
 }
 
 /** Fan-Kampagne für ein Video anlegen (idempotent) und EINEN Clip-Job (Account AB) starten. */
-export async function startFanJob(env: Env, videoId: string): Promise<{ ok: boolean; campaign: string; status: number }> {
+export async function startFanJob(env: Env, videoId: string, preview = false): Promise<{ ok: boolean; campaign: string; status: number }> {
   const v = await db.first<any>(env, "SELECT * FROM videos WHERE id = ?", videoId);
   if (!v) return { ok: false, campaign: "", status: 404 };
   const paid = await isPaidFootage(env, videoId, v.title ?? "");
@@ -90,7 +90,7 @@ export async function startFanJob(env: Env, videoId: string): Promise<{ ok: bool
     `INSERT OR IGNORE INTO campaigns (id, platform, kind, name, external_url, status, min_views, min_seconds, footage, required, forbidden, accounts, platforms)
      VALUES (?, 'fan', 'fan', ?, ?, 'active', 0, 15, ?, ?, '{}', '["A","B"]', '["tiktok"]')`,
     id, `${v.channel_name}: ${v.title}`.slice(0, 120), v.url, JSON.stringify({ type: "youtube", url: v.url, video_id: videoId }), JSON.stringify(FAN_REQUIRED));
-  const status = await dispatchClipJob(env, id, "AB");
+  const status = await dispatchClipJob(env, id, "AB", preview ? { preview: "true" } : {});
   if (status === 204) {
     await db.run(env, "UPDATE videos SET status = 'queued', campaign_id = ?, dispatched_at = ?, updated_at = ? WHERE id = ?", id, nowIso(), nowIso(), videoId);
     await logEvent(env, `clip_job_dispatched account=AB video=${videoId} (${v.source})`, id);

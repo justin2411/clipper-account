@@ -13,11 +13,12 @@ export const accountsOf = (env: Env): Record<string, AccountCfg> => {
   try { return JSON.parse(env.ACCOUNTS_JSON || "{}"); } catch { return {}; }
 };
 
-export function buildTarget(platform: string, caption: string, draft: boolean, tiktok: Record<string, unknown>) {
+export function buildTarget(platform: string, caption: string, draft: boolean, tiktok: Record<string, unknown>, hasCover = false) {
   const target: Record<string, unknown> = { targetType: platform };
   if (platform === "tiktok") Object.assign(target, {
     privacyLevel: "PUBLIC_TO_EVERYONE", disabledComments: false, disabledDuet: true, disabledStitch: true,
     isBrandedContent: true, isYourBrand: false, isAiGenerated: false, ...tiktok, isDraft: draft,
+    ...(hasCover ? { videoCoverTimestamp: 0 } : {}),          // Cover-Frame ist der erste Frame des Videos (pipeline/overlay.py)
   });
   if (platform === "youtube") Object.assign(target, { title: caption.split("\n")[0].slice(0, 95), privacyStatus: "public" });
   if (platform === "instagram") Object.assign(target, { mediaType: "reel" });
@@ -136,11 +137,11 @@ async function record(env: Env, mode: PublishMode, c: any, platform: string, sub
 }
 
 export async function runPublisher(env: Env) {
-  const mode = publishMode(env);
+  const modes = { paid: publishMode(env, "paid"), fan: publishMode(env, "fan") };
   const now = new Date();
   const accounts = accountsOf(env);
-  const stats = { mode, scheduled: 0, shadow: 0, errors: 0, skipped: [] as string[], plan: [] as string[] };
-  if (mode !== "shadow" && !env.BLOTATO_API_KEY) { stats.skipped.push("BLOTATO_API_KEY fehlt"); return stats; }
+  const stats = { mode: modes, scheduled: 0, shadow: 0, errors: 0, skipped: [] as string[], plan: [] as string[] };
+  if ((modes.paid !== "shadow" || modes.fan !== "shadow") && !env.BLOTATO_API_KEY) { stats.skipped.push("BLOTATO_API_KEY fehlt"); return stats; }
   await db.run(env, "UPDATE account_state SET paused = 0, reason = NULL, paused_until = NULL WHERE paused = 1 AND paused_until IS NOT NULL AND paused_until <= ?", now.toISOString());
   const paused = new Set((await db.all<{ account: string }>(env, "SELECT account FROM account_state WHERE paused = 1")).map((x) => x.account));
   const paidActive = (await db.first<{ n: number }>(env, "SELECT COUNT(*) AS n FROM campaigns WHERE kind = 'paid' AND status = 'active'"))?.n ?? 0;
@@ -156,13 +157,14 @@ export async function runPublisher(env: Env) {
       const c = await pickClip(env, acc, slot, ctx);
       if (!c) { stats.skipped.push(`${acc} ${slot.slice(5, 16)}: kein Clip`); continue; }
       const camp = toCampaign((await db.first(env, "SELECT * FROM campaigns WHERE id = ?", c.campaign_id))!);
+      const mode = modes[(c.kind === "fan" ? "fan" : "paid") as "paid" | "fan"];      // paid und Fan können getrennt live/shadow laufen
       let anyOk = false, k = 0;
       for (const platform of camp.platforms.length ? camp.platforms : ["tiktok"]) {
         const when = new Date(new Date(slot).getTime() + k++ * Number(env.PLATFORM_GAP_MIN || 30) * 60000).toISOString();
         if (mode === "shadow") { await record(env, mode, c, platform, null, when, null); anyOk = true; stats.shadow++; continue; }
         const accountId = cfg.blotato?.[platform];
         if (!accountId) { stats.skipped.push(`${acc}/${platform}: keine Blotato-Account-ID`); continue; }
-        const target = buildTarget(platform, c.caption ?? "", mode === "draft", camp.required?.tiktok ?? {});
+        const target = buildTarget(platform, c.caption ?? "", mode === "draft", camp.required?.tiktok ?? {}, !!c.cover_url);
         const res = await blotatoPost(env, accountId, platform, c.media_url, c.caption ?? "", mode === "draft" ? null : when, target);
         await record(env, mode, c, platform, res.id ?? null, when, res.id ? null : String(res.error ?? res.status));
         if (res.id) { anyOk = true; stats.scheduled++; } else stats.errors++;
@@ -178,15 +180,15 @@ export async function runPublisher(env: Env) {
       }
     }
   }
-  if (stats.scheduled || stats.shadow) await logEvent(env, `publisher mode=${mode} scheduled=${stats.scheduled} shadow=${stats.shadow} paid_active=${paidActive}`);
+  if (stats.scheduled || stats.shadow) await logEvent(env, `publisher mode=${modes.paid}/${modes.fan} scheduled=${stats.scheduled} shadow=${stats.shadow} paid_active=${paidActive}`);
   return stats;
 }
 
 /** Einen 'ready'-Clip posten – sofort oder zu `when` (ISO). Im Schattenmodus nur Datenbank. */
 export async function publishClipNow(env: Env, clipId: string, when: string | null = null) {
-  const mode = publishMode(env);
   const c = await db.first<any>(env, "SELECT c.*, ca.kind FROM clips c LEFT JOIN campaigns ca ON ca.id = c.campaign_id WHERE c.id = ?", clipId);
   if (!c) return { error: "clip not found" };
+  const mode = publishMode(env, c.kind ?? "paid");
   if (c.status !== "ready") return { error: `clip status is ${c.status}, not ready` };
   const campRow = await db.first(env, "SELECT * FROM campaigns WHERE id = ?", c.campaign_id);
   if (!campRow) return { error: "campaign not found" };
@@ -200,7 +202,7 @@ export async function publishClipNow(env: Env, clipId: string, when: string | nu
     if (mode === "shadow") { await record(env, mode, c, platform, null, at, null); anyOk = true; results.push({ platform, shadow: true }); continue; }
     const accountId = cfg.blotato?.[platform];
     if (!accountId) { results.push({ platform, error: "no Blotato account id" }); continue; }
-    const target = buildTarget(platform, c.caption ?? "", mode === "draft", camp.required?.tiktok ?? {});
+    const target = buildTarget(platform, c.caption ?? "", mode === "draft", camp.required?.tiktok ?? {}, !!c.cover_url);
     const res = await blotatoPost(env, accountId, platform, c.media_url, c.caption ?? "", mode === "draft" ? null : when, target);
     await record(env, mode, c, platform, res.id ?? null, at, res.id ? null : String(res.error ?? res.status));
     if (res.id) anyOk = true;

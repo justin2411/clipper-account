@@ -5,7 +5,8 @@ export interface Env {
   CLIPS: R2Bucket;
   // vars (wrangler.toml)
   BLOTATO_DRAFT?: string;            // veraltet – PUBLISH_MODE=draft
-  PUBLISH_MODE?: string;             // live | shadow | draft
+  PUBLISH_MODE?: string;             // live | shadow | draft (paid-Kampagnen)
+  PUBLISH_MODE_FAN?: string;         // live | shadow | draft (Fan-Content; leer = wie PUBLISH_MODE)
   MAX_CLIPS_PER_DAY?: string;        // Posts je Account und Tag (Dauerbetrieb)
   POST_GAP_MIN?: string;             // Kollisionsschutz über alle Quellen/Accounts (Minuten)
   RAMP_DAYS?: string;                // neue Accounts: erste N Tage …
@@ -40,10 +41,10 @@ export const parseJson = <T>(v: unknown, fallback: T): T => {
 
 export type PublishMode = "live" | "shadow" | "draft";
 /** Betriebsmodus des Publishers: PUBLISH_MODE, sonst (alt) BLOTATO_DRAFT. */
-export const publishMode = (env: Env): PublishMode => {
-  const m = (env.PUBLISH_MODE ?? "").toLowerCase();
-  if (m === "live" || m === "shadow" || m === "draft") return m;
-  return (env.BLOTATO_DRAFT ?? "true") === "true" ? "draft" : "live";
+export const publishMode = (env: Env, kind: string | null = "paid"): PublishMode => {
+  const pick = (v?: string): PublishMode | null => { const m = (v ?? "").toLowerCase(); return m === "live" || m === "shadow" || m === "draft" ? m : null; };
+  if (kind === "fan") { const f = pick(env.PUBLISH_MODE_FAN); if (f) return f; }
+  return pick(env.PUBLISH_MODE) ?? ((env.BLOTATO_DRAFT ?? "true") === "true" ? "draft" : "live");
 };
 
 export interface Campaign {

@@ -149,7 +149,7 @@ export async function handleRequest(req: Request, env: Env, ctx: ExecutionContex
 
   try {
     // health / overview
-    if (rest[0] === "health") return json({ ok: true, time: nowIso(), mode: publishMode(env), draft: publishMode(env) === "draft",
+    if (rest[0] === "health") return json({ ok: true, time: nowIso(), mode: { paid: publishMode(env, "paid"), fan: publishMode(env, "fan") }, draft: publishMode(env) === "draft",
       configured: { blotato: !!env.BLOTATO_API_KEY, telegram: !!(env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHAT_ID), gmail: !!env.GMAIL_REFRESH_TOKEN, github: !!env.GITHUB_TOKEN, accounts: !!env.ACCOUNTS_JSON } });
     if (rest[0] === "overview") {
       const counts = async (t: string) => db.all(env, `SELECT status, COUNT(*) AS n FROM ${t} GROUP BY status`);
@@ -210,11 +210,14 @@ export async function handleRequest(req: Request, env: Env, ctx: ExecutionContex
         if (!b.campaign_id || !b.account || !b.media_url) return json({ error: "campaign_id, account, media_url erforderlich" }, 400);
         const id = crypto.randomUUID().replace(/-/g, "");
         // seq = laufende Nummer je Kampagne (atomar im INSERT); Standardstatus 'ready' → Publisher postet zu den Slots
+        const j = (v: unknown) => (v == null ? null : typeof v === "string" ? v : JSON.stringify(v));
         await db.run(env,
-          `INSERT INTO clips (id, campaign_id, account, media_url, caption, hook_type, status, note, seq, duration_s, hook, pinned_comment, video_id, rank, thumb_url)
-           SELECT ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(MAX(seq), 0) + 1, ?, ?, ?, ?, ?, ? FROM clips WHERE campaign_id = ?`,
+          `INSERT INTO clips (id, campaign_id, account, media_url, caption, hook_type, status, note, seq, duration_s, hook, pinned_comment, video_id, rank, thumb_url,
+                              context_line, cover_url, scores, qa, variant)
+           SELECT ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(MAX(seq), 0) + 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? FROM clips WHERE campaign_id = ?`,
           id, b.campaign_id, b.account, b.media_url, b.caption ?? null, b.hook_type ?? null, b.status ?? "ready", b.note ?? null,
-          b.duration_s ?? null, b.hook ?? null, b.pinned_comment ?? null, b.video_id ?? null, b.rank ?? null, b.thumb_url ?? null, b.campaign_id);
+          b.duration_s ?? null, b.hook ?? null, b.pinned_comment ?? null, b.video_id ?? null, b.rank ?? null, b.thumb_url ?? null,
+          b.context_line ?? null, b.cover_url ?? null, j(b.scores), j(b.qa), b.variant ?? null, b.campaign_id);
         const row = await db.first<{ seq: number }>(env, "SELECT seq FROM clips WHERE id = ?", id);
         return json({ id, seq: row?.seq ?? null }, 201);
       }
@@ -257,7 +260,7 @@ export async function handleRequest(req: Request, env: Env, ctx: ExecutionContex
       }
     }
     // Fan-Job für ein Video manuell starten
-    if (rest[0] === "fan" && rest[1] && req.method === "POST") return json(await startFanJob(env, rest[1]));
+    if (rest[0] === "fan" && rest[1] && req.method === "POST") return json(await startFanJob(env, rest[1], !!url.searchParams.get("preview")));
     // Plan der nächsten Stunden (live + shadow)
     if (rest[0] === "plan" && req.method === "GET") return json(await plannedPosts(env, Number(url.searchParams.get("hours") || 24)));
     // Schattenmodus beenden (danach PUBLISH_MODE=live deployen)
@@ -320,7 +323,7 @@ export async function handleRequest(req: Request, env: Env, ctx: ExecutionContex
       const r = await db.run(env, "UPDATE clips SET status = 'ready' WHERE status = 'drafted'");
       await db.run(env, "UPDATE account_state SET paused = 0, reason = NULL WHERE reason = 'review'");
       await logEvent(env, `go_live: ${r.meta.changes} drafted clips → ready, review-pause aufgehoben`);
-      return json({ released: r.meta.changes, mode: publishMode(env) });
+      return json({ released: r.meta.changes, mode: { paid: publishMode(env, "paid"), fan: publishMode(env, "fan") } });
     }
 
     // Account-Regeln: PATCH /api/accounts/:id {paused, paused_until, reason, max_per_day, min_gap_min, rules_until}; GET /api/accounts
@@ -339,7 +342,7 @@ export async function handleRequest(req: Request, env: Env, ctx: ExecutionContex
     if (rest[0] === "dispatch" && rest[1] && rest[2] && req.method === "POST") {
       const camp = await db.first(env, "SELECT id FROM campaigns WHERE id = ?", rest[1]);
       if (!camp) return json({ error: `campaign ${rest[1]} not found` }, 404);
-      const status = await dispatchClipJob(env, rest[1], rest[2]);
+      const status = await dispatchClipJob(env, rest[1], rest[2], url.searchParams.get("preview") ? { preview: "true" } : {});
       if (status === 204) await logEvent(env, `clip_job_dispatched account=${rest[2]} (manual)`, rest[1]);
       return json({ campaign: rest[1], account: rest[2], github_status: status, ok: status === 204 }, status === 204 ? 200 : 502);
     }
