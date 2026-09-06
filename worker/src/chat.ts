@@ -135,8 +135,20 @@ async function runActTool(env: Env, name: string, a: any, ws: string): Promise<u
 }
 
 /** Geplanten Post verschieben: Schatten → nur Zeit ändern; live → Blotato-Schedule löschen, Post stornieren, Clip neu zur neuen Zeit planen. */
+/** Blotato-Zeitplan zu einem geplanten Post finden: unsere gespeicherte postSubmissionId (UUID) ist NICHT die Schedule-ID (numerisch).
+ *  Zuordnung über Blotato-Konto und geplante Zeit aus GET /v2/schedules. */
+export async function blotatoScheduleId(env: Env, accountId: string, scheduledAt: string): Promise<string | null> {
+  if (!env.BLOTATO_API_KEY) return null;
+  const r = await fetch(`${BLOTATO}/schedules`, { headers: blotatoHeaders(env) });
+  if (!r.ok) return null;
+  const j: any = await r.json().catch(() => ({}));
+  const want = new Date(scheduledAt).getTime();
+  const hit = (j?.items ?? []).find((x: any) => String(x?.draft?.accountId ?? x?.account?.id) === String(accountId) && Math.abs(new Date(x?.scheduledAt ?? 0).getTime() - want) < 60000);
+  return hit ? String(hit.id) : null;
+}
+
 export async function moveSlot(env: Env, postId: string, at: string, ws = "default") {
-  const p = await db.first<any>(env, "SELECT p.*, c.id AS clip FROM posts p JOIN clips c ON c.id = p.clip_id WHERE p.id = ? AND p.workspace_id = ?", postId, ws);
+  const p = await db.first<any>(env, "SELECT p.*, c.id AS clip, c.account FROM posts p JOIN clips c ON c.id = p.clip_id WHERE p.id = ? AND p.workspace_id = ?", postId, ws);
   if (!p) return { ok: false, error: "Post nicht gefunden" };
   if (!["scheduled", "shadow"].includes(p.status)) return { ok: false, error: `Post ist ${p.status}, nur geplante Posts lassen sich verschieben` };
   const when = new Date(at); if (Number.isNaN(when.getTime()) || when.getTime() < Date.now() - 60000) return { ok: false, error: "Zeitpunkt ungültig oder in der Vergangenheit" };
@@ -145,7 +157,13 @@ export async function moveSlot(env: Env, postId: string, at: string, ws = "defau
     await logEvent(env, `slot_moved post=${p.id} to=${when.toISOString()} (${p.status})`);
     return { ok: true, post_id: p.id, at: when.toISOString(), mode: p.status };
   }
-  if (env.BLOTATO_API_KEY) { const r = await fetch(`${BLOTATO}/schedules/${p.blotato_submission_id}`, { method: "DELETE", headers: blotatoHeaders(env) }); if (!r.ok && r.status !== 404) return { ok: false, error: `Blotato-Schedule konnte nicht gelöscht werden (${r.status})` }; }
+  if (env.BLOTATO_API_KEY) {
+    const accId = (accountsOf(env)[p.account] as any)?.blotato?.[p.platform ?? "tiktok"];
+    const schedId = accId ? await blotatoScheduleId(env, String(accId), p.scheduled_at) : null;
+    if (!schedId) return { ok: false, error: "Der Zeitplan liegt bei Blotato nicht (mehr) vor – bitte dort prüfen; es wurde nichts geändert." };
+    const r = await fetch(`${BLOTATO}/schedules/${schedId}`, { method: "DELETE", headers: blotatoHeaders(env) });
+    if (!r.ok && r.status !== 404) return { ok: false, error: `Blotato hat das Löschen des Zeitplans abgelehnt (${r.status}) – es wurde nichts geändert.` };
+  }
   await db.run(env, "UPDATE posts SET status = 'cancelled' WHERE id = ?", p.id);
   await db.run(env, "UPDATE clips SET status = 'ready' WHERE id = ?", p.clip);
   const res = await publishClipNow(env, p.clip, when.toISOString());
