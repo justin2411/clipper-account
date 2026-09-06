@@ -31,6 +31,7 @@ import { runNotify, dailyOverview, weeklyReport } from "./notify";
 import { runWeeklyReport, getReport, listReports } from "./report";
 import { abStats, startExperiment, stopExperiment, applyWinner, getExperiment, AB_VARIABLES } from "./ab";
 import { listLog, LOG_CATS } from "./log";
+import { onboardingStatus } from "./onboarding";
 import { runFan, startUploadJob } from "./fan";
 import { getSettings, effectiveSettings, validateSettings, diffSettings, putSettings, listVersions, getVersion, defaultSettings, deepMerge } from "./settings";
 import { listTasks, completeTask, resumeAccount, syncTasks } from "./tasks";
@@ -137,7 +138,7 @@ export async function handleRequest(req: Request, env: Env, ctx: ExecutionContex
     return json({ error: "method not allowed" }, 405);
   }
   // Dashboard-Aktionen (Header x-api-key = DASHBOARD_READ_KEY oder CLIPFORGE_API_KEY, CORS): Review, Settings, Aufgaben, Resume
-  if (["review", "settings", "tasks", "report", "ab", "log"].includes(seg[0]) || (seg[0] === "accounts" && seg[2] === "resume")) {
+  if (["review", "settings", "tasks", "report", "ab", "log", "onboarding"].includes(seg[0]) || (seg[0] === "accounts" && seg[2] === "resume")) {
     const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "x-api-key, content-type", "Access-Control-Allow-Methods": "GET, POST, PUT, OPTIONS" };
     const J = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status, headers: { "Content-Type": "application/json", ...cors } });
     if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
@@ -157,6 +158,7 @@ export async function handleRequest(req: Request, env: Env, ctx: ExecutionContex
       if (seg[0] === "review" && seg[1] && req.method === "POST") { const body = await b(); return J(await reviewAction(env, seg[1], body as any, ws)); }
       if (seg[0] === "settings" && !seg[1] && req.method === "GET") return J(await getSettings(env, ws));
       if (seg[0] === "settings" && seg[1] === "effective" && req.method === "GET") return J({ ...(await effectiveSettings(env, url.searchParams.get("account") ?? "A", ws)), ab: await getExperiment(env, ws) });
+      if (seg[0] === "onboarding" && !seg[1] && req.method === "GET") return J(await onboardingStatus(env, ws));   // Stufe 6
       // Ereignis-Log (Stufe 5): ?cat=error|reject|killswitch|upload|post|job|settings|all &q= &limit= &before=<id>
       if (seg[0] === "log" && !seg[1] && req.method === "GET") return J({ ...(await listLog(env, { cat: url.searchParams.get("cat") ?? "all", q: url.searchParams.get("q") ?? "", limit: Number(url.searchParams.get("limit") || 60), before: Number(url.searchParams.get("before") || 0) }, ws)), cats: LOG_CATS });
       // A/B-Test (Stufe 4)
