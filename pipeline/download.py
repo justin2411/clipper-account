@@ -57,7 +57,24 @@ def _save_cookies(ck: Path | None, before: str) -> None:
             print("[download] kv cookies speichern fehlgeschlagen:", e)
 
 
-def _ytdlp(url: str, dest: Path, fmt: str = "bv*[height<=1080][ext=mp4]+ba[ext=m4a]/b[height<=1080]/b") -> None:
+# H.264 bevorzugen: AV1/VP9 kann der Clipper (OpenCV/ffmpeg im Runner) nicht dekodieren → sonst Transcode nach dem Download
+YT_FORMAT = "bv*[vcodec^=avc1][height<=1080]+ba[ext=m4a]/bv*[vcodec^=avc1]+ba/bv*[height<=1080][ext=mp4]+ba/b[height<=1080]/b"
+
+
+def _ensure_h264(dest: Path) -> None:
+    for p in _videos(dest):
+        r = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=codec_name", "-of", "csv=p=0", str(p)],
+                           capture_output=True, text=True)
+        codec = r.stdout.strip()
+        if codec and codec != "h264":
+            print(f"[download] {p.name}: {codec} → H.264 transcodieren")
+            tmp = p.with_name(p.stem + ".h264.mp4")
+            subprocess.run(["ffmpeg", "-y", "-i", str(p), "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p",
+                            "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(tmp)], check=True, capture_output=True)
+            p.unlink(); tmp.rename(p)
+
+
+def _ytdlp(url: str, dest: Path, fmt: str = YT_FORMAT) -> None:
     cmd = ["yt-dlp", "-f", fmt, "--merge-output-format", "mp4", "--no-playlist", "-o", str(dest / "%(id)s.%(ext)s"), url]
     ck = _load_cookies(dest)
     before = ck.read_text(encoding="utf-8") if ck else ""
@@ -69,6 +86,7 @@ def _ytdlp(url: str, dest: Path, fmt: str = "bv*[height<=1080][ext=mp4]+ba[ext=m
             r = subprocess.run(cmd + extra, capture_output=True, text=True)
             if r.returncode == 0:
                 _save_cookies(ck, before)              # nur nach Erfolg zurückschreiben (rotierte Cookies sind dann gültig)
+                _ensure_h264(dest)
                 return
             last = (r.stderr or r.stdout)[-400:]
             print(f"[download] yt-dlp Versuch {attempt} fehlgeschlagen: {last}")
