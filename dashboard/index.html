@@ -26,7 +26,10 @@
               join: campaign_url zum Beitreten; Worker hakt ab, wenn Kampagne in D1 auf "joined" steht (nach Footage-Setzen) oder per Knopf
               footage: Upload direkt in der Aufgabe (Nische vorgegeben); hakt sich nach erfolgreichem Upload selbst ab
               review: pausierter Account o.ä.; Knopf "Freigeben" -> POST /accounts/{id}/resume
-  review[]:   { id, account, niche, source, video_url (R2, mp4), cover_url, caption, hook, duration, qa:{score, notes[]}, scores:{surprise,stakes,reaction,cliffhanger,context,clarity}, scheduled_for, variant }
+  review[]:   { id, account, niche, source, campaign_id, video_url (R2, mp4), cover_url, caption, hook, duration, qa:{score, notes[]}, scores:{…}, scheduled_for, variant, probe, rank }
+              probe:true = Clip aus einem Probelauf; dann drei Knöpfe statt Freigeben → POST /probe {campaign_id, action:"release|another|reject"}
+  probe:      { open, campaign_id, campaign, video, round, blocked_ranks, clips[], probe, production, max_probe, max_production, waiting } -> GET /probe
+              Obergrenze: ein Video im Probelauf, zwei Videos in Produktion; weitere Uploads warten.
               -> GET /review (Clips mit Status ready/scheduled, noch nicht gepostet)
   POST /review/{id}  { action:"approve|reject|redo|edit", feedback:"...", tags:["hook_zu_lang","start_frueher","falscher_moment",...], caption?, hook? }
               redo = neu rendern mit Feedback als Zusatzanweisung an Gemini; Feedback-Tags fließen als Few-Shot in Momentwahl & QA
@@ -568,7 +571,7 @@ const get=(o,p)=>p.split(".").reduce((x,k)=>x?.[k],o);
 const setp=(o,p,v)=>{const ks=p.split(".");let x=o;ks.slice(0,-1).forEach(k=>{x[k]=x[k]||{};x=x[k]});x[ks.at(-1)]=v};
 const flatten=(o,pre="")=>Object.entries(o||{}).reduce((a,[k,v])=>{const kk=pre?pre+"."+k:k;if(v&&typeof v==="object"&&!Array.isArray(v))Object.assign(a,flatten(v,kk));else a[kk]=Array.isArray(v)?v.join(","):v;return a},{});
 const num=v=>(v===""||isNaN(v))?v:+v;
-async function load(c){const r=await fetch(c.apiUrl+"/dashboard",{headers:{"x-api-key":c.apiKey}});if(!r.ok)throw new Error("HTTP "+r.status);return r.json()}
+async function load(c){const r=await fetch(c.apiUrl+"/dashboard",{headers:{"x-api-key":c.apiKey},cache:"no-store"});if(!r.ok)throw new Error("HTTP "+r.status);return r.json()}
 const route=()=>location.hash.replace("#","")||"home";
 const nicheOf=(d,key)=>(d.niches||[]).find(n=>n.key===key);
 const av=(a,d)=>`<span class="av" style="background:${nicheOf(d,a.niche)?.color||"#555"}">${a.id}</span>`;
@@ -665,14 +668,20 @@ function page(d){const r=route(); nav(d);
     <section><h2>Letzte Posts <span>${posts.length} · klick öffnet TikTok</span></h2>${postsGrid(posts.slice(0,18))}</section>`;
   } else if(r==="review"){const rv=d.review||[];
     const qacls=q=>q>=8?"g":q>=7?"y":"r";const TAGS=["Hook zu lang","Start früher","Start später","Falscher Moment","Zu lang","Zu kurz","Text überlappt","Zoom zu stark","Caption ändern"];
+    const pb=d.probe||{};const modes=Object.entries((d.settings?.niches)||{}).map(([k,n])=>[nicheOf(d,k)?.label||k,n.mode]);
+    const auto=modes.filter(([,m])=>m!=="review");
     html=`<div class="top"><h1>Clip-Vorschau</h1><div class="meta">${rv.length} Clips vor dem Posten <button class="b" id="rf">Aktualisieren</button></div></div>${banner}
+    <section><h2>Freigabe <span>${modes.map(([l,m])=>`${l}: <b>${m==="review"?"Erst Vorschau":"Automatisch"}</b>`).join(" · ")}</span></h2>
+      <div class="hint">${auto.length?`⚠️ ${auto.map(([l])=>l).join(", ")} steht auf <b>Automatisch</b> – Clips gehen ohne deine Freigabe live. Umstellen in der <a href="#settings">Feinjustierung → Posting → Freigabe</a>.`:`Alle Kategorien stehen auf <b>Erst Vorschau</b>: nichts wird gepostet, bevor du es hier freigibst.`}</div>
+      <div class="hint">Probelauf: ${pb.open?`ein Video in Prüfung (${pb.campaign||""}, Runde ${pb.round||1})`:"keiner offen"} · in Produktion ${pb.production??0} von ${pb.max_production??2} · ${pb.waiting?`${pb.waiting} Video(s) warten auf einen freien Platz`:"nichts wartet"}</div>
+    </section>
     <section><h2>Nächste Clips <span>Freigeben = automatisch in den nächsten freien Slot · ${rv.length?`<button class="b" id="bulk">Alle ${rv.length} freigeben</button>`:""}</span></h2>${rv.map(c=>`<div class="rv" data-id="${c.id}">
       ${c.video_url?`<video src="${c.video_url}" poster="${c.cover_url||""}" controls muted playsinline preload="metadata"></video>`:`<div class="ph">Vorschau<br>${c.duration}s</div>`}
-      <div><div class="hd"><div><div class="hk">${c.hook}</div><div class="mt">${c.account} · ${c.source} · ${c.duration}s · Variante ${c.variant} · geplant ${tm(c.scheduled_for)}</div></div><span class="qa ${qacls(c.qa.score)}">QA ${c.qa&&c.qa.score!=null?Number(c.qa.score).toFixed(1):"–"}</span></div>
+      <div><div class="hd"><div><div class="hk">${c.probe?`<span class="pill f" style="margin-right:6px">Probelauf</span>`:""}${c.hook}</div><div class="mt">${c.account} · ${c.source} · ${c.duration}s · Variante ${c.variant} · ${c.probe?`Moment ${c.rank??"?"} von zweien zur Probe`:`geplant ${tm(c.scheduled_for)}`}</div></div><span class="qa ${qacls(c.qa.score)}">QA ${c.qa&&c.qa.score!=null?Number(c.qa.score).toFixed(1):"–"}</span></div>
       <div class="cap">${c.caption}</div>
       <div class="sc"><span>Überraschung <b>${c.scores.surprise}</b></span><span>Einsatz <b>${c.scores.stakes}</b></span><span>Reaktion <b>${c.scores.reaction}</b></span><span>Cliffhanger <b>${c.scores.cliffhanger}</b></span><span>Ohne Kontext <b>${c.scores.context}</b></span><span>Sekunde 1 <b>${c.scores.clarity}</b></span>${c.qa.notes.map(n=>`<span>${n}</span>`).join("")}</div>
       <div class="fb">${TAGS.map(t=>`<button data-tag="${t}">${t}</button>`).join("")}</div>
-      <div class="act"><button class="ok" data-act="approve">Freigeben → nächster Slot</button><button class="re" data-act="redo">Neu schneiden</button><button class="no" data-act="reject">Verwerfen</button><input placeholder="Feedback in eigenen Worten (optional) …"></div></div></div>`).join("")||`<div class="empty">Keine Clips in der Vorschau – Accounts im Modus „auto" posten direkt.</div>`}</section>`;
+      ${c.probe?`<div class="act"><button class="ok" data-probe="release">Rest freigeben</button><button class="re" data-probe="another">Nochmal, andere Momente</button><button class="no" data-probe="reject">Video verwerfen</button></div>`:`<div class="act"><button class="ok" data-act="approve">Freigeben → nächster Slot</button><button class="re" data-act="redo">Neu schneiden</button><button class="no" data-act="reject">Verwerfen</button><input placeholder="Feedback in eigenen Worten (optional) …"></div>`}</div></div>`).join("")||`<div class="empty">Keine Clips in der Vorschau – Accounts im Modus „auto" posten direkt.</div>`}</section>`;
   } else if(r==="settings"){const st=d.settings||{global:{},niches:{},accounts:{}};
     const keys=Object.keys(st.niches);if(!setNiche||!st.niches[setNiche])setNiche=keys[0];const N=st.niches[setNiche]||{};const n=nicheOf(d,setNiche);
     const dirty=(path)=>{const a=get(st.niches[setNiche],path),b=get(SAVED?.niches?.[setNiche]||{},path);return SAVED&&JSON.stringify(a)!==JSON.stringify(b)};
@@ -1182,7 +1191,17 @@ function wireHow(d){document.querySelectorAll(".hcard,.xnode").forEach(g=>g.oncl
   document.querySelectorAll("[data-fc]").forEach(i=>i.oninput=()=>{FC[i.dataset.fc]=+i.value;page(d);const j=document.querySelector(`[data-fc="${i.dataset.fc}"]`);if(j)j.focus()});
   document.querySelectorAll("[data-useist]").forEach(b=>b.onclick=()=>{const A=actuals(d);FC[b.dataset.useist]=A[b.dataset.useist];page(d)});
   const ua=$("#useall");if(ua)ua.onclick=()=>{const A=actuals(d);["accounts","posts","platforms","q1","cpm","growth","camp","cost"].forEach(k2=>{if(A[k2])FC[k2]=A[k2]});FC.avg0=A.avg||FC.avg0;page(d)};}
-function wireStudio(d){
+function wireProbe(d){const H={"x-api-key":cfg?.apiKey,"Content-Type":"application/json"};
+  document.querySelectorAll("[data-probe]").forEach(b=>b.onclick=async()=>{if(DEMO_MODE||!cfg)return;
+    const act=b.dataset.probe,card=b.closest(".rv");const id=card?.dataset.id;
+    const camp=(DATA?.review||[]).find(x=>x.id===id)?.campaign_id;if(!camp)return;
+    const txt={release:"Rest freigeben",another:"Nochmal, andere Momente",reject:"Video verwerfen"}[act];
+    b.disabled=true;b.textContent="…";
+    const r=await (await fetch(cfg.apiUrl+"/probe",{method:"POST",headers:H,body:JSON.stringify({campaign_id:camp,action:act})})).json();
+    if(!r.ok){b.disabled=false;b.textContent=r.error||"Fehler";return}
+    showDiff({title:txt,sub:act==="release"?"Die übrigen Momente dieses Videos werden jetzt produziert.":act==="another"?`Zwei neue Momente werden gesucht, die Ränge ${(r.blocked_ranks||[]).join(", ")} bleiben gesperrt.`:"Das Video kommt nicht mehr in die Vorschlagsliste."});
+    setTimeout(refresh,1200)})}
+function wireStudio(d){wireProbe(d);
   const bulk=$("#bulk");if(bulk)bulk.onclick=async()=>{if(DEMO_MODE){document.querySelectorAll(".rv").forEach(c=>c.style.opacity=.35);return}await fetch(cfg.apiUrl+"/review/bulk",{method:"POST",headers:{"x-api-key":cfg.apiKey,"Content-Type":"application/json"},body:JSON.stringify({ids:(d.review||[]).map(c=>c.id),action:"approve"})});refresh()};
   document.querySelectorAll(".rv").forEach(card=>{const id=card.dataset.id;const tags=new Set();
     card.querySelectorAll("[data-tag]").forEach(b=>b.onclick=()=>{b.classList.toggle("on");b.classList.contains("on")?tags.add(b.dataset.tag):tags.delete(b.dataset.tag)});
@@ -1413,17 +1432,34 @@ function wireUpload(d){const drop=$("#drop"),file=$("#file"),stat=$("#upstat");i
       await fetch(cfg.apiUrl+"/sources/complete",{method:"POST",headers:{"x-api-key":cfg.apiKey,"Content-Type":"application/json"},body:JSON.stringify({source_id:pre.source_id})});
       stat.textContent=`${f.name}: fertig – Clip-Jobs gestartet.`;}catch(err){stat.textContent=`${f.name}: ${err.message}`}}
     refresh();}}
-async function refresh(){if(DEMO_MODE||!cfg){gate();return}try{DATA=await load(cfg);page(DATA)}catch(e){gate("Verbindung verloren: "+e.message)}}
-function gate(msg=""){$("#nav").innerHTML="";$("#main").innerHTML=`<div class="gate"><h1 style="font-size:20px;margin:0 0 6px">ClipForge</h1><p style="color:var(--ink2);font-size:14px;margin:0 0 12px">Mit dem Worker verbinden (Werte aus SECRETS.local.md).</p><input id="u" placeholder="Worker-URL" value="${cfg?.apiUrl||""}"><input id="p" type="password" placeholder="Dashboard-Lese-Key"><div style="color:var(--bad);font-size:13px;min-height:18px;margin-bottom:8px">${msg}</div><button id="go">Öffnen</button><div class="banner" style="margin-top:12px;text-align:center"><a href="#" id="demo">Mit Beispieldaten ansehen</a></div></div>`;
-  $("#go").onclick=async()=>{const c={apiUrl:$("#u").value.trim().replace(/\/$/,""),apiKey:$("#p").value.trim()};try{DATA=await load(c);cfg=c;localStorage.setItem("clipforge.cfg",JSON.stringify(c));DEMO_MODE=false;page(DATA)}catch(e){gate("Keine Verbindung: "+e.message)}};
+async function refresh(){if(DEMO_MODE||!cfg){notice();return}try{DATA=await load(cfg);page(DATA)}catch(e){notice("Verbindung verloren.",e.message)}}
+// Kein Login: der Lese-Key steckt in der Auslieferung (scripts/deploy_dashboard.sh setzt ihn ein).
+// Klappt der Abruf nicht, erscheint der Grund mit einem Knopf zum erneuten Versuchen – nie ein Anmeldeformular.
+function notice(msg="", detail=""){$("#nav").innerHTML="";
+  const fehltKey=!cfg||!cfg.apiKey||cfg.apiKey.startsWith("__");
+  $("#main").innerHTML=`<div class="gate"><h1 style="font-size:20px;margin:0 0 6px">ClipForge</h1>
+    <p style="color:var(--ink2);font-size:14px;margin:0 0 12px">${fehltKey
+      ? "Diese Auslieferung hat keinen Lese-Key. Neu ausrollen mit <code>bash scripts/deploy_dashboard.sh</code>."
+      : (msg||"Verbindung zum Worker wird aufgebaut …")}</p>
+    ${detail?`<p style="color:var(--ink3);font-size:12px;margin:0 0 12px">${detail}</p>`:""}
+    <button class="save" id="retry" style="width:100%">Erneut versuchen</button>
+    <p style="text-align:center;margin:10px 0 0"><a href="#" id="demo" style="color:var(--ink3);font-size:13px">Mit Beispieldaten ansehen</a></p></div>`;
+  $("#retry").onclick=()=>{location.reload(true)};
   $("#demo").onclick=e=>{e.preventDefault();DEMO_MODE=true;DATA=DEMO;page(DATA)}}
 if("serviceWorker" in navigator) window.addEventListener("load",()=>navigator.serviceWorker.register("/sw.js").catch(e=>console.log("sw",e)));
 window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();INSTALL=e;if(DATA&&route()==="home")page(DATA)});
 window.addEventListener("appinstalled",()=>{INSTALL=null});
 window.addEventListener("hashchange",()=>{if(route()!=="settings")PEND=null;if(route()!=="report")REP=null;if(route()!=="log"){LOG=null;logCat="all";logQ=""}if(route()!=="inbox"){INB=null;inbFilter="open";inbKind="all"}if(route()!=="calendar"){CAL=null;calWeek=0;calSel=null}if(route()!=="library"){LIB=null;libQ="";libStatus="all";libAcc="all";libSrc="all";libSort="new";libScore=0}if(DATA)page(DATA)});
-(async()=>{ if(!cfg){try{cfg=JSON.parse(localStorage.getItem("clipforge.cfg")||"null")}catch(e){}}
-  if(cfg){try{DATA=await load(cfg);page(DATA);return}catch(e){}} gate(); })();
-setInterval(async()=>{if(cfg&&!DEMO_MODE){try{DATA=await load(cfg);page(DATA)}catch(e){}}},30000);
+(async()=>{
+  if(!cfg){try{cfg=JSON.parse(localStorage.getItem("clipforge.cfg")||"null")}catch(e){}}   // Altbestand aus früheren Ständen
+  if(!cfg||!cfg.apiKey||cfg.apiKey.startsWith("__")){notice();return}
+  for(let versuch=1;versuch<=3;versuch++){
+    try{DATA=await load(cfg);page(DATA);return}
+    catch(e){ notice("Der Worker antwortet gerade nicht.", `Versuch ${versuch} von 3: ${e.message}`); await new Promise(r=>setTimeout(r,1500*versuch)); }
+  }
+  notice("Der Worker antwortet nicht.","Der Lese-Key steckt in der Seite – es liegt nicht an einer Anmeldung. Prüfe den Worker (wrangler deploy) und versuche es erneut.");
+})();
+setInterval(async()=>{if(cfg&&!DEMO_MODE){try{DATA=await load(cfg);page(DATA)}catch(e){console.log("Aktualisieren fehlgeschlagen:",e.message)}}},30000);
 </script>
 </body>
 </html>

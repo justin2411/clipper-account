@@ -8,6 +8,7 @@
 import { Env, Niche, db, logEvent, mediaUrl, nichesOf, telegram } from "./shared";
 import { autoPick } from "./suggest";
 import { dispatchClipJob } from "./scout";
+import { dispatchProbe, capacity } from "./probe";
 import { accountsOf, accountRules } from "./publisher";
 
 const RSS_EVERY_MIN = 30;
@@ -83,6 +84,22 @@ export async function startUploadJob(env: Env, uploadId: string, origin: string,
     id, n.key, `${n.label}: ${u.title || uploadId}`.slice(0, 120), u.video_id ? yt(u.video_id) : url,
     JSON.stringify({ type: "url", url, video_id: u.video_id ?? null, upload_id: uploadId }), JSON.stringify(required), JSON.stringify(n.accounts), u.workspace_id ?? "default");   // Stufe 7: Kampagne erbt den Workspace des Uploads
   const account = n.accounts.join("");
+  // Fan-Video: erst der Probelauf mit zwei Momenten. Ist kein Platz frei (ein Probelauf, zwei Videos in Produktion),
+  // bleibt der Upload liegen und der Fan-Lauf versucht es erneut, sobald entschieden wurde.
+  if (u.video_id) {
+    const pr = await dispatchProbe(env, id, account, u.video_id, u.workspace_id ?? "default");
+    if (pr.skipped) {
+      await db.run(env, "UPDATE uploads SET status = 'uploaded', note = ?, updated_at = ? WHERE id = ?", `wartet: ${pr.skipped}`.slice(0, 190), nowIso(), uploadId);
+      return { ok: false, campaign: id, status: 0, error: pr.skipped };
+    }
+    if (pr.ok) {
+      await db.run(env, "UPDATE uploads SET status = 'dispatched', campaign_id = ?, updated_at = ? WHERE id = ?", id, nowIso(), uploadId);
+      await telegram(env, `🔬 Probelauf gestartet (${n.label}): ${u.title || uploadId}\nZwei Momente zum Ansehen, dann entscheidest du in der Clip-Vorschau.`);
+      return { ok: true, campaign: id, status: pr.status };
+    }
+    await db.run(env, "UPDATE uploads SET status = 'error', note = ?, updated_at = ? WHERE id = ?", `dispatch ${pr.status}`, nowIso(), uploadId);
+    return { ok: false, campaign: id, status: pr.status };
+  }
   const status = await dispatchClipJob(env, id, account, preview ? { preview: "true" } : {});
   if (status === 204) {
     await db.run(env, "UPDATE uploads SET status = 'dispatched', campaign_id = ?, updated_at = ? WHERE id = ?", id, nowIso(), uploadId);
@@ -121,6 +138,8 @@ export async function runFan(env: Env, origin = "") {
   // Uploads, deren Dispatch fehlgeschlagen ist: erneut versuchen (z.B. GitHub kurz nicht erreichbar)
   for (const u of await db.all<any>(env, "SELECT id FROM uploads WHERE status = 'uploaded' OR (status = 'error' AND note LIKE 'dispatch %')")) {
     if (!origin) break;
+    const cap = await capacity(env);                        // Obergrenze: nichts nachschieben, solange ein Probelauf offen ist
+    if (!cap.can_probe) { stats.skipped.push(`wartet: ${cap.reason}`); break; }
     const r = await startUploadJob(env, u.id, origin);
     if (r.ok) stats.retried++;
   }

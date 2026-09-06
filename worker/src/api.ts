@@ -42,6 +42,7 @@ import { listLibrary, reuseClip } from "./library";
 import { runWeeklyReportAI, runAnomalyCheck, detectAnomalies, lastAnomalies } from "./insights";
 import { reconcilePosts } from "./reconcile";
 import { buildPacer, runPacer, lastPacer } from "./pacer";
+import { probeStatus, probeAction, capacity, ProbeAction } from "./probe";
 import { resolveWorkspace, listWorkspaces, createWorkspace, patchWorkspace } from "./workspace";
 import { runFan, startUploadJob } from "./fan";
 import { getSettings, effectiveSettings, validateAll, diffSettings, putSettings, listVersions, getVersion, defaultSettings, deepMerge } from "./settings";
@@ -151,7 +152,7 @@ export async function handleRequest(req: Request, env: Env, ctx: ExecutionContex
     return json({ error: "method not allowed" }, 405);
   }
   // Dashboard-Aktionen (Header x-api-key = DASHBOARD_READ_KEY oder CLIPFORGE_API_KEY, CORS): Review, Settings, Aufgaben, Resume
-  if (["review", "settings", "tasks", "report", "ab", "log", "onboarding", "suggest", "inbox", "chat", "calendar", "payouts", "library", "anomalies", "reconcile", "pacer", "catalog"].includes(seg[0]) || (seg[0] === "accounts" && seg[2] === "resume")) {
+  if (["review", "settings", "tasks", "report", "ab", "log", "onboarding", "suggest", "inbox", "chat", "calendar", "payouts", "library", "anomalies", "reconcile", "pacer", "catalog", "probe"].includes(seg[0]) || (seg[0] === "accounts" && seg[2] === "resume")) {
     const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "x-api-key, content-type", "Access-Control-Allow-Methods": "GET, POST, PUT, OPTIONS" };
     const J = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status, headers: { "Content-Type": "application/json", ...cors } });
     if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
@@ -210,6 +211,16 @@ export async function handleRequest(req: Request, env: Env, ctx: ExecutionContex
       if (seg[0] === "inbox" && seg[1] === "rules" && req.method === "GET") return J(await getRules(env, ws));
       if (seg[0] === "inbox" && seg[1] === "rules" && req.method === "PUT") return J(await putRules(env, (await b()) as any, ws));
       if (seg[0] === "inbox" && seg[1] && ["read", "done", "unread", "reopen"].includes(seg[2] ?? "") && req.method === "POST") return J(await markNotification(env, seg[1] === "all" ? "all" : Number(seg[1]), seg[2] as any, ws));
+      // Probelauf: GET /probe zeigt den offenen Lauf und die Auslastung · POST /probe {campaign_id, action: release|another|reject}
+      if (seg[0] === "probe" && !seg[1] && req.method === "GET") return J(await probeStatus(env, ws));
+      if (seg[0] === "probe" && !seg[1] && req.method === "POST") {
+        const body = (await b()) as any;
+        const action = String(body.action ?? "") as ProbeAction;
+        if (!["release", "another", "reject"].includes(action)) return J({ ok: false, error: "action: release|another|reject" }, 400);
+        const r = await probeAction(env, String(body.campaign_id ?? ""), action, ws);
+        return J(r, r.ok ? 200 : 400);
+      }
+
       // Katalog (Nachschub-Agent): GET /catalog?niche= liefert beide Listen (frisch / Archiv) · POST /catalog/rate?limit= bewertet offene Videos
       // GET /catalog/usage?video= zeigt die Sperrliste eines Videos · GET /catalog/segment?video=&start=&end= prüft eine Stelle
       if (seg[0] === "catalog" && !seg[1] && req.method === "GET")
@@ -410,11 +421,11 @@ export async function handleRequest(req: Request, env: Env, ctx: ExecutionContex
         const j = (v: unknown) => (v == null ? null : typeof v === "string" ? v : JSON.stringify(v));
         await db.run(env,
           `INSERT INTO clips (id, campaign_id, account, media_url, caption, hook_type, status, note, seq, duration_s, hook, pinned_comment, video_id, rank, thumb_url,
-                              context_line, cover_url, scores, qa, variant)
-           SELECT ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(MAX(seq), 0) + 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? FROM clips WHERE campaign_id = ?`,
+                              context_line, cover_url, scores, qa, variant, probe)
+           SELECT ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(MAX(seq), 0) + 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? FROM clips WHERE campaign_id = ?`,
           id, b.campaign_id, b.account, b.media_url, b.caption ?? null, b.hook_type ?? null, b.status ?? "ready", b.note ?? null,
           b.duration_s ?? null, b.hook ?? null, b.pinned_comment ?? null, b.video_id ?? null, b.rank ?? null, b.thumb_url ?? null,
-          b.context_line ?? null, b.cover_url ?? null, j(b.scores), j(b.qa), b.variant ?? null, b.campaign_id);
+          b.context_line ?? null, b.cover_url ?? null, j(b.scores), j(b.qa), b.variant ?? null, b.probe ? 1 : 0, b.campaign_id);
         const row = await db.first<{ seq: number }>(env, "SELECT seq FROM clips WHERE id = ?", id);
         if (b.video_id && (b.start_s != null || b.end_s != null))          // Sperrliste: verwendete Stelle des Quellvideos festhalten
           await recordUsage(env, { video_id: String(b.video_id), clip_id: id, account: String(b.account ?? ""),
