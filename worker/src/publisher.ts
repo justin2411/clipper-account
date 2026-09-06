@@ -31,9 +31,23 @@ async function blotatoPost(env: Env, accountId: string, platform: string, mediaU
 
 const day = (d: Date) => d.toISOString().slice(0, 10);
 
-/** Freie Slot-Zeitpunkte (ISO) für einen Account: heute + morgen, nur Zukunft (>5 min), unbelegt, max N/Tag. */
-export async function freeSlots(env: Env, account: string, slots: string[], maxPerDay: number, now = new Date()): Promise<string[]> {
+/** Wirksame Regeln eines Accounts: globales Limit, überschrieben durch account_state (max_per_day, min_gap_min) bis rules_until. */
+export async function accountRules(env: Env, account: string, now = new Date()) {
+  const st = await db.first<any>(env, "SELECT * FROM account_state WHERE account = ?", account);
+  const globalMax = Number(env.MAX_CLIPS_PER_DAY || 4);
+  const active = !!(st?.rules_until && new Date(st.rules_until).getTime() > now.getTime());
+  return { maxPerDay: active && st.max_per_day ? Number(st.max_per_day) : globalMax,
+           minGapMin: active && st.min_gap_min ? Number(st.min_gap_min) : 0, rulesUntil: active ? st.rules_until : null };
+}
+
+/** Freie Slot-Zeitpunkte (ISO) für einen Account: heute + morgen, nur Zukunft (>5 min), unbelegt, max N/Tag,
+ *  optional Mindestabstand (Minuten) zu allen geplanten/geposteten und neu gewählten Zeiten. */
+export async function freeSlots(env: Env, account: string, slots: string[], maxPerDay: number, now = new Date(), minGapMin = 0): Promise<string[]> {
   const out: string[] = [];
+  const gap = minGapMin * 60000;
+  const occupied: number[] = (await db.all<{ scheduled_at: string }>(env,
+    `SELECT p.scheduled_at FROM posts p JOIN clips c ON c.id = p.clip_id WHERE c.account = ? AND p.status IN ('scheduled','posted') AND p.scheduled_at >= ?`,
+    account, new Date(now.getTime() - 2 * 86400000).toISOString())).map((u) => new Date(u.scheduled_at).getTime());
   for (const offset of [0, 1]) {
     const d = new Date(now); d.setUTCDate(d.getUTCDate() + offset);
     const date = day(d);
@@ -47,7 +61,8 @@ export async function freeSlots(env: Env, account: string, slots: string[], maxP
       const t = new Date(`${date}T${s}:00Z`);
       if (t.getTime() < now.getTime() + 5 * 60000) continue;
       if (taken.has(t.toISOString().slice(0, 16))) continue;
-      out.push(t.toISOString()); budget--;
+      if (gap && occupied.some((o) => Math.abs(o - t.getTime()) < gap)) continue;
+      out.push(t.toISOString()); occupied.push(t.getTime()); budget--;
     }
   }
   return out;
@@ -55,16 +70,18 @@ export async function freeSlots(env: Env, account: string, slots: string[], maxP
 
 export async function runPublisher(env: Env) {
   const DRAFT = (env.BLOTATO_DRAFT ?? "true") === "true";
-  const MAX = Number(env.MAX_CLIPS_PER_DAY || 5);
   const GAP = Number(env.PLATFORM_GAP_MIN || 30);
   const accounts = accountsOf(env);
   const stats = { draft: DRAFT, scheduled: 0, errors: 0, skipped: [] as string[] };
   if (!env.BLOTATO_API_KEY) { stats.skipped.push("BLOTATO_API_KEY fehlt"); return stats; }
+  // Zeitgesteuerte Pausen automatisch beenden
+  await db.run(env, "UPDATE account_state SET paused = 0, reason = NULL, paused_until = NULL WHERE paused = 1 AND paused_until IS NOT NULL AND paused_until <= ?", new Date().toISOString());
   const paused = new Set((await db.all<{ account: string }>(env, "SELECT account FROM account_state WHERE paused = 1")).map((x) => x.account));
 
   for (const [acc, cfg] of Object.entries(accounts)) {
     if (paused.has(acc)) { stats.skipped.push(`${acc}: pausiert`); continue; }
-    const free = await freeSlots(env, acc, cfg.slots ?? [], MAX);
+    const rules = await accountRules(env, acc);
+    const free = await freeSlots(env, acc, cfg.slots ?? [], rules.maxPerDay, new Date(), rules.minGapMin);
     if (!free.length) continue;
     const clips = await db.all(env, "SELECT * FROM clips WHERE status = 'ready' AND account = ? ORDER BY created_at ASC LIMIT ?", acc, free.length);
     for (let i = 0; i < clips.length; i++) {
@@ -133,8 +150,8 @@ export async function publishClipNow(env: Env, clipId: string, when: string | nu
 /** Alle 'ready'-Clips einer Kampagne zeitversetzt posten: je Account der erste sofort, die weiteren alle `gapMin` Minuten.
  *  Nie zwei Posts eines Accounts gleichzeitig; das Tageslimit MAX_CLIPS_PER_DAY gilt auch hier – der Rest wartet auf die Slots. */
 export async function publishCampaignSpaced(env: Env, campaignId: string, gapMin = 45) {
-  const MAX = Number(env.MAX_CLIPS_PER_DAY || 4);
   const today = day(new Date());
+  const maxOf: Record<string, number> = {};
   const clips = await db.all<any>(env, "SELECT id, account, seq FROM clips WHERE campaign_id = ? AND status = 'ready' ORDER BY account, seq, created_at", campaignId);
   const perAccount: Record<string, number> = {};
   const budget: Record<string, number> = {};
@@ -142,16 +159,18 @@ export async function publishCampaignSpaced(env: Env, campaignId: string, gapMin
   const skipped: string[] = [];
   for (const c of clips) {
     if (budget[c.account] == null) {
+      const r = await accountRules(env, c.account); maxOf[c.account] = r.maxPerDay; if (r.minGapMin > gapMin) gapMin = r.minGapMin;
+      const MAX = r.maxPerDay;
       const used = await db.first<{ n: number }>(env,
         `SELECT COUNT(*) AS n FROM posts p JOIN clips x ON x.id = p.clip_id WHERE x.account = ? AND p.status IN ('scheduled','posted') AND substr(p.scheduled_at,1,10) = ?`, c.account, today);
       budget[c.account] = Math.max(0, MAX - (used?.n ?? 0));
     }
-    if (budget[c.account] <= 0) { skipped.push(`${c.account}#${c.seq}: Tageslimit ${MAX} erreicht → Slot-Plan`); continue; }
+    if (budget[c.account] <= 0) { skipped.push(`${c.account}#${c.seq}: Tageslimit ${maxOf[c.account]} erreicht → Slot-Plan`); continue; }
     budget[c.account]--;
     const k = perAccount[c.account] ?? 0;
     const when = k === 0 ? null : new Date(Date.now() + k * gapMin * 60000).toISOString();
     out.push(await publishClipNow(env, c.id, when));
     perAccount[c.account] = k + 1;
   }
-  return { campaign: campaignId, gap_min: gapMin, max_per_day: MAX, posted: out, skipped };
+  return { campaign: campaignId, gap_min: gapMin, max_per_day: maxOf, posted: out, skipped };
 }
