@@ -38,6 +38,7 @@ import { handleChat, confirmAction, listConversations, getConversation, chatBudg
 import { buildCalendar, moveCalendarPost } from "./calendar";
 import { buildPayouts, payoutsCsv } from "./payouts";
 import { listLibrary, reuseClip } from "./library";
+import { runWeeklyReportAI, runAnomalyCheck, detectAnomalies, lastAnomalies } from "./insights";
 import { resolveWorkspace, listWorkspaces, createWorkspace, patchWorkspace } from "./workspace";
 import { runFan, startUploadJob } from "./fan";
 import { getSettings, effectiveSettings, validateSettings, diffSettings, putSettings, listVersions, getVersion, defaultSettings, deepMerge } from "./settings";
@@ -49,7 +50,8 @@ import { BLOTATO, blotatoHeaders, telegram } from "./shared";
 export const FUNCTIONS: Record<string, (env: Env) => Promise<unknown>> = {
   scout: runScout, fan: (env) => runFan(env, env.PUBLIC_ORIGIN ?? ""), publisher: runPublisher, tracker: runTracker, notify: runNotify,
   daily: (env) => dailyOverview(env, true), weekly: weeklyReport,
-  report: (env) => runWeeklyReport(env, true), report_cron: (env) => runWeeklyReport(env, false),
+  report: (env) => runWeeklyReportAI(env, true), report_cron: (env) => runWeeklyReportAI(env, false), anomaly: (env) => runAnomalyCheck(env),
+  report_plain: (env) => runWeeklyReport(env, true),
 };
 
 const CAMPAIGN_FIELDS = ["platform", "kind", "name", "external_url", "status", "rate_per_1k_usd", "min_views", "max_per_post_usd", "min_seconds", "footage", "required", "forbidden", "accounts", "platforms", "budget_total_usd", "budget_used_usd"];
@@ -145,7 +147,7 @@ export async function handleRequest(req: Request, env: Env, ctx: ExecutionContex
     return json({ error: "method not allowed" }, 405);
   }
   // Dashboard-Aktionen (Header x-api-key = DASHBOARD_READ_KEY oder CLIPFORGE_API_KEY, CORS): Review, Settings, Aufgaben, Resume
-  if (["review", "settings", "tasks", "report", "ab", "log", "onboarding", "suggest", "inbox", "chat", "calendar", "payouts", "library"].includes(seg[0]) || (seg[0] === "accounts" && seg[2] === "resume")) {
+  if (["review", "settings", "tasks", "report", "ab", "log", "onboarding", "suggest", "inbox", "chat", "calendar", "payouts", "library", "anomalies"].includes(seg[0]) || (seg[0] === "accounts" && seg[2] === "resume")) {
     const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "x-api-key, content-type", "Access-Control-Allow-Methods": "GET, POST, PUT, OPTIONS" };
     const J = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status, headers: { "Content-Type": "application/json", ...cors } });
     if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
@@ -167,6 +169,8 @@ export async function handleRequest(req: Request, env: Env, ctx: ExecutionContex
       if (seg[0] === "settings" && !seg[1] && req.method === "GET") return J(await getSettings(env, ws));
       if (seg[0] === "settings" && seg[1] === "effective" && req.method === "GET") return J({ ...(await effectiveSettings(env, url.searchParams.get("account") ?? "A", ws)), ab: await getExperiment(env, ws) });
       if (seg[0] === "onboarding" && !seg[1] && req.method === "GET") return J(await onboardingStatus(env, ws));   // Stufe 6
+      // Anomalien (Nachtrag 7): GET /anomalies (zuletzt erkannt) · GET /anomalies?live=1 (jetzt prüfen)
+      if (seg[0] === "anomalies" && !seg[1] && req.method === "GET") return J(url.searchParams.get("live") ? { at: nowIso(), found: await detectAnomalies(env, ws) } : await lastAnomalies(env, ws));
       // Clip-Bibliothek (Nachtrag 6): GET /library?q=&status=&account=&source=&min_score=&min_views=&sort=&limit=&offset= · POST /library/:id/reuse {platform}
       if (seg[0] === "library" && !seg[1] && req.method === "GET") return J(await listLibrary(env, {
         q: url.searchParams.get("q") ?? "", status: url.searchParams.get("status") ?? "all", account: url.searchParams.get("account") ?? "all", source: url.searchParams.get("source") ?? "all",

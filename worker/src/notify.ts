@@ -96,6 +96,8 @@ export async function weeklyReport(env: Env) {
 
 export async function runNotify(env: Env) {
   const out: Record<string, unknown> = {};
+  const { runAnomalyCheck } = await import("./insights");
+  out.anomalies = await runAnomalyCheck(env).catch((e: any) => ({ error: String(e?.message ?? e) }));   // Nachtrag 7: täglicher Anomalie-Check (eigener Cron nicht möglich, Free-Limit 5)
   out.submissions = await submissionList(env);
   out.overview = await dailyOverview(env, publishMode(env, "fan") === "shadow" || publishMode(env, "paid") === "shadow");
   return out;
