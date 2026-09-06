@@ -105,7 +105,7 @@ export async function expectations(env: Env, ws = "default"): Promise<Record<str
   const out: Record<string, Expect> = {};
   for (const st of new Set(rows.map((r) => r.stage))) {
     const xs = rows.filter((r) => r.stage === st).slice(0, 20).map((r) => Number(r.secs)).filter((n) => n > 0 && n < 6 * 3600);
-    if (!xs.length) continue;
+    if (xs.length < 3) continue;      // aus einem einzigen Lauf lässt sich kein „üblich" ableiten – dann lieber nichts sagen
     const mean = xs.reduce((a, b) => a + b, 0) / xs.length;
     const sorted = [...xs].sort((a, b) => a - b);
     const q = (p: number) => sorted[Math.min(sorted.length - 1, Math.max(0, Math.round(p * (sorted.length - 1))))];
