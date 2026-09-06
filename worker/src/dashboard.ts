@@ -14,6 +14,7 @@ import { listSuggestions } from "./suggest";
 import { accountHealth } from "./health";
 import { listInbox, getRules } from "./inbox";
 import { chatBudget } from "./chat";
+import { buildCalendar } from "./calendar";
 
 const BLOTATO_FIXED_USD = 29, LLM_PER_CLIP_USD = 0.01, EUR_RATE = 0.92, GOAL_MONTHLY = 2000;
 const NICHE: Record<string, string> = { moments: "Momente", reactions: "Reaktionen" };
@@ -146,10 +147,11 @@ export async function buildDashboard(env: Env, ws = "default") {
   const onboarding = await onboardingStatus(env, ws);                                                  // Stufe 6: Checkliste beim ersten Start
   const inbox = { ...(await listInbox(env, { filter: "open", limit: 30 }, ws)), rules: await getRules(env, ws) };   // Nachtrag 2
   const chat = { enabled: !!env.ANTHROPIC_API_KEY, budget: await chatBudget(env, ws) };                              // Nachtrag 3
+  const calendar = await buildCalendar(env, 0, ws);                                                                   // Nachtrag 4: laufende Woche
   const suggestions: Record<string, any[]> = {};
   for (const n of nichesCfg) { try { suggestions[n.key] = await listSuggestions(env, n.key, ws, 8); } catch { suggestions[n.key] = []; } }   // Vorschläge je Nische
   return {
-    pipeline, niches, sources, posts: postList, review, settings, settings_versions, report, ab, log, onboarding, suggestions, inbox, chat,
+    pipeline, niches, sources, posts: postList, review, settings, settings_versions, report, ab, log, onboarding, suggestions, inbox, chat, calendar,
     month, currency: "USD", eur_rate: EUR_RATE,
     totals: { revenue: Math.round(rev?.s ?? 0), costs, pending, week_delta: Math.round(revWeek?.s ?? 0) },
     history, campaigns, accounts, insights, tasks, goal_monthly: GOAL_MONTHLY,

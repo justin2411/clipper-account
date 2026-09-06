@@ -46,6 +46,9 @@
                 top_posts:[{url,account,views,likes,hook,kind,campaign,posted_at}], learned:{best_slot,best_hook_type,best_font,best_account}, suggestions:[{text,action?:{kind,label,href}}], summary:[3 Sätze] }
               -> GET /report?week=latest|current|<YYYY-Www> (Dashboard-Key), GET /report/weeks. Sonntags 09:00 Berlin: Bericht in kv + Telegram-Kurzfassung mit Link auf #report.
               WeeklyReport zusätzlich: ab:{variable,leader,lift_pct,hint,variants:[{value,posts,avg_views}]}|null, changes:[{at,text}] (was das System umgestellt hat)
+  calendar (Nachtrag 4): { from, to, week_offset, days:[YYYY-MM-DD ×7], accounts:[{id, handle, niche, slots, posts_per_day, min_gap_min, paused, paused_until}],
+              items:[{id, clip_id, account, at, status, mode, kind, hook, cover, duration_s, campaign, campaign_id, niche, url, views, movable}] }
+              -> GET /calendar?week=0|-1|1 · POST /calendar/move {post_id, at} (Kollisionsschutz: Mindestabstand und Tageslimit des Accounts; Schatten-Post umdatieren, Live-Post über Blotato neu planen)
   chat (Nachtrag 3): { enabled, budget:{day, used_usd, calls, limit_usd, exhausted} }
               -> POST /chat {conversation_id?, message, context:{page,niche,account}, force?:"analysis"} → { conversation_id, reply:{text, more, sources:[{tool,rows}], tier:"data|analysis|action", how, model, usd, action?:{id,tool,args,label,confirm_token}}, budget }
               GET /chat (Konversationen) · GET /chat/:id (Verlauf) · POST /chat/confirm {action_id, confirm_token} bzw. {action_id, cancel:true}
@@ -310,6 +313,17 @@ details.more{border:1px solid var(--line);border-radius:var(--r);background:var(
 .cbar button{font:inherit;font-weight:700;font-size:14px;padding:0 16px;border-radius:12px;border:0;background:var(--flame);color:#fff;cursor:pointer}
 .cbar button.ghost{background:transparent;color:var(--ink2);border:1px solid var(--line)}
 .tier{font-size:11px;color:var(--ink3)}
+.cal{display:grid;grid-template-columns:56px repeat(7,minmax(0,1fr));gap:6px;font-size:12px}
+.cal .hd{font-weight:800;font-size:12px;text-align:center;padding:6px 0;color:var(--ink2)}.cal .hd small{display:block;font-weight:500;color:var(--ink3)}
+.cal .hr{color:var(--ink3);text-align:right;padding-right:6px;font-variant-numeric:tabular-nums}
+.cal .cell{min-width:0;overflow:hidden;min-height:34px;border:1px dashed transparent;border-radius:8px;padding:2px}
+.cal .cell.drop{border-color:var(--flame);background:color-mix(in srgb,var(--flame) 10%,transparent)}
+.ev2{display:flex;gap:6px;align-items:center;padding:4px 6px;border-radius:8px;background:var(--panel2);border:1px solid var(--line);margin-bottom:3px;cursor:grab}
+.ev2.shadow{border-style:dashed;opacity:.75}.ev2.posted{background:color-mix(in srgb,var(--ok) 12%,transparent);cursor:default}.ev2.paid{border-left:3px solid var(--flame)}.ev2.fan{border-left:3px solid var(--violet)}
+.ev2 img{width:22px;height:30px;object-fit:cover;border-radius:4px;flex:none;background:var(--line)}
+.ev2 .t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px}
+.ev2 .h{font-size:10px;color:var(--ink3)}
+@media (max-width:900px){.cal{grid-template-columns:44px 1fr;overflow-x:auto}.cal .hd.d,.cal .cell{display:none}.cal .hd.d.on,.cal .cell.on{display:block}}
 main{min-width:0;overflow-x:hidden}section,.kpi,.tk,.card,.rv{min-width:0}
 .urls{white-space:pre-wrap;word-break:break-all}
 @media (max-width:480px){.g2,.g4,.flow,.cards{grid-template-columns:1fr}.steps{grid-template-columns:repeat(2,1fr)}table{display:block;overflow-x:auto}}
@@ -394,6 +408,7 @@ const fmt=n=>Math.round(n||0).toLocaleString("de-DE"), k=n=>n>=1e6?(n/1e6).toFix
 const ago=i=>{const m=Math.max(0,Math.round((Date.now()-new Date(i))/60000));return m<60?`vor ${m} min`:m<1440?`vor ${Math.floor(m/60)} h`:`vor ${Math.floor(m/1440)} d`};
 const tm=i=>new Date(i).toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"});
 const monthLabel=m=>{const [y,mo]=(m||"").split("-");const n=["Januar","Februar","März","April","Mai","Juni","Juli","August","September","Oktober","November","Dezember"];return mo?`${n[+mo-1]} ${y}`:""};
+let CAL=null, calWeek=0, calDay=new Date().toISOString().slice(0,10), calSel=null;
 let REP=null, LOG=null, logCat="all", logQ="", INB=null, inbFilter="open", inbKind="all", CHAT={id:null,msgs:[],busy:false,budget:null};
 let cfg=(CONFIG.apiUrl&&CONFIG.apiKey)?{...CONFIG}:null, DATA=null, DEMO_MODE=false, sortKey="earnings_30d", setNiche=null, PEND=null, expert=false, pvAcc="", pvUI=true, pvZoom=true, pvSrc="clip", howSel=-1, howSub=-1, fcScen="konsequent", FC=null;
 const get=(o,p)=>p.split(".").reduce((x,k)=>x?.[k],o);
@@ -418,6 +433,7 @@ function nav(d){const r=route();
   <a class="nl ${r==="tasks"?"on":""}" href="#tasks">Aufgaben<small>${(d.tasks||[]).length}</small></a>
   <a class="nl ${r==="report"?"on":""}" href="#report">Wochenbericht<small>${d.report?.latest?.week?.replace(/^\d{4}-W/,"KW")||""}</small></a>
   ${d.onboarding&&!d.onboarding.complete?`<a class="nl ${r==="start"?"on":""}" href="#start">Erste Schritte<small>${d.onboarding.done}/${d.onboarding.total}</small></a>`:""}
+  <a class="nl ${r==="calendar"?"on":""}" href="#calendar">Kalender<small>${(d.calendar?.items||[]).filter(i=>i.movable).length||""}</small></a>
   <a class="nl ${r.startsWith("chat")?"on":""}" href="#chat">Chat${d.chat&&!d.chat.enabled?`<small>aus</small>`:(d.chat?.budget?.exhausted?`<small>Budget</small>`:"")}</a>
   <a class="nl ${r==="inbox"?"on":""}" href="#inbox">Posteingang<small>${d.inbox?.counts?.unread?`${d.inbox.counts.unread} neu`:""}</small></a>
   <a class="nl ${r==="log"?"on":""}" href="#log">Ereignis-Log<small>${d.log?.counts?.error?`${d.log.counts.error} Fehler`:""}</small></a>
@@ -569,6 +585,10 @@ function page(d){const r=route(); nav(d);
     <section>${(ib.items||[]).length?ib.items.map(n=>`<div class="nt ${n.read?"":"unread"} ${n.done?"done":""}" data-nid="${n.id}"><span class="pill ${n.kind==="error"||n.kind==="killswitch"?"error":n.kind==="warning"?"reject":n.kind==="report"?"post":n.kind==="supply"||n.kind==="new_video"?"upload":""}">${kinds[n.kind]||n.kind}</span><div><div class="ti" data-inbopen="${n.id}">${n.title}${n.sent_telegram?"":" <small style=\"color:var(--ink3)\">· nur hier</small>"}</div><div class="tx">${n.text.replace(/</g,"&lt;")}${n.photo_url?`<div><a href="${n.photo_url}" target="_blank" rel="noopener">Bild öffnen ↗</a></div>`:""}</div><div class="act" style="margin-top:6px">${n.done?`<button data-inbmark="${n.id}|reopen">Wieder öffnen</button>`:`${n.read?"":`<button data-inbmark="${n.id}|read">Gelesen</button>`}<button data-inbmark="${n.id}|done">Erledigt</button>`}<a href="#chat:${encodeURIComponent(n.explain)}">Erklären →</a></div></div><time class="tm">${tm(n.created_at)}</time></div>`).join(""):`<div class="empty">Nichts ${inbFilter==="done"?"erledigt":"offen"}.</div>`}
     ${ib.next_before?`<div class="tools" style="margin-top:12px"><button class="b" id="inbmore" data-before="${ib.next_before}">Mehr laden</button></div>`:""}</section>
     <details class="more"><summary>Regeln je Ereignistyp <span style="font-weight:500;color:var(--ink3);font-size:12px">Telegram an/aus · Push kommt mit der App</span></summary><div><div class="rules">${Object.entries(kinds).map(([k,l])=>`<label><input type="checkbox" data-rule="${k}" ${(ib.rules||{})[k]?.telegram!==false?"checked":""}> ${l} → Telegram</label>`).join("")}</div><div class="up" style="margin-top:8px">Aus = Ereignis erscheint nur hier im Posteingang.</div></div></details>`;
+  } else if(r==="calendar"){
+    const c=CAL||d.calendar;
+    html=`<div class="top"><h1>Kalender</h1><div class="meta">${c?`${c.days[0].slice(8,10)}.${c.days[0].slice(5,7)}. – ${c.days[6].slice(8,10)}.${c.days[6].slice(5,7)}.`:""} <button class="b" data-calw="${(c?.week_offset??0)-1}">‹</button><button class="b" data-calw="0">Diese Woche</button><button class="b" data-calw="${(c?.week_offset??0)+1}">›</button><button class="b" id="rf">Aktualisieren</button></div></div>${banner}
+    ${c?calendarBlock(c,d):`<section><div class="empty">Keine Daten.</div></section>`}`;
   } else if(r.startsWith("chat")){
     const b=CHAT.budget||d.chat?.budget||{};
     html=`<div class="top"><h1>Chat</h1><div class="meta"><span class="tier">${d.chat&&!d.chat.enabled?"kein API-Schlüssel im Worker":`Budget heute ${(b.used_usd||0).toFixed(2)} / ${(b.limit_usd||1).toFixed(2)} $${b.exhausted?" – nur noch schnelles Modell":""}`}</span><button class="b" id="chat-new">Neu</button></div></div>${banner}
@@ -587,7 +607,7 @@ function page(d){const r=route(); nav(d);
     html=`<div class="top"><h1>Aufgaben</h1><div class="meta">${(d.tasks||[]).length} offen <button class="b" id="rf">Aktualisieren</button></div></div>${banner}<section>${(d.tasks||[]).map(t=>taskCard(t,d)).join("")||`<div class="empty">Nichts offen – alles läuft.</div>`}</section>`;
   }
   $("#main").innerHTML=html; const rf=$("#rf"); if(rf) rf.onclick=refresh;
-  document.querySelectorAll("th[data-k]").forEach(th=>th.onclick=()=>{sortKey=th.dataset.k;page(d)}); wireUpload(d); wireTasks(d); wireStudio(d); wireHow(d); wireReport(d); wireAb(d); wireLog(d); wireOnb(d); wireSuggest(d); wireHealth(); wireInbox(d); wireChat(d);}
+  document.querySelectorAll("th[data-k]").forEach(th=>th.onclick=()=>{sortKey=th.dataset.k;page(d)}); wireUpload(d); wireTasks(d); wireStudio(d); wireHow(d); wireReport(d); wireAb(d); wireLog(d); wireOnb(d); wireSuggest(d); wireHealth(); wireInbox(d); wireChat(d); wireCal(d);}
 
 // Wochenbericht (Stufe 2) – Tiefe 1: Kennzahlen + 3 Sätze + Vorschläge; Tiefe 2: Accounts / Paid vs Fan (zu); Tiefe 3: Top-Posts, Gelernt, Produktion (zu)
 function reportBody(rep,d){const t=rep.totals,p=rep.prev||{};
@@ -821,6 +841,34 @@ function wireStudio(d){
     const pv=await post(body);if(pv.errors){showDiff({title:"Zurücksetzen nicht möglich",errors:pv.errors});return}
     if(!pv.diff||!pv.diff.length){showDiff({title:"Nichts zu tun",sub:"Dieser Stand ist bereits aktiv."});return}
     showDiff({title:`Zurücksetzen auf ${pv.target}`,sub:`${pv.diff.length} Änderung${pv.diff.length>1?"en":""} – der Zustand wird als neue Version gespeichert`,diff:pv.diff,onConfirm:async()=>{const r=await post({...body,confirm:true});if(r.ok){PEND=null;refresh()}else showDiff({title:"Fehler",errors:r.errors||[r.error||"unbekannt"]})}})});}
+// Kalender (Nachtrag 4) – Woche je Account, Drag verschiebt den Slot (mobil: antippen, dann Zielzelle)
+function calendarBlock(c,d){const hours=[...new Set([...(c.accounts.flatMap(a=>a.slots||[])),...c.items.map(i=>i.at.slice(11,16))])].map(h=>h.slice(0,2)+":00");
+  const rows=[...new Set(hours)].sort();const dayNames=["Mo","Di","Mi","Do","Fr","Sa","So"];
+  const at=(day,hour)=>c.items.filter(i=>i.at.slice(0,10)===day&&i.at.slice(11,13)===hour.slice(0,2));
+  return c.accounts.map(a=>`<section><h2>${a.id} · ${a.handle.startsWith("@")?a.handle:"@"+a.handle} <span>${a.paused?`pausiert${a.paused_until?` bis ${tm(a.paused_until)}`:""} · `:""}${(a.slots||[]).join(", ")} · ${a.posts_per_day||"?"}/Tag · Abstand ${a.min_gap_min||"?"} min</span></h2>
+    <div class="cal"><div class="hd"></div>${c.days.map((day,i)=>`<div class="hd d ${day===calDay?"on":""}" data-calday="${day}">${dayNames[i]}<small>${day.slice(8,10)}.${day.slice(5,7)}.</small></div>`).join("")}
+    ${rows.map(h=>`<div class="hr">${h}</div>${c.days.map(day=>`<div class="cell ${day===calDay?"on":""}" data-cell="${a.id}|${day}|${h}">${at(day,h).filter(i=>i.account===a.id).map(i=>`
+      <div class="ev2 ${i.kind} ${i.status==="shadow"?"shadow":""} ${["posted","submitted"].includes(i.status)?"posted":""}" draggable="${i.movable}" data-ev="${i.id}" title="${(i.hook||"").replace(/"/g,"")} · ${i.campaign}">
+        ${i.cover?`<img src="${i.cover}" alt="">`:`<img alt="">`}<div class="t">${i.at.slice(11,16)} ${i.hook||i.campaign}<div class="h">${i.campaign}${i.status==="shadow"?" · Schatten":["posted","submitted"].includes(i.status)?` · gepostet${i.views?` · ${k(i.views)} Views`:""}`:""}</div></div></div>`).join("")}</div>`).join("")}`).join("")}</div>
+    <div class="up" id="calstat-${a.id}"></div></section>`).join("")}
+async function loadCal(d,week){if(DEMO_MODE||!cfg)return;try{CAL=await (await fetch(cfg.apiUrl+"/calendar?week="+week,{headers:{"x-api-key":cfg.apiKey}})).json();page(d)}catch(e){console.log(e)}}
+function wireCal(d){if(route()!=="calendar")return;const c=CAL||d.calendar;if(!c)return;
+  document.querySelectorAll("[data-calw]").forEach(b=>b.onclick=()=>{calWeek=Number(b.dataset.calw);loadCal(d,calWeek)});
+  document.querySelectorAll("[data-calday]").forEach(h=>h.onclick=()=>{calDay=h.dataset.calday;page(d)});
+  const move=async(postId,cell,statEl)=>{const [acc,day,hour]=cell.split("|");const it=c.items.find(i=>i.id===postId);
+    if(!it)return; if(it.account!==acc){if(statEl)statEl.textContent="Nur innerhalb desselben Accounts verschiebbar.";return}
+    const at=`${day}T${hour.slice(0,2)}:${it.at.slice(14,16)}:00.000Z`;
+    if(statEl)statEl.textContent="verschiebe …";
+    const r=await (await fetch(cfg.apiUrl+"/calendar/move",{method:"POST",headers:{"x-api-key":cfg.apiKey,"Content-Type":"application/json"},body:JSON.stringify({post_id:postId,at})})).json();
+    if(statEl)statEl.textContent=r.ok?`verschoben auf ${at.slice(11,16)} UTC`:"⚠ "+(r.error||"Fehler");
+    if(r.ok){calSel=null;loadCal(d,calWeek)}};
+  document.querySelectorAll("[data-ev]").forEach(el=>{
+    el.ondragstart=e=>{e.dataTransfer.setData("text/plain",el.dataset.ev)};
+    el.onclick=()=>{if(el.getAttribute("draggable")!=="true")return;calSel=calSel===el.dataset.ev?null:el.dataset.ev;document.querySelectorAll("[data-ev]").forEach(x=>x.style.outline="");if(calSel)el.style.outline="2px solid var(--flame)"}});
+  document.querySelectorAll("[data-cell]").forEach(cell=>{
+    cell.ondragover=e=>{e.preventDefault();cell.classList.add("drop")};cell.ondragleave=()=>cell.classList.remove("drop");
+    cell.ondrop=e=>{e.preventDefault();cell.classList.remove("drop");const id=e.dataTransfer.getData("text/plain");move(id,cell.dataset.cell,$("#calstat-"+cell.dataset.cell.split("|")[0]))};
+    cell.onclick=()=>{if(!calSel)return;move(calSel,cell.dataset.cell,$("#calstat-"+cell.dataset.cell.split("|")[0]))}})}
 // Chat (Nachtrag 3) – kurze Antwort zuerst, „mehr" holt die Begründung; Aktionen erst nach Bestätigung
 function chatMsg(m){if(m.role==="user")return `<div class="msg user">${esc(m.text)}</div>`;
   const a=m.action,src=(m.sources||[]).map(s=>`${s.tool} (${s.rows})`).join(" · ");
@@ -929,7 +977,7 @@ async function refresh(){if(DEMO_MODE||!cfg){gate();return}try{DATA=await load(c
 function gate(msg=""){$("#nav").innerHTML="";$("#main").innerHTML=`<div class="gate"><h1 style="font-size:20px;margin:0 0 6px">ClipForge</h1><p style="color:var(--ink2);font-size:14px;margin:0 0 12px">Mit dem Worker verbinden (Werte aus SECRETS.local.md).</p><input id="u" placeholder="Worker-URL" value="${cfg?.apiUrl||""}"><input id="p" type="password" placeholder="Dashboard-Lese-Key"><div style="color:var(--bad);font-size:13px;min-height:18px;margin-bottom:8px">${msg}</div><button id="go">Öffnen</button><div class="banner" style="margin-top:12px;text-align:center"><a href="#" id="demo">Mit Beispieldaten ansehen</a></div></div>`;
   $("#go").onclick=async()=>{const c={apiUrl:$("#u").value.trim().replace(/\/$/,""),apiKey:$("#p").value.trim()};try{DATA=await load(c);cfg=c;localStorage.setItem("clipforge.cfg",JSON.stringify(c));DEMO_MODE=false;page(DATA)}catch(e){gate("Keine Verbindung: "+e.message)}};
   $("#demo").onclick=e=>{e.preventDefault();DEMO_MODE=true;DATA=DEMO;page(DATA)}}
-window.addEventListener("hashchange",()=>{if(route()!=="settings")PEND=null;if(route()!=="report")REP=null;if(route()!=="log"){LOG=null;logCat="all";logQ=""}if(route()!=="inbox"){INB=null;inbFilter="open";inbKind="all"}if(DATA)page(DATA)});
+window.addEventListener("hashchange",()=>{if(route()!=="settings")PEND=null;if(route()!=="report")REP=null;if(route()!=="log"){LOG=null;logCat="all";logQ=""}if(route()!=="inbox"){INB=null;inbFilter="open";inbKind="all"}if(route()!=="calendar"){CAL=null;calWeek=0;calSel=null}if(DATA)page(DATA)});
 (async()=>{ if(!cfg){try{cfg=JSON.parse(localStorage.getItem("clipforge.cfg")||"null")}catch(e){}}
   if(cfg){try{DATA=await load(cfg);page(DATA);return}catch(e){}} gate(); })();
 setInterval(async()=>{if(cfg&&!DEMO_MODE){try{DATA=await load(cfg);page(DATA)}catch(e){}}},30000);
