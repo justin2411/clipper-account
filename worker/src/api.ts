@@ -32,6 +32,7 @@ import { runWeeklyReport, getReport, listReports } from "./report";
 import { abStats, startExperiment, stopExperiment, applyWinner, getExperiment, AB_VARIABLES } from "./ab";
 import { listLog, LOG_CATS } from "./log";
 import { onboardingStatus } from "./onboarding";
+import { listSuggestions, pickSuggestion, cancelPick } from "./suggest";
 import { resolveWorkspace, listWorkspaces, createWorkspace, patchWorkspace } from "./workspace";
 import { runFan, startUploadJob } from "./fan";
 import { getSettings, effectiveSettings, validateSettings, diffSettings, putSettings, listVersions, getVersion, defaultSettings, deepMerge } from "./settings";
@@ -139,7 +140,7 @@ export async function handleRequest(req: Request, env: Env, ctx: ExecutionContex
     return json({ error: "method not allowed" }, 405);
   }
   // Dashboard-Aktionen (Header x-api-key = DASHBOARD_READ_KEY oder CLIPFORGE_API_KEY, CORS): Review, Settings, Aufgaben, Resume
-  if (["review", "settings", "tasks", "report", "ab", "log", "onboarding"].includes(seg[0]) || (seg[0] === "accounts" && seg[2] === "resume")) {
+  if (["review", "settings", "tasks", "report", "ab", "log", "onboarding", "suggest"].includes(seg[0]) || (seg[0] === "accounts" && seg[2] === "resume")) {
     const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "x-api-key, content-type", "Access-Control-Allow-Methods": "GET, POST, PUT, OPTIONS" };
     const J = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status, headers: { "Content-Type": "application/json", ...cors } });
     if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
@@ -161,6 +162,10 @@ export async function handleRequest(req: Request, env: Env, ctx: ExecutionContex
       if (seg[0] === "settings" && !seg[1] && req.method === "GET") return J(await getSettings(env, ws));
       if (seg[0] === "settings" && seg[1] === "effective" && req.method === "GET") return J({ ...(await effectiveSettings(env, url.searchParams.get("account") ?? "A", ws)), ab: await getExperiment(env, ws) });
       if (seg[0] === "onboarding" && !seg[1] && req.method === "GET") return J(await onboardingStatus(env, ws));   // Stufe 6
+      // Vorschläge (Nischen-Seite): GET /suggest?niche= · POST /suggest/pick {video_id} · POST /suggest/cancel {upload_id}
+      if (seg[0] === "suggest" && !seg[1] && req.method === "GET") return J(await listSuggestions(env, url.searchParams.get("niche") ?? nichesOf(env)[0]?.key ?? "", ws, Number(url.searchParams.get("limit") || 8)));
+      if (seg[0] === "suggest" && seg[1] === "pick" && req.method === "POST") { const body = (await b()) as any; const r = await pickSuggestion(env, String(body.video_id ?? ""), ws, false); return J(r, r.ok ? 200 : 400); }
+      if (seg[0] === "suggest" && seg[1] === "cancel" && req.method === "POST") { const body = (await b()) as any; const r = await cancelPick(env, String(body.upload_id ?? ""), ws); return J(r, r.ok ? 200 : 400); }
       // Ereignis-Log (Stufe 5): ?cat=error|reject|killswitch|upload|post|job|settings|all &q= &limit= &before=<id>
       if (seg[0] === "log" && !seg[1] && req.method === "GET") return J({ ...(await listLog(env, { cat: url.searchParams.get("cat") ?? "all", q: url.searchParams.get("q") ?? "", limit: Number(url.searchParams.get("limit") || 60), before: Number(url.searchParams.get("before") || 0) }, ws)), cats: LOG_CATS });
       // A/B-Test (Stufe 4)
@@ -220,11 +225,13 @@ export async function handleRequest(req: Request, env: Env, ctx: ExecutionContex
         const b = (await req.json().catch(() => ({}))) as Row;
         const niche = nichesOf(env).find((n) => n.key === b.niche);
         if (!niche) return J({ error: `niche ${b.niche} unknown` }, 400);
-        const id = crypto.randomUUID().replace(/-/g, "").slice(0, 16);
+        const pending = b.video_id ? await db.first<any>(env, "SELECT id FROM uploads WHERE workspace_id = ? AND video_id = ? AND status = 'needs_download'", ws, String(b.video_id)) : null;
+        const id = pending?.id ?? crypto.randomUUID().replace(/-/g, "").slice(0, 16);       // Vorschlag „Nehmen“: Upload hängt sich an die wartende Quelle
         const safe = String(b.name ?? "footage.mp4").replace(/[^\w.\-]+/g, "_").slice(0, 80);
         const key = `uploads/${niche.key}/${id}/${safe.toLowerCase().endsWith(".mp4") || safe.toLowerCase().endsWith(".mov") ? safe : safe + ".mp4"}`;
         const mp = await env.CLIPS.createMultipartUpload(key, { httpMetadata: { contentType: "video/mp4" } });
-        await db.run(env, "INSERT INTO uploads (id, niche_id, key, title, size, kind, video_id, upload_id, status, workspace_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'uploading', ?)",
+        if (pending) await db.run(env, "UPDATE uploads SET key = ?, size = ?, upload_id = ?, parts = '[]', status = 'uploading', updated_at = ? WHERE id = ?", key, Number(b.size ?? 0), mp.uploadId, nowIso(), id);
+        else await db.run(env, "INSERT INTO uploads (id, niche_id, key, title, size, kind, video_id, upload_id, status, workspace_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'uploading', ?)",
           id, niche.key, key, String(b.name ?? "").replace(/\.[^.]+$/, "").slice(0, 120), Number(b.size ?? 0), b.type === "paid" ? "paid" : "fan", (b.video_id as string) ?? null, mp.uploadId, ws);
         await logEvent(env, `upload_started niche=${niche.key} size=${b.size ?? 0} name=${safe}`);
         return J({ source_id: id, upload_url: `${url.origin}/sources/put/${id}`, part_size: PART, key });

@@ -6,6 +6,7 @@
 //   • Upload älter als 24 h ohne Clip-Job → Telegram-Hinweis (einmal je Upload).
 //   • Vorrat (STOCK_DAYS × Tageslimit) unter Soll → Telegram-Hinweis, nächstes Video hochladen (max. 1× je 12 h).
 import { Env, Niche, db, logEvent, mediaUrl, nichesOf, telegram } from "./shared";
+import { autoPick } from "./suggest";
 import { dispatchClipJob } from "./scout";
 import { accountsOf, accountRules } from "./publisher";
 
@@ -133,21 +134,9 @@ export async function runFan(env: Env, origin = "") {
   // hängende Jobs freigeben
   await db.run(env, "UPDATE videos SET status = 'new', note = 'job timeout', updated_at = ? WHERE status = 'queued' AND dispatched_at < ?",
     nowIso(), new Date(Date.now() - 150 * 60000).toISOString());
-  // Vorrat: unter Soll → Hinweis, welches Video als Nächstes hochgeladen werden sollte (max. 1× je 12 h)
+  // Vorrat: unter „Vorrat in Tagen“ (Feinjustierung je Nische) → oberster Vorschlag wird automatisch gezogen (suggest.ts), Telegram informiert
   stats.stock = await fanStock(env);
-  const deficit = Math.max(...Object.values(stats.stock as Record<string, { deficit: number }>).map((s) => s.deficit), 0);
-  const inflight = await db.first<{ n: number }>(env, "SELECT COUNT(*) AS n FROM uploads WHERE status = 'dispatched' AND updated_at >= ?", new Date(Date.now() - 150 * 60000).toISOString());
-  if (deficit > 0 && !(inflight?.n ?? 0)) {
-    const warned = await db.first(env, "SELECT id FROM events WHERE event LIKE 'stock_low%' AND at >= ? LIMIT 1", new Date(Date.now() - 12 * 3600000).toISOString());
-    if (!warned) {
-      const next = await db.all<any>(env,
-        `SELECT title, channel_name, url, views FROM videos WHERE status = 'new' AND is_short = 0 AND COALESCE(duration_s, 9999) >= 180
-         ORDER BY CASE WHEN published_at >= ? THEN 0 ELSE 1 END, views DESC LIMIT 3`, new Date(Date.now() - 30 * 86400000).toISOString());
-      await logEvent(env, `stock_low deficit=${deficit}`);
-      await telegram(env, `📦 Fan-Vorrat unter Soll (${Object.entries(stats.stock).map(([a, s]: any) => `${a}: ${s.ready}/${s.target}`).join(", ")}).\nNächste Kandidaten zum Hochladen:\n` +
-        next.map((v) => `• ${v.channel_name}: ${v.title} (${Math.round(v.views / 1e6)} M)\n  ${v.url}`).join("\n"));
-    }
-  }
+  try { (stats as any).auto = await autoPick(env, stats.stock); } catch (e: any) { stats.skipped.push(`autoPick: ${String(e?.message ?? e).slice(0, 80)}`); }
   return stats;
 }
 

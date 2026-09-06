@@ -56,10 +56,10 @@ export async function syncTasks(env: Env, ws = "default") {
   for (const n of niches) {
     const per = n.accounts.map((a) => stock[a]).filter(Boolean);
     const daysLeft = per.length ? Math.min(...per.map((s) => (s.target ? (s.ready / (s.target / Number(env.STOCK_DAYS || 3))) : 0))) : 99;
-    const inflight = await db.first<{ n: number }>(env, "SELECT COUNT(*) AS n FROM uploads WHERE niche_id = ? AND status IN ('uploading','uploaded','dispatched') AND created_at >= ?", n.key, new Date(Date.now() - 6 * 3600000).toISOString());
+    const inflight = await db.first<{ n: number }>(env, "SELECT COUNT(*) AS n FROM uploads WHERE niche_id = ? AND status IN ('needs_download','uploading','uploaded','dispatched') AND created_at >= ?", n.key, new Date(Date.now() - 6 * 3600000).toISOString());
     if (daysLeft < 2 && !(inflight?.n ?? 0)) {
       await upsertTask(env, { kind: "footage", ref: n.key, title: `Nachschub für ${n.label}`, detail: `Fan-Vorrat reicht noch ${daysLeft.toFixed(1)} Tage · Video für ${n.accounts.join(" + ")} hochladen`, niche: n.key }, ws);
-    } else if (daysLeft >= 2) await completeByRef(env, "footage", n.key, ws);
+    } else if (daysLeft >= 2 || (inflight?.n ?? 0)) await completeByRef(env, "footage", n.key, ws);   // Nachschub unterwegs (gewählt/lädt/Clip-Job) → allgemeine Aufgabe schließen
   }
   // review: pausierte Accounts (Kill-Switch / Ablehnung), nicht die geplanten Pausen
   const paused = await db.all<any>(env, "SELECT * FROM account_state WHERE workspace_id = ? AND paused = 1", ws);

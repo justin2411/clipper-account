@@ -6,6 +6,7 @@ import { accountsOf } from "./publisher";
 
 export interface NicheSettings {
   mode: "auto" | "review"; platforms: string[]; posts_per_day: number; slots: string[]; min_gap_min: number; fan_ratio: number;
+  stock_days: number;                     // „Vorrat in Tagen“: fällt der Fan-Vorrat darunter, zieht das System den obersten Vorschlag (suggest.ts)
   cut: { min_s: number; max_s: number; cold_open: boolean; pad_start_ms: number; pad_end_ms: number; silence_trim_s: number; word_boundary: boolean; end_style: "freeze" | "cut" | "none" };
   select: { candidates: number; render_top: number; dedupe_s: number; weights: Record<string, number>; min_score: number; context_line: boolean };
   visual: { font: string; color: string; accent: string; outline_px: number; hook_y_pct: number; hook_max_words: number; hook_max_lines: number; zoom_pct: number;
@@ -45,7 +46,7 @@ export function defaultNiche(env: Env, key: string): NicheSettings {
   const cap = n?.caption ?? "Credit @mrbeast", tags = n?.hashtags ?? ["#mrbeast"];
   return {
     mode: "auto", platforms: ["tiktok"], posts_per_day: Number(env.MAX_CLIPS_PER_DAY || 5), slots: acc[first]?.slots ?? ["08:00", "11:30", "15:00", "18:30", "22:00"],
-    min_gap_min: Number(env.POST_GAP_MIN || 90), fan_ratio: 60,
+    min_gap_min: Number(env.POST_GAP_MIN || 90), fan_ratio: 60, stock_days: 2,
     cut: { min_s: 15, max_s: 35, cold_open: true, pad_start_ms: 120, pad_end_ms: 250, silence_trim_s: 0.6, word_boundary: true, end_style: "freeze" },
     select: { candidates: 20, render_top: 8, dedupe_s: 25, weights: { surprise: 2, stakes: 2, reaction: 1, cliffhanger: 2, context: 2, clarity: 2 }, min_score: 7, context_line: true },
     visual: { font: "Anton", color: "#FFFFFF", accent: "#FF6A00", outline_px: 5, hook_y_pct: 68, hook_max_words: 8, hook_max_lines: 2, zoom_pct: 8, zoom_max_per_clip: 2, zoom_ease_ms: 400,
@@ -128,6 +129,7 @@ export function validateSettings(s: Settings): string[] {
     if (has("posts_per_day")) num(n.posts_per_day, 1, 8, `${where}.posts_per_day`, errs);
     if (has("min_gap_min")) num(n.min_gap_min, 30, 720, `${where}.min_gap_min`, errs);
     if (has("fan_ratio")) num(n.fan_ratio, 0, 100, `${where}.fan_ratio`, errs);
+    if (has("stock_days")) num(n.stock_days, 1, 14, `${where}.stock_days`, errs);
     if (has("slots")) { if (!Array.isArray(n.slots) || n.slots.some((x: any) => !/^\d{2}:\d{2}$/.test(String(x)))) errs.push(`${where}.slots: Liste HH:MM`); }
     if (has("platforms") && (!Array.isArray(n.platforms) || n.platforms.some((p: any) => !["tiktok", "instagram", "youtube"].includes(p)))) errs.push(`${where}.platforms`);
     if (n.cut) { if (n.cut.min_s !== undefined) num(n.cut.min_s, 5, 90, `${where}.cut.min_s`, errs); if (n.cut.max_s !== undefined) num(n.cut.max_s, 8, 180, `${where}.cut.max_s`, errs);

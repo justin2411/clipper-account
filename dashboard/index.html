@@ -46,6 +46,10 @@
                 top_posts:[{url,account,views,likes,hook,kind,campaign,posted_at}], learned:{best_slot,best_hook_type,best_font,best_account}, suggestions:[{text,action?:{kind,label,href}}], summary:[3 Sätze] }
               -> GET /report?week=latest|current|<YYYY-Www> (Dashboard-Key), GET /report/weeks. Sonntags 09:00 Berlin: Bericht in kv + Telegram-Kurzfassung mit Link auf #report.
               WeeklyReport zusätzlich: ab:{variable,leader,lift_pct,hint,variants:[{value,posts,avg_views}]}|null, changes:[{at,text}] (was das System umgestellt hat)
+  suggestions: { <niche>: [{id, title, url, channel, duration_s, views, published_at, age_days, fresh, reason}] } -> GET /suggest?niche= (RSS neu < 30 Tage zuerst, dann Backlog nach Aufrufen;
+              verwendete Videos und Quellen unter der Mindestlänge ausgeschlossen). POST /suggest/pick {video_id} → Quelle needs_download (sources[].pending, auto = automatisch gewählt) + Aufgabe
+              "Video herunterladen & hochladen" (urls=[YouTube-Link]); Upload in der Aufgabe (presign mit video_id) hängt sich an die Quelle. POST /suggest/cancel {upload_id}.
+              Automatik: Vorrat < settings.niches.<key>.stock_days (Regler "Vorrat in Tagen", Standard 2) → oberster Vorschlag automatisch, Telegram informiert.
   onboarding (Stufe 6): { steps:[{key:"accounts|vyro|niche|look|shadow|live", label, done, detail, href, hint?}], done, total, complete } -> GET /onboarding
               Übersicht zeigt die Checkliste, bis complete; danach unter #start. Status aus echten Daten (Secrets, Blotato-IDs, Kampagnen, Versionen, Schatten-/Live-Posts).
   log (Stufe 5): { items:[{id, at, campaign_id, text, cat:"error|reject|killswitch|upload|post|job|settings|other", run_id}], counts:{all,error,...}, repo, next_before, cats:{key:label} }
@@ -277,6 +281,7 @@ details.more{border:1px solid var(--line);border-radius:var(--r);background:var(
 @media (max-width:600px){.lg{grid-template-columns:auto 1fr;grid-template-areas:"t c" "x x" "a a"}.lg time{grid-area:t}.lg .pill{grid-area:c;justify-self:start}.lg .tx{grid-area:x}.lg a{grid-area:a}}
 .onb{display:flex;gap:12px;align-items:flex-start;padding:10px 0;border-top:1px solid var(--line)}.onb:first-of-type{border-top:0}.onb .ck{width:26px;height:26px;border-radius:50%;border:2px solid var(--line);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px;flex:none;color:var(--ink3)}.onb.done .ck{background:var(--ok);border-color:var(--ok);color:#fff}.onb .w{flex:1;min-width:0}.onb .l{font-weight:800;font-size:14px}.onb.done .l{color:var(--ink2)}.onb .d{font-size:12px;color:var(--ink3);margin-top:2px}.onb .h{font-size:12px;color:var(--ink2);margin-top:4px;display:none}.onb.open .h{display:block}.onb a.go{font-size:12px;font-weight:700;color:var(--flame);white-space:nowrap}
 .prog{height:6px;background:var(--line);border-radius:3px;overflow:hidden;margin:6px 0 10px}.prog i{display:block;height:100%;background:var(--ok)}
+.sug{display:flex;gap:12px;align-items:center;padding:9px 0;border-top:1px solid var(--line)}.sug:first-of-type{border-top:0}.sug .w{flex:1;min-width:0}.sug .t{font-weight:700;font-size:13px}.sug .r{font-size:12px;color:var(--ink3)}.sug .pill{flex:none}
 main{min-width:0;overflow-x:hidden}section,.kpi,.tk,.card,.rv{min-width:0}
 .urls{white-space:pre-wrap;word-break:break-all}
 @media (max-width:480px){.g2,.g4,.flow,.cards{grid-template-columns:1fr}.steps{grid-template-columns:repeat(2,1fr)}table{display:block;overflow-x:auto}}
@@ -400,7 +405,8 @@ function leaderboard(d,filterNiche){
 
 function stepper(s){const pct=Math.min(100,((s.stage+(s.progress||0))/STAGES.length)*100);
   return `<div class="steps">${STAGES.map((n,i)=>{const cls=s.error&&i===s.stage?"err":i<s.stage?"done":i===s.stage?"cur":"";return `<div class="step ${cls}"><b>${i<s.stage?"✓":i+1}</b>${n}</div>`}).join("")}</div><div class="stepwire" style="--p:${pct}%">${(!s.error&&s.stage<7)?`<i></i>`:""}</div>`}
-function sourceRow(s){return `<div class="src"><div class="t"><b>${s.name}</b><span>${s.size_mb} MB · ${s.type==="paid"?`<span class="pill f">Kampagne</span>`:`<span class="pill v">Fan</span>`} · ${s.clips||0} Clips · ${ago(s.added)}</span></div>
+function sourceRow(s){if(s.pending)return `<div class="src"><div class="t"><b>${s.name}</b><span><span class="pill v">Fan</span> · wartet auf Upload${s.auto?` · <span class="pill warn">automatisch gewählt</span>`:""} · ${ago(s.added)}</span></div><div class="tools"><a href="${s.url||"#"}" target="_blank" rel="noopener">YouTube öffnen ↗</a><a href="#tasks">zur Aufgabe (Upload) →</a><button class="b" data-cancelpick="${s.id}">Abbrechen</button></div></div>`;
+  return `<div class="src"><div class="t"><b>${s.name}</b><span>${s.size_mb} MB · ${s.type==="paid"?`<span class="pill f">Kampagne</span>`:`<span class="pill v">Fan</span>`} · ${s.clips||0} Clips · ${ago(s.added)}</span></div>
   ${stepper(s)}${s.error?`<div class="up" style="color:var(--bad)">⚠ ${s.error}</div>`:""}</div>`}
 function dropzone(n){return `<div class="drop" id="drop"><b>Video hierher ziehen oder klicken</b>MP4/MOV bis 5 GB · Nische „${n.label}" · Clip-Jobs für ${n.accounts.join(" + ")} starten automatisch<input type="file" id="file" accept="video/*" multiple style="display:none"></div><div class="up" id="upstat"></div>`}
 function postsGrid(posts){return posts.length?`<div class="posts">${posts.map(p=>`<a class="post" href="${p.url}" target="_blank" rel="noopener"><div class="th" ${p.thumb?`style="background-image:url('${p.thumb}')"`:""}><span>${k(p.views)} ▶</span></div><div class="c">${p.account} · ${p.caption}</div></a>`).join("")}</div>`:`<div class="empty">Noch keine Posts.</div>`}
@@ -435,6 +441,7 @@ function page(d){const r=route(); nav(d);
     <section><h2>Accounts <span>Handle öffnet das Profil</span></h2><div class="cards">${acc.map(a=>`<div class="card"><div class="row"><div class="acct">${av(a,d)}<div><div class="h"><a href="${a.url}" target="_blank" rel="noopener">${a.handle}</a></div><div class="n">${a.platform||"tiktok"} · ${a.posts_7d||0} Posts/7d</div></div></div>${a.paused?`<span class="pill warn">pausiert</span>`:`<span class="pill ok">aktiv</span>`}</div>
       <div class="stats"><div><b>${k(a.followers)}</b>Follower <span style="color:var(--ok)">+${k(a.followers_7d||0)}</span></div><div><b>${k(a.views_7d)}</b>Views 7d</div><div><b>${money(a.earnings_30d)}</b>30 Tage</div></div>
       <div class="links"><a href="${a.url}" target="_blank" rel="noopener">Profil ↗</a>${a.paused?`<span class="pill warn">${a.reason||"pausiert"}</span>`:""}</div></div>`).join("")}</div></section>
+    ${suggestBlock(d,n)}
     ${(d.tasks||[]).filter(t=>t.niche===n.key).length?`<section><h2>Aufgaben in dieser Nische</h2>${(d.tasks||[]).filter(t=>t.niche===n.key).map(t=>taskCard(t,d)).join("")}</section>`:""}
     <section><h2>Footage hochladen <span>landet in R2 · Clip-Jobs starten automatisch</span></h2>${dropzone(n)}</section>
     <section><h2>Workflow <span>jede Quelle mit aktueller Stufe</span></h2>${src.map(sourceRow).join("")||`<div class="empty">Noch keine Quelle – lade oben ein Video hoch.</div>`}</section>
@@ -469,7 +476,7 @@ function page(d){const r=route(); nav(d);
     ${expert?`<div class="simple"><div id="expertwrap">`:`<div id="expertwrap" style="display:none">`}
     <section><h2>Posting <span>${n?.label||""}</span></h2><div class="set">
       <div class="f"><label>Freigabe</label><div class="seg"><button class="${N.mode==="review"?"on":""}" data-p="mode" data-v="review">Erst Vorschau</button><button class="${N.mode==="auto"?"on":""}" data-p="mode" data-v="auto">Automatisch</button></div></div>
-      ${R("posts_per_day","Posts pro Tag",1,8,1)}${R("min_gap_min","Mindestabstand",30,240,10," min")}${R("fan_ratio","Anteil Fan-Content",0,100,10," %")}
+      ${R("posts_per_day","Posts pro Tag",1,8,1)}${R("min_gap_min","Mindestabstand",30,240,10," min")}${R("fan_ratio","Anteil Fan-Content",0,100,10," %")}${R("stock_days","Vorrat in Tagen",1,14,1," Tage")}
       ${X("slots","Slots (Uhrzeiten, Komma)")}<div class="f"><label>Plattformen</label>${["tiktok","instagram","youtube"].map(pl=>`<label style="display:inline-flex;align-items:center;gap:6px;margin-right:10px;font-size:13px;color:var(--ink)"><input type="checkbox" data-pl="${pl}" ${(N.platforms||[]).includes(pl)?"checked":""}>${pl}</label>`).join("")}</div>
     </div></section>
 
@@ -529,7 +536,7 @@ function page(d){const r=route(); nav(d);
     html=`<div class="top"><h1>Aufgaben</h1><div class="meta">${(d.tasks||[]).length} offen <button class="b" id="rf">Aktualisieren</button></div></div>${banner}<section>${(d.tasks||[]).map(t=>taskCard(t,d)).join("")||`<div class="empty">Nichts offen – alles läuft.</div>`}</section>`;
   }
   $("#main").innerHTML=html; const rf=$("#rf"); if(rf) rf.onclick=refresh;
-  document.querySelectorAll("th[data-k]").forEach(th=>th.onclick=()=>{sortKey=th.dataset.k;page(d)}); wireUpload(d); wireTasks(d); wireStudio(d); wireHow(d); wireReport(d); wireAb(d); wireLog(d); wireOnb(d);}
+  document.querySelectorAll("th[data-k]").forEach(th=>th.onclick=()=>{sortKey=th.dataset.k;page(d)}); wireUpload(d); wireTasks(d); wireStudio(d); wireHow(d); wireReport(d); wireAb(d); wireLog(d); wireOnb(d); wireSuggest(d);}
 
 // Wochenbericht (Stufe 2) – Tiefe 1: Kennzahlen + 3 Sätze + Vorschläge; Tiefe 2: Accounts / Paid vs Fan (zu); Tiefe 3: Top-Posts, Gelernt, Produktion (zu)
 function reportBody(rep,d){const t=rep.totals,p=rep.prev||{};
@@ -563,7 +570,7 @@ function taskCard(t,d){const n=nicheOf(d,t.niche);const icon={submit:"↥",join:
   let tools="";
   if(t.kind==="submit")tools=`<div class="urls">${(t.urls||[]).join("<br>")}</div><div class="tools"><button class="go" data-copy="${t.id}">Links kopieren</button><a href="${t.campaign_url}" target="_blank" rel="noopener">Vyro öffnen ↗</a></div>`;
   if(t.kind==="join")tools=`<div class="tools"><a class="go" href="${t.campaign_url}" target="_blank" rel="noopener">Kampagne öffnen & Join ↗</a></div>`;
-  if(t.kind==="footage")tools=`<div class="drop" data-niche="${t.niche}" data-task="${t.id}"><b>Video für „${n?.label||t.niche}" hierher ziehen</b>startet die Clip-Jobs und hakt die Aufgabe ab<input type="file" accept="video/*" multiple style="display:none"></div><div class="up"></div>`;
+  if(t.kind==="footage"){const vid=((t.urls||[])[0]||"").match(/[?&]v=([\w-]{6,})/)?.[1]||"";tools=`${vid?`<div class="tools"><a class="go" href="${t.urls[0]}" target="_blank" rel="noopener">YouTube öffnen ↗</a><span style="font-size:12px;color:var(--ink3)">herunterladen, dann hier hochladen</span></div>`:""}<div class="drop" data-niche="${t.niche}" data-task="${t.id}" data-video="${vid}"><b>Video für „${n?.label||t.niche}" hierher ziehen</b>startet die Clip-Jobs und hakt die Aufgabe ab<input type="file" accept="video/*" multiple style="display:none"></div><div class="up"></div>`}
   if(t.kind==="review")tools=`<div class="tools"><button class="go" data-resume="${t.account}">Account ${t.account} freigeben</button><a href="#n:${t.niche}">Nische ansehen</a></div>`;
   return `<div class="tk ${t.kind}"><div class="ic">${icon}</div><div><div class="ti">${t.title}</div><div class="td">${t.detail||""} · ${ago(t.created)}</div>${tools}${t.auto_check?`<div class="auto">✓ hakt sich automatisch ab, sobald das System das Ergebnis sieht</div>`:""}</div><button class="done" data-done="${t.id}">Erledigt</button></div>`}
 function wireTasks(d){
@@ -574,7 +581,7 @@ function wireTasks(d){
     drop.onclick=()=>file.click();drop.ondragover=e=>{e.preventDefault();drop.classList.add("over")};drop.ondragleave=()=>drop.classList.remove("over");
     drop.ondrop=e=>{e.preventDefault();drop.classList.remove("over");up([...e.dataTransfer.files])};file.onchange=()=>up([...file.files]);
     async function up(files){if(DEMO_MODE||!cfg){stat.textContent="Beispielmodus – Upload erst mit verbundenem Worker.";return}
-      for(const f of files){try{stat.textContent=`${f.name}: vorbereiten…`;const pre=await (await fetch(cfg.apiUrl+"/sources/presign",{method:"POST",headers:{"x-api-key":cfg.apiKey,"Content-Type":"application/json"},body:JSON.stringify({niche:drop.dataset.niche,name:f.name,size:f.size,type:"fan",task_id:drop.dataset.task})})).json();
+      for(const f of files){try{stat.textContent=`${f.name}: vorbereiten…`;const pre=await (await fetch(cfg.apiUrl+"/sources/presign",{method:"POST",headers:{"x-api-key":cfg.apiKey,"Content-Type":"application/json"},body:JSON.stringify({niche:drop.dataset.niche,name:f.name,size:f.size,type:"fan",task_id:drop.dataset.task,video_id:drop.dataset.video||undefined})})).json();
         if(pre.error)throw new Error(pre.error);await putChunked(pre,f,(pct,i,n)=>{stat.textContent=`${f.name}: ${pct} % (Teil ${i}/${n})`});
         await fetch(cfg.apiUrl+"/sources/complete",{method:"POST",headers:{"x-api-key":cfg.apiKey,"Content-Type":"application/json"},body:JSON.stringify({source_id:pre.source_id,task_id:drop.dataset.task})});
         stat.textContent=`${f.name}: fertig.`}catch(err){stat.textContent=`${f.name}: ${err.message}`}}
@@ -763,6 +770,14 @@ function wireStudio(d){
     const pv=await post(body);if(pv.errors){showDiff({title:"Zurücksetzen nicht möglich",errors:pv.errors});return}
     if(!pv.diff||!pv.diff.length){showDiff({title:"Nichts zu tun",sub:"Dieser Stand ist bereits aktiv."});return}
     showDiff({title:`Zurücksetzen auf ${pv.target}`,sub:`${pv.diff.length} Änderung${pv.diff.length>1?"en":""} – der Zustand wird als neue Version gespeichert`,diff:pv.diff,onConfirm:async()=>{const r=await post({...body,confirm:true});if(r.ok){PEND=null;refresh()}else showDiff({title:"Fehler",errors:r.errors||[r.error||"unbekannt"]})}})});}
+// Vorschläge (Nischen-Seite) – Tiefe 1: bis zu 5 Kandidaten mit Titel, Länge, Aufrufen, Alter, Begründung, „Nehmen“; Rest per „mehr“
+function suggestBlock(d,n){const list=(d.suggestions||{})[n.key]||[];const dur=s=>s==null?"–":Math.round(s/60)+" min";const age=a=>a==null?"–":a<1?"heute":a<30?`vor ${a} Tag${a===1?"":"en"}`:`vor ${Math.round(a/30)} Mon.`;
+  const row=v=>`<div class="sug"><div class="w"><div class="t"><a href="${v.url}" target="_blank" rel="noopener">${v.title}</a></div><div class="r">${v.channel} · ${dur(v.duration_s)} · ${k(v.views)} Aufrufe · ${age(v.age_days)} · ${v.reason}</div></div>${v.fresh?`<span class="pill ok">neu</span>`:`<span class="pill">Backlog</span>`}<button class="b" data-pick="${v.id}">Nehmen</button></div>`;
+  return `<section><h2>Vorschläge <span>${list.length?`${list.length} Kandidaten · neu zuerst, dann nach Aufrufen`:"keine Kandidaten (Backlog leer oder alles verwendet)"} · Automatik ab Vorrat &lt; ${get(d.settings?.niches?.[n.key]||{},"stock_days")||2} Tage</span></h2>
+    ${list.slice(0,5).map(row).join("")}${list.length>5?`<details style="margin-top:6px"><summary style="cursor:pointer;font-size:12px;color:var(--ink3)">${list.length-5} weitere</summary>${list.slice(5).map(row).join("")}</details>`:""}</section>`}
+function wireSuggest(d){const H={"x-api-key":cfg?.apiKey,"Content-Type":"application/json"};
+  document.querySelectorAll("[data-pick]").forEach(b=>b.onclick=async()=>{if(DEMO_MODE||!cfg)return;b.disabled=true;b.textContent="…";const r=await (await fetch(cfg.apiUrl+"/suggest/pick",{method:"POST",headers:H,body:JSON.stringify({video_id:b.dataset.pick})})).json();if(!r.ok){b.textContent=r.error||"Fehler";return}refresh()});
+  document.querySelectorAll("[data-cancelpick]").forEach(b=>b.onclick=async()=>{if(DEMO_MODE||!cfg)return;await fetch(cfg.apiUrl+"/suggest/cancel",{method:"POST",headers:H,body:JSON.stringify({upload_id:b.dataset.cancelpick})});refresh()})}
 // Onboarding-Checkliste (Stufe 6) – Tiefe 1: Fortschritt + sechs Schritte mit Status; Tiefe 2: Hinweis je Schritt per Klick
 const hideOnb=()=>{try{return localStorage.getItem("onb_hide")==="1"}catch(e){return false}};
 function onboardingBlock(o,compact){return `<section><h2>Erste Schritte <span>${o.done}/${o.total} erledigt${compact?` · <a href="#start">alle →</a> · <a href="#" id="onb-hide">ausblenden</a>`:""}</span></h2><div class="prog"><i style="width:${Math.round(o.done/o.total*100)}%"></i></div>
