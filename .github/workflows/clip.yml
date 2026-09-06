@@ -6,6 +6,8 @@ on:
       account:  { required: true, type: string }   # A | B | AB… (mehrere Buchstaben = alle Accounts der Nische, ein Schnitt, Verteilung nach Rang)
       preview:  { required: false, type: string, default: "false" }   # "true": Standbilder + Caption per Telegram (Stufen-Test)
       feedback: { required: false, type: string, default: "" }        # Review "redo": Zusatzanweisung an die Momentwahl
+      probe:      { required: false, type: string, default: "" }      # Probelauf: nur so viele Momente produzieren (z.B. "2"), dann anhalten
+      skip_ranks: { required: false, type: string, default: "" }      # schon gezeigte Ränge, werden nicht erneut produziert (z.B. "1,2")
 # Nur ein Clip-Job gleichzeitig (YouTube-Cookies rotieren bei jedem Download): die Serialisierung macht der Worker
 # (fan.ts startet erst den nächsten Job, wenn keiner mehr läuft) – GitHub-Concurrency-Gruppen würden wartende Runs abbrechen.
 jobs:
@@ -18,6 +20,8 @@ jobs:
       GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
       PREVIEW: ${{ inputs.preview }}
       FEEDBACK: ${{ inputs.feedback }}
+      PROBE: ${{ inputs.probe }}
+      SKIP_RANKS: ${{ inputs.skip_ranks }}
     steps:
       - uses: actions/checkout@v4
         with: { submodules: recursive }

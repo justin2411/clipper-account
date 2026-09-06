@@ -9,7 +9,7 @@ const parse = <T>(v: unknown, fb: T): T => { try { return typeof v === "string" 
 
 export async function listReview(env: Env, ws = "default") {
   const rows = await db.all<any>(env,
-    `SELECT c.*, ca.name AS campaign_name, ca.kind, ca.niche_id, (SELECT MIN(p.scheduled_at) FROM posts p WHERE p.clip_id = c.id AND p.status IN ('scheduled','shadow')) AS scheduled_for
+    `SELECT c.*, ca.name AS campaign_name, ca.kind, ca.niche_id, ca.probe_state, (SELECT MIN(p.scheduled_at) FROM posts p WHERE p.clip_id = c.id AND p.status IN ('scheduled','shadow')) AS scheduled_for
      FROM clips c JOIN campaigns ca ON ca.id = c.campaign_id
      WHERE c.workspace_id = ? AND c.status IN ('ready','review','scheduled','shadow') ORDER BY c.created_at DESC LIMIT 60`, ws);
   const acc = accountsOf(env);
@@ -20,7 +20,8 @@ export async function listReview(env: Env, ws = "default") {
       video_url: c.media_url, cover_url: c.cover_url ?? c.thumb_url ?? "", caption: c.caption ?? "", hook: c.context_line ?? c.hook ?? "", duration: Math.round(c.duration_s ?? 0),
       qa: qa ? { score: qa.score ?? null, notes: qa.notes ?? [] } : { score: null, notes: [] },
       scores: { surprise: sc.surprise ?? 0, stakes: sc.stakes ?? 0, reaction: sc.reaction ?? 0, cliffhanger: sc.cliffhanger ?? 0, context: sc.standalone ?? sc.context ?? 0, clarity: sc.clarity ?? 0, total: sc.total ?? null },
-      scheduled_for: c.scheduled_for ?? null, variant: c.variant ?? null, type: c.kind, pinned_comment: c.pinned_comment ?? null };
+      scheduled_for: c.scheduled_for ?? null, variant: c.variant ?? null, type: c.kind, pinned_comment: c.pinned_comment ?? null,
+      probe: !!c.probe && c.probe_state === "probe", rank: c.rank ?? null };                    // Probelauf: drei eigene Knöpfe statt Freigeben
   });
 }
 

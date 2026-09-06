@@ -106,6 +106,8 @@ def main():
         prof = accounts_cfg.get("fan") or {}
         flags = prof.get("clipper_flags") or by_id[targets[0]]["clipper_flags"]
         max_clips = int(prof.get("max_clips_per_source", 6))
+        if int(os.environ.get("PROBE") or 0):                     # Probelauf: gesperrte Ränge mitrendern, sie fallen danach raus
+            max_clips = int(os.environ["PROBE"]) + len({int(x) for x in re.findall(r"\d+", os.environ.get("SKIP_RANKS") or "")})
         for i, src in enumerate(sources):
             try:
                 clips = clipper.run(src, flags, WORK / "AB" / f"src{i}", label_url=campaign["footage"].get("url", ""), max_clips=max_clips)
@@ -120,6 +122,8 @@ def main():
                 jobs.append((acc, i, c, hooks.get(str(r), {}), r))
     else:
         max_clips = int(accounts_cfg.get("max_clips_per_source", clipper.DEFAULT_MAX_CLIPS))
+        if int(os.environ.get("PROBE") or 0):
+            max_clips = int(os.environ["PROBE"]) + len({int(x) for x in re.findall(r"\d+", os.environ.get("SKIP_RANKS") or "")})
         for acc in targets:
             for i, src in enumerate(sources):
                 try:
@@ -130,6 +134,18 @@ def main():
                 db.log(a.campaign, f"clipper_done account={acc} src={src.name} raw={len(clips)}")
                 hooks = clipper.hooks_of(WORK / acc / f"src{i}")
                 jobs += [(acc, i, c, hooks.get(str(rank_of(c)), {}), rank_of(c)) for c in clips]
+
+    # Probelauf (PROBE=2): nur die zwei bestbewerteten Momente produzieren, danach hält die Produktion an.
+    # SKIP_RANKS sperrt schon gezeigte Ränge, damit „Nochmal, andere Momente" wirklich andere liefert.
+    probe_n = int(os.environ.get("PROBE") or 0)
+    skip_ranks = {int(x) for x in re.findall(r"\d+", os.environ.get("SKIP_RANKS") or "")}
+    if skip_ranks:
+        before = len(jobs)
+        jobs = [j for j in jobs if j[4] not in skip_ranks]
+        db.log(a.campaign, f"skip_ranks account={label} gesperrt={sorted(skip_ranks)} von {before} auf {len(jobs)} Momente")
+    if probe_n > 0:
+        jobs = sorted(jobs, key=lambda j: j[4])[:probe_n]
+        db.log(a.campaign, f"probe account={label} clips={len(jobs)} raenge={[j[4] for j in jobs]}")
 
     kept = {t: 0 for t in targets}
     previews = {t: 0 for t in targets}
@@ -199,7 +215,7 @@ def main():
         r = db.insert_clip(a.campaign, acc, url, status="review" if review_mode.get(acc) else "ready", caption=caption, hook_type=overlay.hook_type_of(clip),
                            duration_s=dur, hook=hook, pinned_comment=pinned, video_id=video_id, rank=rank, thumb_url=thumb_url,
                            context_line=context_line, cover_url=cover_url, scores=meta.get("scores"), qa=qa_report, variant=variant,
-                           start_s=meta.get("start"), end_s=meta.get("end"))
+                           start_s=meta.get("start"), end_s=meta.get("end"), probe=1 if probe_n > 0 else 0)
         kept[acc] += 1
         if preview_on and previews[acc] < 3:                                                 # Vorschau: Standbild (Hook sichtbar) + Caption
             previews[acc] += 1

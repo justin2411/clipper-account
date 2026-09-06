@@ -11,6 +11,7 @@ import { abStats, AB_VARIABLES } from "./ab";
 import { listLog, LOG_CATS } from "./log";
 import { onboardingStatus } from "./onboarding";
 import { suggestionLists } from "./catalog";
+import { probeStatus } from "./probe";
 import { accountHealth } from "./health";
 import { listInbox, getRules } from "./inbox";
 import { chatBudget } from "./chat";
@@ -166,6 +167,7 @@ export async function buildDashboard(env: Env, ws = "default") {
   }
   return {
     pipeline, niches, sources, posts: postList, review, settings, settings_versions, report, ab, log, onboarding, suggestions, inbox, chat, calendar, payouts, library, anomalies,
+    probe: await probeStatus(env, ws).catch(() => null),
     month, currency: "USD", eur_rate: EUR_RATE,
     totals: { revenue: Math.round(rev?.s ?? 0), costs, pending, week_delta: Math.round(revWeek?.s ?? 0) },
     history, campaigns, accounts, insights, tasks, goal_monthly: GOAL_MONTHLY,

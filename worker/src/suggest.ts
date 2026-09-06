@@ -10,6 +10,7 @@ import { Env, db, nowIso, logEvent, telegram, nichesOf } from "./shared";
 import { getSettings } from "./settings";
 import { completeTask } from "./tasks";
 import { suggestionLists, pickForAgent } from "./catalog";
+import { capacity } from "./probe";
 
 export interface Suggestion { id: string; title: string; url: string; channel: string; duration_s: number | null; views: number; published_at: string | null; age_days: number | null; fresh: boolean; reason: string }
 
@@ -29,6 +30,8 @@ export async function listSuggestions(env: Env, niche: string, ws = "default", l
 export async function pickSuggestion(env: Env, videoId: string, ws = "default", auto = false, list?: "fresh" | "archive"): Promise<{ ok: boolean; error?: string; upload_id?: string; task_id?: string }> {
   const v = await db.first<any>(env, "SELECT * FROM videos WHERE id = ? AND workspace_id = ?", videoId, ws);
   if (!v) return { ok: false, error: "Video nicht im Katalog" };
+  const cap = await capacity(env, ws);                    // Obergrenze: ein Probelauf, zwei Videos in Produktion
+  if (!cap.can_probe) return { ok: false, error: cap.reason ?? "Warteschlange voll" };
   const open = await db.first<any>(env, "SELECT id FROM uploads WHERE video_id = ? AND status NOT IN ('cancelled','error')", videoId);
   if (open) return { ok: false, error: "bereits gewählt" };
   const niche = v.niche_id ?? nichesOf(env).find((n) => Object.keys(n.channels ?? {}).includes(v.channel_id))?.key ?? nichesOf(env)[0]?.key ?? "mrbeast";
