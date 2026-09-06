@@ -6,6 +6,7 @@ import { accountsOf } from "./publisher";
 import { getSettings } from "./settings";
 import { listTasks, syncTasks } from "./tasks";
 import { listReview } from "./review";
+import { getReport, listReports } from "./report";
 
 const BLOTATO_FIXED_USD = 29, LLM_PER_CLIP_USD = 0.01, EUR_RATE = 0.92, GOAL_MONTHLY = 2000;
 const NICHE: Record<string, string> = { moments: "Momente", reactions: "Reaktionen" };
@@ -130,8 +131,9 @@ export async function buildDashboard(env: Env) {
     id: p.id, account: p.account, niche: p.niche_id ?? cfg[p.account]?.niche ?? "mrbeast", url: p.post_url, thumb: p.cover_url ?? p.thumb_url ?? null,
     caption: String(p.caption ?? "").split("\n")[0], posted_at: p.posted_at, views: p.views ?? 0, likes: p.likes ?? 0, type: p.kind ?? "paid", campaign: p.camp_name }));
   const sources = await buildSources(env, allCamps, cfg);
+  const report = { latest: await getReport(env, "latest"), weeks: await listReports(env) };   // Stufe 2: zuletzt gespeicherter Wochenbericht + Wochenliste
   return {
-    pipeline, niches, sources, posts: postList, review, settings,
+    pipeline, niches, sources, posts: postList, review, settings, report,
     month, currency: "USD", eur_rate: EUR_RATE,
     totals: { revenue: Math.round(rev?.s ?? 0), costs, pending, week_delta: Math.round(revWeek?.s ?? 0) },
     history, campaigns, accounts, insights, tasks, goal_monthly: GOAL_MONTHLY,

@@ -18,6 +18,7 @@ export interface Env {
   GITHUB_REPO?: string;
   GITHUB_REF?: string;
   PUBLIC_ORIGIN?: string;            // öffentliche Worker-URL (Media-Links in Cron-Läufen)
+  DASHBOARD_URL?: string;            // Pages-URL (Links in Telegram-Berichten)
   // secrets
   CLIPFORGE_API_KEY?: string;
   DASHBOARD_READ_KEY?: string;

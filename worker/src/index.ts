@@ -7,6 +7,7 @@ const CRON_TO_FN: Record<string, keyof typeof FUNCTIONS> = {
   "*/30 * * * *": "publisher",
   "0 */6 * * *": "tracker",
   "0 18 * * *": "notify",
+  "0 7 * * SUN": "report_cron",
 };
 
 export default {
