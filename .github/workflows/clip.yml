@@ -8,6 +8,7 @@ on:
       feedback: { required: false, type: string, default: "" }        # Review "redo": Zusatzanweisung an die Momentwahl
       probe:      { required: false, type: string, default: "" }      # Probelauf: nur so viele Momente produzieren (z.B. "2"), dann anhalten
       skip_ranks: { required: false, type: string, default: "" }      # schon gezeigte Ränge, werden nicht erneut produziert (z.B. "1,2")
+      montage:    { required: false, type: string, default: "1" }     # "0": alter Weg (ein Ausschnitt je Clip) statt Montage
 # Nur ein Clip-Job gleichzeitig (YouTube-Cookies rotieren bei jedem Download): die Serialisierung macht der Worker
 # (fan.ts startet erst den nächsten Job, wenn keiner mehr läuft) – GitHub-Concurrency-Gruppen würden wartende Runs abbrechen.
 jobs:
@@ -21,6 +22,8 @@ jobs:
       PREVIEW: ${{ inputs.preview }}
       FEEDBACK: ${{ inputs.feedback }}
       PROBE: ${{ inputs.probe }}
+      WHISPER_MODEL: ${{ vars.WHISPER_MODEL || 'small' }}
+      MONTAGE: ${{ inputs.montage || '1' }}
       SKIP_RANKS: ${{ inputs.skip_ranks }}
     steps:
       - uses: actions/checkout@v4

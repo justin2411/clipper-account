@@ -18,6 +18,9 @@ export interface NicheSettings {
             anim: "none" | "pop" | "slide" | "typewriter"; accent_mode: "none" | "last2" | "first" | "keyword"; align?: string;
             // Overlay oben (Pflichttext der Kampagne) – eigener Layer, erbt nichts vom Hook
             overlay: OverlaySettings; cover: CoverSettings };
+  montage: { enabled: boolean; segments_min: number; segments_max: number; total_min_s: number; total_max_s: number;
+             apart_min_s: number; part_max_s: number; punch_min_pct: number; punch_max_pct: number; punches_max: number;
+             subtitles: boolean; sub_baseline_pct: number; sub_words: number };
   audio: { lufs: number; true_peak: number; normalize: boolean };
   caption: { template: string; hashtags: string[]; pinned_comment: boolean; tone: string };
   qa: { threshold: number; checks: Record<string, boolean> };
@@ -85,6 +88,8 @@ export function defaultNiche(env: Env, key: string): NicheSettings {
     visual: { font: "Anton", color: "#FFFFFF", accent: "#FF6A00", outline_px: 5, hook_y_pct: 68, hook_max_words: 8, hook_max_lines: 2, zoom_pct: 8, zoom_max_per_clip: 2, zoom_ease_ms: 400,
               safe_top_px: 140, safe_bottom_px: 400, safe_right_px: 180, cover_text: true, ...HOOK_DEFAULTS,
               overlay: { ...OVERLAY_DEFAULTS }, cover: { ...COVER_DEFAULTS } },
+    montage: { enabled: true, segments_min: 3, segments_max: 4, total_min_s: 22, total_max_s: 35, apart_min_s: 30,
+               part_max_s: 4, punch_min_pct: 5, punch_max_pct: 8, punches_max: 2, subtitles: true, sub_baseline_pct: 72, sub_words: 4 },
     audio: { lufs: -14, true_peak: -1.5, normalize: true },
     caption: { template: `{hook} · ${cap} ${tags.join(" ")}`.trim(), hashtags: tags, pinned_comment: true, tone: "knapp" },
     qa: { threshold: 7, checks: { hook_legible: true, no_overlap: true, face_in_frame: true, not_blurry: true, safe_zone: true } },
@@ -213,6 +218,13 @@ export function validateSettings(s: Settings): string[] {
       if (v.hook_sample !== undefined && String(v.hook_sample).length > 200) errs.push(`${where}.visual.hook_sample: höchstens 200 Zeichen`);
       checkBlock(v.overlay, `${where}.visual.overlay`, OVERLAY_RANGES, OVERLAY_ENUMS, ["color", "box_color"], errs);
       checkBlock(v.cover, `${where}.visual.cover`, COVER_RANGES, COVER_ENUMS, ["color", "accent", "box_color"], errs); }
+    if (n.montage) {
+      const m = n.montage, r: Record<string, [number, number]> = { segments_min: [2, 4], segments_max: [3, 6], total_min_s: [10, 40],
+        total_max_s: [15, 60], apart_min_s: [0, 300], part_max_s: [2, 10], punch_min_pct: [0, 20], punch_max_pct: [0, 25],
+        punches_max: [0, 6], sub_baseline_pct: [50, 80], sub_words: [2, 6] };
+      for (const [k, [lo, hi]] of Object.entries(r)) if (m[k] !== undefined) num(m[k], lo, hi, `${where}.montage.${k}`, errs);
+      if (m.total_min_s !== undefined && m.total_max_s !== undefined && Number(m.total_min_s) >= Number(m.total_max_s)) errs.push(`${where}.montage: total_min_s < total_max_s`);
+    }
     if (n.audio) { if (n.audio.lufs !== undefined) num(n.audio.lufs, -24, -8, `${where}.audio.lufs`, errs); if (n.audio.true_peak !== undefined) num(n.audio.true_peak, -6, 0, `${where}.audio.true_peak`, errs); }
     if (n.qa?.threshold !== undefined) num(n.qa.threshold, 0, 10, `${where}.qa.threshold`, errs);
     if (n.caption?.template !== undefined && !String(n.caption.template).includes("{hook}")) errs.push(`${where}.caption.template muss {hook} enthalten`);

@@ -435,6 +435,21 @@ export async function handleRequest(req: Request, env: Env, ctx: ExecutionContex
       }
     }
 
+    // Sperrliste: verwendete Stellen eines Quellvideos (die Montage nutzt 3–4 Stellen je Clip)
+    if (rest[0] === "videos" && rest[1] && rest[2] === "usage" && req.method === "POST") {
+      const b = await body();
+      const segs = Array.isArray(b.segments) ? (b.segments as any[]) : [];
+      let n = 0;
+      for (const s of segs.slice(0, 8)) {
+        await recordUsage(env, { video_id: String(rest[1]), clip_id: b.clip_id ? String(b.clip_id) : null,
+                                 account: b.account ? String(b.account) : null,
+                                 start_s: s?.start_s == null ? null : Number(s.start_s),
+                                 end_s: s?.end_s == null ? null : Number(s.end_s), note: s?.note ? String(s.note) : null });
+        n++;
+      }
+      return json({ ok: true, video: rest[1], segments: n });
+    }
+
     // videos (YouTube-Katalog)
     if (rest[0] === "videos") {
       if (req.method === "GET" && !rest[1]) {
