@@ -1,0 +1,29 @@
+# Style-Tokens je Account (Stufe 2). Fonts: assets/fonts (Anton, Bangers – SIL Open Font License, OFL-*.txt).
+# Safe-Zones (1080×1920): oben 140 px, unten 400 px, rechts 180 px frei. Pflicht-Overlay der Kampagne oben, Hook nie unter 72 % Höhe.
+safe_zones: { top: 140, bottom: 400, right: 180 }
+hook_max_y_pct: 0.72
+accounts:
+  A:
+    font: anton
+    color: "#FFFFFF"
+    accent_mode: word            # ein Akzentwort (aus der Momentwahl) in accent_color
+    accent_color: "#FF6A00"
+    outline_px: 5
+    outline_color: "#000000"
+    y_pct: 0.68                  # Blockmitte
+    align: center
+    max_lines: 2
+    hook_seconds: 2
+    ending: { type: freeze, seconds: 0.3 }             # letzter Frame 0,3 s stehen lassen
+  B:
+    font: bangers
+    color: "#FFD400"
+    accent_mode: box
+    box_color: "#7B2FF7"
+    outline_px: 5
+    outline_color: "#000000"
+    y_pct: 0.68
+    align: left
+    max_lines: 2
+    hook_seconds: 2
+    ending: { type: black_cut, fade: 0.12, black: 0.25 }   # kurzer Schwarz-Cut nach der Pointe

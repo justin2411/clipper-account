@@ -137,6 +137,7 @@ def _hex_to_ffmpeg(c: str) -> str:
 
 # Safe-Zones (1080×1920): oben 140 px, unten 400 px, rechts 180 px frei; Hook nie unter 72 % Höhe.
 SAFE_TOP, SAFE_BOTTOM, SAFE_RIGHT = 140, 400, 180
+HOOK_MAX_Y = 0.72
 DEFAULT_STYLE = {"font": "dejavu-bold", "color": "#FFFFFF", "outline_px": 5, "outline_color": "#000000", "accent_color": None,
                  "accent_mode": "bar", "box_color": None, "align": "center", "y_pct": 0.685, "max_lines": 2, "size_max": 72, "size_min": 36}
 
@@ -145,7 +146,8 @@ def hook_png(text: str, style: dict, width: int, height: int, accent_word: str |
     """Hook-Text als PNG (pipeline/text.py). Rückgabe: (png, x, y) für ffmpeg overlay – Block um y_pct zentriert, nie unter 72 %."""
     from pipeline import text as T
     st = {**DEFAULT_STYLE, **{k: v for k, v in (style or {}).items() if v is not None}}
-    max_w = width - SAFE_RIGHT - 60 if st["align"] == "left" else int(width * 0.86)
+    margin = 60
+    max_w = width - SAFE_RIGHT - 2 * margin                       # Safe-Zone rechts: Block nur im Bereich 60…900 px
     max_h = int(height * 0.075)                                    # 2 Zeilen ≈ 65–72 %
     img = T.render(text, max_w, max_h, font=st["font"], size_max=int(st["size_max"]), size_min=int(st["size_min"]), color=st["color"],
                    outline_px=int(st["outline_px"]), outline_color=st["outline_color"],
@@ -153,9 +155,9 @@ def hook_png(text: str, style: dict, width: int, height: int, accent_word: str |
                    box_color=st.get("box_color"), align=st["align"], max_lines=int(st["max_lines"]))
     T.save(img, out)
     y_center = int(height * float(st["y_pct"]))
-    y = min(y_center - img.height // 2, int(height * 0.72) - img.height)
+    y = min(y_center - img.height // 2, int(height * HOOK_MAX_Y) - img.height)
     y = max(y, SAFE_TOP)
-    x = 60 if st["align"] == "left" else (width - img.width) // 2
+    x = margin if st["align"] == "left" else margin + (max_w - img.width) // 2   # zentriert innerhalb der Safe-Zone
     return out, x, y
 
 
@@ -208,10 +210,10 @@ def cover_frame(src: Path, text: str, style: dict, accent_word: str | None, out_
     subprocess.run(["ffmpeg", "-y", "-ss", f"{at:.3f}", "-i", str(src), "-frames:v", "1", str(tmp)], check=True, capture_output=True)
     base = Image.open(tmp).convert("RGBA")
     st = {**DEFAULT_STYLE, **{k: v for k, v in (style or {}).items() if v is not None}}
-    img = T.render(text, w - SAFE_RIGHT - 80, int(h * 0.30), font=st["font"], size_max=140, size_min=64, color=st["color"], outline_px=8,
+    img = T.render(text, w - SAFE_RIGHT - 120, int(h * 0.30), font=st["font"], size_max=140, size_min=64, color=st["color"], outline_px=8,
                    outline_color=st["outline_color"], accent_word=accent_word if st.get("accent_mode") == "word" else None,
                    accent_color=st.get("accent_color"), box_color=st.get("box_color"), align="center", max_lines=3)
-    x = (w - SAFE_RIGHT - img.width) // 2 + 20
+    x = 60 + (w - SAFE_RIGHT - 120 - img.width) // 2
     y = int(h * 0.45) - img.height // 2
     base.alpha_composite(img, (max(0, x), max(SAFE_TOP, y)))
     base.convert("RGB").save(out_png, "PNG")
@@ -221,9 +223,24 @@ def cover_frame(src: Path, text: str, style: dict, accent_word: str | None, out_
     return out_png
 
 
+def _ending_filters(ending: dict | None, dur: float) -> tuple[str, str]:
+    """Video-/Audio-Filter für das Clip-Ende: freeze (letzter Frame steht) oder black_cut (kurze Blende auf Schwarz)."""
+    if not ending:
+        return "", ""
+    t = str(ending.get("type", ""))
+    if t == "freeze":
+        sec = float(ending.get("seconds", 0.3))
+        return f"tpad=stop_mode=clone:stop_duration={sec}", f"apad=pad_dur={sec}"
+    if t == "black_cut":
+        fade, black = float(ending.get("fade", 0.12)), float(ending.get("black", 0.25))
+        st = max(0.0, dur - fade)
+        return f"fade=t=out:st={st:.3f}:d={fade},tpad=stop_mode=add:stop_duration={black}:color=black", f"afade=t=out:st={st:.3f}:d={fade},apad=pad_dur={black}"
+    return "", ""
+
+
 def apply_text_hook(src: Path, text: str, out_dir: Path, name: str | None = None, seconds: float = 2.0,
                     color: str = "white", accent: str = "#FF5A1F", style: str | dict = "bar", accent_word: str | None = None,
-                    cover: bool = True) -> tuple[Path, Path | None]:
+                    cover: bool = True, ending: dict | None = None) -> tuple[Path, Path | None]:
     """Hook-Text (Zone 65–72 %, `seconds` s) + Cover-Frame als erster Frame (2 Frames, Blotato videoCoverTimestamp=0).
     style: 'bar' (A: weiß, Akzentbalken) | 'box' (B: Text auf Box) | dict mit Tokens aus config/brand.yaml.
     Rückgabe: (Video, Cover-JPEG oder None). Ohne Text → Kopie."""
@@ -239,6 +256,8 @@ def apply_text_hook(src: Path, text: str, out_dir: Path, name: str | None = None
         st = {"font": "dejavu-bold", "color": color, "box_color": accent, "accent_mode": "box", "align": "center"}
     else:
         st = {"font": "dejavu-bold", "color": color, "accent_color": accent, "accent_mode": "bar", "align": "center"}
+    seconds = float(st.get("hook_seconds", seconds))
+    ending = ending if ending is not None else st.get("ending")
     png, x, y = hook_png(text, st, w, h, accent_word, out_dir / f"{out.stem}.hook.png")
     en = f"enable='between(t,0,{seconds})'"
     inputs = ["-i", str(src), "-i", str(png)]
@@ -247,15 +266,21 @@ def apply_text_hook(src: Path, text: str, out_dir: Path, name: str | None = None
         from PIL import Image
         ph = Image.open(png).height
         fc[0] = fc[0].replace("[hv]", "[h0]") + f";[h0]drawbox=x=iw*0.2:y={y + ph + 8}:w=iw*0.6:h=8:color={_hex_to_ffmpeg(st['accent_color'])}@0.95:t=fill:{en}[hv]"
+    dur = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(src)], capture_output=True, text=True).stdout.strip() or 0)
+    vf_end, af_end = _ending_filters(ending, dur)
+    audio_src = "[0:a]"
+    if vf_end:
+        fc[-1] = fc[-1].replace("[hv]", "[he]") + f";[he]{vf_end}[hv];[0:a]{af_end}[ae]"
+        audio_src = "[ae]"
     cover_jpg = None
     if cover:
         cover_png = cover_frame(src, text, st, accent_word, out_dir / f"{out.stem}.cover.png", out_dir / f"{out.stem}.cover.jpg")
         cover_jpg = out_dir / f"{out.stem}.cover.jpg"
         inputs += ["-loop", "1", "-t", "0.067", "-i", str(cover_png)]
-        fc.append(f"[2:v]scale={w}:{h},format=yuv420p,setsar=1,fps=30[cv];[hv]fps=30,setsar=1,format=yuv420p[vv];[cv][vv]concat=n=2:v=1:a=0[v];[0:a]adelay=67|67[a]")
+        fc.append(f"[2:v]scale={w}:{h},format=yuv420p,setsar=1,fps=30[cv];[hv]fps=30,setsar=1,format=yuv420p[vv];[cv][vv]concat=n=2:v=1:a=0[v];{audio_src}adelay=67|67[a]")
         maps = ["-map", "[v]", "-map", "[a]"]
     else:
-        fc.append("[hv]format=yuv420p[v]"); maps = ["-map", "[v]", "-map", "0:a"]
+        fc.append(f"[hv]format=yuv420p[v];{audio_src}anull[a]"); maps = ["-map", "[v]", "-map", "[a]"]
     subprocess.run(["ffmpeg", "-y", *inputs, "-filter_complex", ";".join(fc), *maps, "-c:v", "libx264", "-crf", "19", "-preset", "medium",
                     "-pix_fmt", "yuv420p", "-r", "30", "-g", "60", "-keyint_min", "60", "-sc_threshold", "0",
                     "-c:a", "aac", "-b:a", "160k", "-ar", "48000", "-movflags", "+faststart", str(out)], check=True, capture_output=True)
