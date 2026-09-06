@@ -45,6 +45,10 @@
                 prev:{posts,views,avg_views,payouts_usd,followers_delta}|null, by_kind:[{kind,posts,views,avg_views,clips,rejected}], accounts:[{id,handle,niche,posts,live,shadow,views,avg_views,likes,followers,followers_delta,best:{url,views,hook}|null,under_200,paused}],
                 top_posts:[{url,account,views,likes,hook,kind,campaign,posted_at}], learned:{best_slot,best_hook_type,best_font,best_account}, suggestions:[{text,action?:{kind,label,href}}], summary:[3 Sätze] }
               -> GET /report?week=latest|current|<YYYY-Www> (Dashboard-Key), GET /report/weeks. Sonntags 09:00 Berlin: Bericht in kv + Telegram-Kurzfassung mit Link auf #report.
+              WeeklyReport zusätzlich: ab:{variable,leader,lift_pct,hint,variants:[{value,posts,avg_views}]}|null, changes:[{at,text}] (was das System umgestellt hat)
+  ab (Stufe 4): { experiment:{variable,variants:[..],niche,started_at}|null, variants:[{value,clips,posts,views,avg_views,likes,engagement,watchtime,completion}], min_n:20, significant, leader, lift_pct, hint, variables:{<pfad>:{label,values?,kind}} }
+              -> GET /ab · POST /ab {variable,variants:[a,b],niche} · POST /ab/stop · POST /ab/apply {value, confirm} (ohne confirm nur Diff) – Gewinner wird in die Nische geschrieben (Version), Test endet.
+              Pipeline liest GET /api/settings/effective (Feld ab) und rendert Clips abwechselnd mit den Varianten (clips.variant = "<variable>=<wert>").
 -->
 <style>
 :root{--bg:#0C0D12;--panel:#14161D;--panel2:#1A1D26;--line:#262A35;--ink:#F2F1EC;--ink2:#A9ABB6;--ink3:#6B6E7B;
@@ -260,6 +264,9 @@ details.more{border:1px solid var(--line);border-radius:var(--r);background:var(
 .dlg h3{margin:0 0 6px;font-size:16px}.dlg .sub{font-size:12px;color:var(--ink3);margin-bottom:12px}.dlg .act{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}
 .dlg table td{font-size:12px}.dlg td.old{color:var(--ink3);text-decoration:line-through}.dlg td.new{font-weight:700}.dlg .err{color:var(--bad);font-size:13px;margin:6px 0}
 .ver{display:flex;align-items:center;gap:12px;padding:8px 0;border-top:1px solid var(--line);font-size:13px}.ver:first-child{border-top:0}.ver .w{flex:1}.ver small{color:var(--ink3)}
+.abv{border:1px solid var(--line);border-radius:12px;padding:12px 14px;background:var(--panel2)}.abv.lead{border-color:var(--ok)}.abv b{font-size:20px;font-weight:800}.abv .t{font-weight:800;font-size:13px;margin-bottom:6px;display:flex;justify-content:space-between}.abv .m{font-size:12px;color:var(--ink3)}.abv .m span{display:inline-block;margin-right:10px}
+.abform{display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:8px;align-items:end}.abform label{font-size:11px;color:var(--ink3);display:block;margin-bottom:3px}.abform select,.abform input{width:100%;font:inherit;font-size:13px;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink)}
+@media (max-width:700px){.abform{grid-template-columns:1fr 1fr}}
 main{min-width:0;overflow-x:hidden}section,.kpi,.tk,.card,.rv{min-width:0}
 .urls{white-space:pre-wrap;word-break:break-all}
 @media (max-width:480px){.g2,.g4,.flow,.cards{grid-template-columns:1fr}.steps{grid-template-columns:repeat(2,1fr)}table{display:block;overflow-x:auto}}
@@ -444,6 +451,7 @@ function page(d){const r=route(); nav(d);
       <span style="margin-left:auto" class="modeswitch"><button class="${expert?"":"on"}" data-mode="simple">Einfach</button><button class="${expert?"on":""}" data-mode="expert">Experte</button></span>
       <span class="seg"><button class="${st.global.shadow?"":"on"}" data-g="shadow" data-v="false">Live</button><button class="${st.global.shadow?"on":""}" data-g="shadow" data-v="true">Schatten</button></span></div>
 
+    ${abPanel(d)}
     ${expert?"":simpleView(N,n,d)}
     ${expert?`<div class="simple"><div id="expertwrap">`:`<div id="expertwrap" style="display:none">`}
     <section><h2>Posting <span>${n?.label||""}</span></h2><div class="set">
@@ -500,7 +508,7 @@ function page(d){const r=route(); nav(d);
     html=`<div class="top"><h1>Aufgaben</h1><div class="meta">${(d.tasks||[]).length} offen <button class="b" id="rf">Aktualisieren</button></div></div>${banner}<section>${(d.tasks||[]).map(t=>taskCard(t,d)).join("")||`<div class="empty">Nichts offen – alles läuft.</div>`}</section>`;
   }
   $("#main").innerHTML=html; const rf=$("#rf"); if(rf) rf.onclick=refresh;
-  document.querySelectorAll("th[data-k]").forEach(th=>th.onclick=()=>{sortKey=th.dataset.k;page(d)}); wireUpload(d); wireTasks(d); wireStudio(d); wireHow(d); wireReport(d);}
+  document.querySelectorAll("th[data-k]").forEach(th=>th.onclick=()=>{sortKey=th.dataset.k;page(d)}); wireUpload(d); wireTasks(d); wireStudio(d); wireHow(d); wireReport(d); wireAb(d);}
 
 // Wochenbericht (Stufe 2) – Tiefe 1: Kennzahlen + 3 Sätze + Vorschläge; Tiefe 2: Accounts / Paid vs Fan (zu); Tiefe 3: Top-Posts, Gelernt, Produktion (zu)
 function reportBody(rep,d){const t=rep.totals,p=rep.prev||{};
@@ -513,12 +521,16 @@ function reportBody(rep,d){const t=rep.totals,p=rep.prev||{};
     ${kpi((t.followers_delta>=0?"+":"")+k(t.followers_delta),"Follower",dl(t.followers_delta,p.followers_delta))}
     ${kpi(money(t.payouts_usd),"Ausgezahlt",dl(t.payouts_usd,p.payouts_usd,v=>money(v)))}</div>
   <section><h2>Kurz gesagt<span>${rep.partial?"Woche läuft noch":"abgeschlossen"} · ${tm(rep.generated_at)}</span></h2>${rep.summary.map(s=>`<p class="sum">${s}</p>`).join("")}</section>
+  ${rep.ab?`<section><h2>Laufender A/B-Test<span>${rep.ab.variable}</span></h2><div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr))">${rep.ab.variants.map(v=>`<div class="abv ${rep.ab.leader===v.value?"lead":""}"><div class="t"><span>${v.value}</span>${rep.ab.leader===v.value?`<span class="pill ok">Tendenz</span>`:""}</div><b>${k(v.avg_views)}</b> <span class="m">Ø Views · ${v.posts} gepostet</span></div>`).join("")}</div><div class="up" style="margin-top:8px">${rep.ab.hint}</div></section>`:""}
   <section><h2>Vorschläge<span>${rep.suggestions.length} · zum Bestätigen anklicken</span></h2>${rep.suggestions.map((s,i)=>`<div class="sg"><div class="n">${i+1}</div><div class="t">${s.text}</div>${s.action?`<a class="go" href="${s.action.href||"#"}">${s.action.label} →</a>`:""}</div>`).join("")}</section>
   <details class="more"><summary>Accounts &amp; Paid vs. Fan</summary><div>
     <table><thead><tr><th>Account</th><th class="r">Posts</th><th class="r">Views</th><th class="r">Ø/Post</th><th class="r">&lt;200</th><th class="r">Follower</th><th class="r">Δ 7d</th><th>Status</th></tr></thead><tbody>
     ${rep.accounts.map(a=>`<tr><td><div class="acct">${av(a,d)}<div><div class="h">@${a.handle}</div><div class="n">${nicheOf(d,a.niche)?.label||a.niche}</div></div></div></td><td class="r">${a.live}${a.shadow?` <span class="pill">+${a.shadow} S</span>`:""}</td><td class="r">${k(a.views)}</td><td class="r">${k(a.avg_views)}</td><td class="r">${a.under_200}</td><td class="r">${a.followers==null?"–":k(a.followers)}</td><td class="r" style="color:${(a.followers_delta||0)>=0?"var(--ok)":"var(--bad)"}">${a.followers_delta==null?"–":(a.followers_delta>=0?"+":"")+a.followers_delta}</td><td>${a.paused?`<span class="pill warn">pausiert</span>`:`<span class="pill ok">aktiv</span>`}</td></tr>`).join("")}</tbody></table>
     <table style="margin-top:14px"><thead><tr><th>Art</th><th class="r">Posts</th><th class="r">Views</th><th class="r">Ø/Post</th><th class="r">Clips produziert</th><th class="r">verworfen</th></tr></thead><tbody>
     ${rep.by_kind.map(x=>`<tr><td>${x.kind==="paid"?`<span class="pill f">Kampagne</span>`:`<span class="pill v">Fan</span>`}</td><td class="r">${x.posts}</td><td class="r">${k(x.views)}</td><td class="r">${k(x.avg_views)}</td><td class="r">${x.clips}</td><td class="r">${x.rejected}</td></tr>`).join("")}</tbody></table></div></details>
+  <details class="more"><summary>Umsatz 8 Wochen &amp; was das System umgestellt hat</summary><div>
+    ${(()=>{const h=d.history||[];const max=Math.max(1,...h.map(x=>x.revenue));return h.length?`<div class="bars">${h.map((x,i)=>`<div class="${i===h.length-1?"cur":""}" style="height:${Math.max(4,x.revenue/max*100)}%" data-w="${x.week}" title="${money(x.revenue)}"></div>`).join("")}</div><div style="height:18px"></div>`:""})()}
+    ${(rep.changes||[]).length?rep.changes.map(c=>`<div class="ev"><time>${tm(c.at)}</time><div>${c.text}</div></div>`).join(""):`<div class="empty">Diese Woche nichts umgestellt.</div>`}</div></details>
   <details class="more"><summary>Top-Posts, Gelernt &amp; Produktion</summary><div>
     ${rep.top_posts.length?`<table><thead><tr><th>#</th><th>Hook</th><th>Account</th><th class="r">Views</th><th class="r">Likes</th><th>Kampagne</th></tr></thead><tbody>${rep.top_posts.map((x,i)=>`<tr><td>${i+1}</td><td><a href="${x.url}" target="_blank" rel="noopener">${x.hook||"(ohne Hook)"} ↗</a></td><td>${x.account}</td><td class="r">${k(x.views)}</td><td class="r">${k(x.likes)}</td><td>${x.campaign||(x.kind==="fan"?"Fan":"")}</td></tr>`).join("")}</tbody></table>`:`<div class="empty">Noch keine Posts mit Views-Daten.</div>`}
     <div class="grid g4" style="margin-top:14px">${kpi(rep.learned.best_slot,"Bester Slot")}${kpi(rep.learned.best_hook_type,"Bester Hook-Typ")}${kpi(rep.learned.best_account,"Bester Account")}${kpi(Math.round((t.qualified_rate||0)*100)+" %","über Schwelle")}</div>
@@ -730,6 +742,27 @@ function wireStudio(d){
     const pv=await post(body);if(pv.errors){showDiff({title:"Zurücksetzen nicht möglich",errors:pv.errors});return}
     if(!pv.diff||!pv.diff.length){showDiff({title:"Nichts zu tun",sub:"Dieser Stand ist bereits aktiv."});return}
     showDiff({title:`Zurücksetzen auf ${pv.target}`,sub:`${pv.diff.length} Änderung${pv.diff.length>1?"en":""} – der Zustand wird als neue Version gespeichert`,diff:pv.diff,onConfirm:async()=>{const r=await post({...body,confirm:true});if(r.ok){PEND=null;refresh()}else showDiff({title:"Fehler",errors:r.errors||[r.error||"unbekannt"]})}})});}
+// A/B-Panel (Stufe 4) – Tiefe 1: aktive Variable, Karten je Variante, Signifikanz-Hinweis, „Gewinner übernehmen"; ohne Test: Start-Formular (zugeklappt)
+function abPanel(d){const ab=d.ab;if(!ab)return "";const vars=ab.variables||{};
+  if(!ab.experiment){const opts=Object.entries(vars).map(([k,v])=>`<option value="${k}">${v.label} (${k})</option>`).join("");
+    return `<details class="more" id="abstart"><summary>A/B-Test starten <span style="font-weight:500;color:var(--ink3);font-size:12px">kein Test aktiv</span></summary><div>
+      <div class="abform"><div><label>Variable</label><select id="ab-var">${opts}</select></div><div><label>Variante A</label><input id="ab-a" placeholder="z.B. pop"></div><div><label>Variante B</label><input id="ab-b" placeholder="z.B. slide"></div><button class="save" id="ab-go">Starten</button></div>
+      <div class="up" id="ab-hint" style="margin-top:8px">Die Pipeline rendert neue Clips abwechselnd mit beiden Werten; ab 20 geposteten Clips je Variante gibt es einen Hinweis.</div></div></details>`}
+  const ex=ab.experiment,lbl=(vars[ex.variable]||{}).label||ex.variable,fmt=v=>v==null?"–":k(v);
+  return `<section><h2>A/B-Test: ${lbl} <span>${ex.variable} · seit ${tm(ex.started_at)} · Nische ${nicheOf(d,ex.niche)?.label||ex.niche}</span></h2>
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(200px,1fr))">${ab.variants.map(v=>`<div class="abv ${ab.leader===v.value?"lead":""}"><div class="t"><span>${v.value}</span>${ab.leader===v.value?`<span class="pill ok">${ab.significant?"Gewinner":"Tendenz"}</span>`:""}</div><b>${fmt(v.avg_views)}</b> <span class="m">Ø Views</span>
+      <div class="m" style="margin-top:6px"><span>${v.clips} Clips</span><span>${v.posts} gepostet</span><span>${fmt(v.views)} Views</span><span>${v.engagement==null?"–":v.engagement+" %"} Engagement</span><span>Watchtime ${v.watchtime==null?"–":v.watchtime+" s"}</span><span>Completion ${v.completion==null?"–":v.completion+" %"}</span></div></div>`).join("")}</div>
+    <div class="up" style="margin-top:10px;color:${ab.significant?"var(--ok)":"var(--ink2)"}">${ab.significant?"✓":"ℹ"} ${ab.hint}</div>
+    <div class="tools" style="margin-top:10px">${ab.leader?`<button class="save" data-abapply="${ab.leader}">Gewinner übernehmen: ${ab.leader}</button>`:""}${ab.variants.filter(v=>v.value!==ab.leader).map(v=>`<button class="b" data-abapply="${v.value}">${v.value} übernehmen</button>`).join("")}<button class="b" id="ab-stop">Test beenden</button></div></section>`}
+function wireAb(d){if(route()!=="settings"||!d.ab)return;const H={"x-api-key":cfg?.apiKey,"Content-Type":"application/json"};
+  const go=$("#ab-go");if(go)go.onclick=async()=>{if(DEMO_MODE||!cfg)return;const body={variable:$("#ab-var").value,variants:[$("#ab-a").value,$("#ab-b").value],niche:setNiche};
+    const r=await (await fetch(cfg.apiUrl+"/ab",{method:"POST",headers:H,body:JSON.stringify(body)})).json();if(!r.ok){$("#ab-hint").textContent="⚠ "+(r.error||"Fehler");return}PEND=null;refresh()};
+  const sel=$("#ab-var");if(sel)sel.onchange=()=>{const v=(d.ab.variables||{})[sel.value];$("#ab-hint").textContent=v&&v.values?`Erlaubte Werte: ${v.values.join(" | ")}`:v&&v.kind==="number"?"Zahlen eintragen (z.B. 48 und 60).":""};
+  const stop=$("#ab-stop");if(stop)stop.onclick=async()=>{if(DEMO_MODE||!cfg)return;await fetch(cfg.apiUrl+"/ab/stop",{method:"POST",headers:H});PEND=null;refresh()};
+  document.querySelectorAll("[data-abapply]").forEach(b=>b.onclick=async()=>{if(DEMO_MODE||!cfg)return;const value=b.dataset.abapply;
+    const post=x=>fetch(cfg.apiUrl+"/ab/apply",{method:"POST",headers:H,body:JSON.stringify(x)}).then(r=>r.json());const pv=await post({value});
+    if(pv.errors||pv.error){showDiff({title:"Übernehmen nicht möglich",errors:pv.errors||[pv.error]});return}
+    showDiff({title:`Gewinner übernehmen: ${pv.target}`,sub:`${(pv.diff||[]).length} Änderung${(pv.diff||[]).length===1?"":"en"} in der Nische – der Test wird beendet`,diff:pv.diff,onConfirm:async()=>{const r=await post({value,confirm:true});if(r.ok){PEND=null;refresh()}else showDiff({title:"Fehler",errors:r.errors||[r.error||"unbekannt"]})}})})}
 // Diff-Dialog (Stufe 3): Feld · vorher · nachher · betroffene Accounts
 function showDiff({title,sub,diff,errors,onConfirm}){const old=$("#ovl");if(old)old.remove();const fv=v=>v==null?"–":typeof v==="object"?JSON.stringify(v):String(v);
   const el=document.createElement("div");el.className="ovl";el.id="ovl";el.innerHTML=`<div class="dlg"><h3>${title}</h3>${sub?`<div class="sub">${sub}</div>`:""}${(errors||[]).map(e=>`<div class="err">⚠ ${e}</div>`).join("")}
