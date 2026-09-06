@@ -9,7 +9,11 @@ export interface NicheSettings {
   cut: { min_s: number; max_s: number; cold_open: boolean; pad_start_ms: number; pad_end_ms: number; silence_trim_s: number; word_boundary: boolean; end_style: "freeze" | "cut" | "none" };
   select: { candidates: number; render_top: number; dedupe_s: number; weights: Record<string, number>; min_score: number; context_line: boolean };
   visual: { font: string; color: string; accent: string; outline_px: number; hook_y_pct: number; hook_max_words: number; hook_max_lines: number; zoom_pct: number;
-            zoom_max_per_clip: number; zoom_ease_ms: number; safe_top_px: number; safe_bottom_px: number; safe_right_px: number; cover_text: boolean; align?: string; box?: boolean };
+            zoom_max_per_clip: number; zoom_ease_ms: number; safe_top_px: number; safe_bottom_px: number; safe_right_px: number; cover_text: boolean;
+            // Feinjustierung Hook-Text (Dashboard v4): Größe in px bei 1080 Breite, Dicke nur bei variablen Fonts (Montserrat, Oswald)
+            hook_size: number; hook_weight: number; hook_spacing: number; hook_line_h: number; hook_align: "left" | "center" | "right"; hook_x_pct: number; hook_w_pct: number;
+            hook_case: "upper" | "none"; box: "none" | "solid" | "blur"; box_color: string; box_opacity: number; box_pad: number; box_radius: number; shadow: number;
+            anim: "none" | "pop" | "slide" | "typewriter"; accent_mode: "none" | "last2" | "first" | "keyword"; align?: string };
   audio: { lufs: number; true_peak: number; normalize: boolean };
   caption: { template: string; hashtags: string[]; pinned_comment: boolean; tone: string };
   qa: { threshold: number; checks: Record<string, boolean> };
@@ -17,9 +21,22 @@ export interface NicheSettings {
 export interface Settings { global: { shadow: boolean; workspace?: string }; niches: Record<string, NicheSettings>; accounts: Record<string, Partial<NicheSettings> | Record<string, any>> }
 
 const BRAND: Record<string, Partial<NicheSettings["visual"]>> = {           // aus config/brand.yaml (Stufe 2)
-  A: { font: "Anton", color: "#FFFFFF", accent: "#FF6A00", align: "center", box: false },
-  B: { font: "Bangers", color: "#FFD400", accent: "#7B2FF7", align: "left", box: true },
+  A: { font: "Anton", color: "#FFFFFF", accent: "#FF6A00", hook_align: "center", box: "none", accent_mode: "keyword" },
+  B: { font: "Bangers", color: "#FFD400", accent: "#7B2FF7", hook_align: "left", box: "solid", box_color: "#7B2FF7", box_opacity: 100, accent_mode: "none" },
 };
+export const HOOK_DEFAULTS: Pick<NicheSettings["visual"], "hook_size" | "hook_weight" | "hook_spacing" | "hook_line_h" | "hook_align" | "hook_x_pct" | "hook_w_pct" | "hook_case" | "box" | "box_color" | "box_opacity" | "box_pad" | "box_radius" | "shadow" | "anim" | "accent_mode"> = {
+  hook_size: 52, hook_weight: 800, hook_spacing: -1, hook_line_h: 1.05, hook_align: "center", hook_x_pct: 50, hook_w_pct: 84, hook_case: "upper",
+  box: "none", box_color: "#000000", box_opacity: 55, box_pad: 10, box_radius: 10, shadow: 2, anim: "pop", accent_mode: "last2",
+};
+/** Altformat (box:true/false, align) → v4-Felder. */
+function normalizeVisual(v: any): any {
+  if (!v || typeof v !== "object") return v;
+  const o = { ...v };
+  if (typeof o.box === "boolean") o.box = o.box ? "solid" : "none";
+  if (o.align && !o.hook_align) o.hook_align = o.align;
+  delete o.align;
+  return o;
+}
 
 export function defaultNiche(env: Env, key: string): NicheSettings {
   const n = nichesOf(env).find((x) => x.key === key);
@@ -32,7 +49,7 @@ export function defaultNiche(env: Env, key: string): NicheSettings {
     cut: { min_s: 15, max_s: 35, cold_open: true, pad_start_ms: 120, pad_end_ms: 250, silence_trim_s: 0.6, word_boundary: true, end_style: "freeze" },
     select: { candidates: 20, render_top: 8, dedupe_s: 25, weights: { surprise: 2, stakes: 2, reaction: 1, cliffhanger: 2, context: 2, clarity: 2 }, min_score: 7, context_line: true },
     visual: { font: "Anton", color: "#FFFFFF", accent: "#FF6A00", outline_px: 5, hook_y_pct: 68, hook_max_words: 8, hook_max_lines: 2, zoom_pct: 8, zoom_max_per_clip: 2, zoom_ease_ms: 400,
-              safe_top_px: 140, safe_bottom_px: 400, safe_right_px: 180, cover_text: true, align: "center", box: false },
+              safe_top_px: 140, safe_bottom_px: 400, safe_right_px: 180, cover_text: true, ...HOOK_DEFAULTS },
     audio: { lufs: -14, true_peak: -1.5, normalize: true },
     caption: { template: `{hook} · ${cap} ${tags.join(" ")}`.trim(), hashtags: tags, pinned_comment: true, tone: "knapp" },
     qa: { threshold: 7, checks: { hook_legible: true, no_overlap: true, face_in_frame: true, not_blurry: true, safe_zone: true } },
@@ -51,10 +68,11 @@ export async function getSettings(env: Env, ws = "default"): Promise<Settings> {
   const rows = await db.all<{ key: string; value: string }>(env, "SELECT key, value FROM settings WHERE workspace_id = ?", ws);
   const val = (k: string) => { const r = rows.find((x) => x.key === k); try { return r ? JSON.parse(r.value) : null; } catch { return null; } };
   const niches: Record<string, NicheSettings> = {};
-  for (const n of nichesOf(env)) niches[n.key] = deepMerge(defaultNiche(env, n.key), val(`niche:${n.key}`) ?? {});
+  for (const n of nichesOf(env)) { const st = val(`niche:${n.key}`) ?? {}; if (st.visual) st.visual = normalizeVisual(st.visual); niches[n.key] = deepMerge(defaultNiche(env, n.key), st); }
   const accounts: Record<string, any> = {};
   for (const [id, a] of Object.entries(accountsOf(env))) {
     const stored = val(`account:${id}`);
+    if (stored?.visual) stored.visual = normalizeVisual(stored.visual);
     accounts[id] = stored ?? (BRAND[id] ? { visual: { ...BRAND[id] }, slots: a.slots } : { slots: a.slots });
   }
   const g = val("global") ?? {};
@@ -96,7 +114,13 @@ export function validateSettings(s: Settings): string[] {
       if (n.select.weights) for (const [k, v] of Object.entries(n.select.weights)) num(v, 0, 3, `${where}.select.weights.${k}`, errs); }
     if (n.visual) { if (n.visual.hook_y_pct !== undefined) num(n.visual.hook_y_pct, 40, 72, `${where}.visual.hook_y_pct`, errs); if (n.visual.zoom_pct !== undefined) num(n.visual.zoom_pct, 0, 15, `${where}.visual.zoom_pct`, errs);
       if (n.visual.hook_max_words !== undefined) num(n.visual.hook_max_words, 3, 12, `${where}.visual.hook_max_words`, errs);
-      for (const c of ["color", "accent"]) if (n.visual[c] !== undefined && !/^#[0-9a-fA-F]{6}$/.test(String(n.visual[c]))) errs.push(`${where}.visual.${c}: Hex-Farbe`); }
+      const v = n.visual, ranges: Record<string, [number, number]> = { hook_size: [28, 96], hook_weight: [400, 900], hook_spacing: [-3, 4], hook_line_h: [0.8, 1.6], hook_x_pct: [0, 100], hook_w_pct: [30, 100],
+        box_opacity: [0, 100], box_pad: [0, 40], box_radius: [0, 40], shadow: [0, 6], outline_px: [0, 12], hook_max_lines: [1, 3] };
+      for (const [k, [lo, hi]] of Object.entries(ranges)) if (v[k] !== undefined) num(v[k], lo, hi, `${where}.visual.${k}`, errs);
+      const enums: Record<string, string[]> = { hook_align: ["left", "center", "right"], hook_case: ["upper", "none"], box: ["none", "solid", "blur"], anim: ["none", "pop", "slide", "typewriter"], accent_mode: ["none", "last2", "first", "keyword"],
+        font: ["Anton", "Bangers", "Bebas Neue", "Luckiest Guy", "Montserrat", "Oswald", "Archivo Black"] };
+      for (const [k, ok] of Object.entries(enums)) if (v[k] !== undefined && !ok.includes(String(v[k]))) errs.push(`${where}.visual.${k}: ${ok.join("|")}`);
+      for (const c of ["color", "accent", "box_color"]) if (v[c] !== undefined && !/^#[0-9a-fA-F]{6}$/.test(String(v[c]))) errs.push(`${where}.visual.${c}: Hex-Farbe`); }
     if (n.audio) { if (n.audio.lufs !== undefined) num(n.audio.lufs, -24, -8, `${where}.audio.lufs`, errs); if (n.audio.true_peak !== undefined) num(n.audio.true_peak, -6, 0, `${where}.audio.true_peak`, errs); }
     if (n.qa?.threshold !== undefined) num(n.qa.threshold, 0, 10, `${where}.qa.threshold`, errs);
     if (n.caption?.template !== undefined && !String(n.caption.template).includes("{hook}")) errs.push(`${where}.caption.template muss {hook} enthalten`);

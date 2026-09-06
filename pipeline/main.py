@@ -132,11 +132,8 @@ def main():
             db.insert_clip(a.campaign, acc, str(staged), status="rejected_precheck", note="no_hook", hook=hook, video_id=video_id, rank=rank); continue
         vis = ((eff.get(acc) or {}).get("settings") or {}).get("visual") or {}
         style = brand_of(acc) or str(th.get("style", "bar"))
-        if vis.get("font"):                                                                  # Dashboard-Look überschreibt brand.yaml
-            style = {**(style if isinstance(style, dict) else {}), "font": str(vis["font"]).lower().replace(" ", "-"), "color": vis.get("color", "#FFFFFF"),
-                     "accent_color": vis.get("accent"), "accent_mode": "box" if vis.get("box") else "word", "box_color": vis.get("accent") if vis.get("box") else None,
-                     "outline_px": int(vis.get("outline_px", 5)), "y_pct": float(vis.get("hook_y_pct", 68)) / 100, "max_lines": int(vis.get("hook_max_lines", 2)),
-                     "align": vis.get("align", "center")}
+        if vis.get("font"):                                                                  # Dashboard-Look (Feinjustierung) überschreibt brand.yaml
+            style = {**(style if isinstance(style, dict) else {}), **overlay.style_from_visual(vis)}
         capset = ((eff.get(acc) or {}).get("settings") or {}).get("caption") or {}
         if kind == "fan" and capset.get("template"):
             caption = capset["template"].replace("{hook}", context_line)
