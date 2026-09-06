@@ -11,6 +11,7 @@ import { abStats, AB_VARIABLES } from "./ab";
 import { listLog, LOG_CATS } from "./log";
 import { onboardingStatus } from "./onboarding";
 import { listSuggestions } from "./suggest";
+import { accountHealth } from "./health";
 
 const BLOTATO_FIXED_USD = 29, LLM_PER_CLIP_USD = 0.01, EUR_RATE = 0.92, GOAL_MONTHLY = 2000;
 const NICHE: Record<string, string> = { moments: "Momente", reactions: "Reaktionen" };
@@ -97,11 +98,12 @@ export async function buildDashboard(env: Env, ws = "default") {
     const handle = String(a.handle ?? "");
     const niche = a.niche ?? nichesCfg.find((n) => n.accounts.includes(id))?.key ?? "";
     const live = handle ? await tiktokProfileCached(env, handle) : null;              // Follower/Likes live von der TikTok-Profilseite (5-min-Cache)
+    const health = await accountHealth(env, id, ws).catch(() => null);                 // Nachtrag 1: Ampel
     const followers = live?.followers ?? t?.followers ?? 0;
     accounts.push({ id, handle, niche, platform: "tiktok", url: handle ? `https://www.tiktok.com/${handle.startsWith("@") ? handle : "@" + handle}` : "",
       followers, followers_7d: Math.max(0, followers - (w?.followers ?? followers)), likes_total: live?.likes_total ?? t?.likes_total ?? 0, videos: live?.videos ?? t?.videos ?? null,
       views_7d: t?.views_7d ?? 0, views_30d: t?.views_30d ?? 0, earnings_30d: earned30, avg_views: avg, posts_7d: t?.posts_7d ?? 0,
-      paused: !!st?.paused, reason: st?.reason ?? null, niche_label: NICHE[a.niche ?? a.style ?? ""] ?? (a.niche ?? a.style ?? ""), live: !!live });
+      paused: !!st?.paused, reason: st?.reason ?? null, niche_label: NICHE[a.niche ?? a.style ?? ""] ?? (a.niche ?? a.style ?? ""), live: !!live, health });
   }
   const niches = nichesCfg.map((n) => ({ key: n.key, label: n.label, color: n.color, accounts: n.accounts }));
 
