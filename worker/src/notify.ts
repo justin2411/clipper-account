@@ -22,12 +22,13 @@ async function submissionList(env: Env) {
 
 /** Tagesübersicht: Slots der nächsten 24 h, Queue, neue Videos, Fehler; dazu 3 zufällige Clips als Standbild + Caption. */
 export async function dailyOverview(env: Env, withPhotos = true) {
-  const mode = publishMode(env);
+  const mp = publishMode(env, "paid"), mf = publishMode(env, "fan");
+  const label = (m: string) => (m === "shadow" ? "Schatten" : m === "draft" ? "Entwurf" : "LIVE");
   const now = new Date();
   const plan = await plannedPosts(env, 24, now);
   const accounts = accountsOf(env);
   const stock = await fanStock(env);
-  const lines: string[] = [`🗓 ClipForge Tagesübersicht (${mode === "shadow" ? "SCHATTENMODUS – nichts geht raus" : mode === "draft" ? "Entwurfsmodus" : "LIVE"})`, ""];
+  const lines: string[] = [`🗓 ClipForge Tagesübersicht (paid: ${label(mp)} · Fan: ${label(mf)}${mf === "shadow" ? " – Fan-Clips gehen nicht raus" : ""})`, ""];
   lines.push(`Geplante Slots, nächste 24 h (${plan.length}):`);
   if (!plan.length) lines.push("  – keine");
   for (const p of plan) {
@@ -96,7 +97,7 @@ export async function weeklyReport(env: Env) {
 export async function runNotify(env: Env) {
   const out: Record<string, unknown> = {};
   out.submissions = await submissionList(env);
-  out.overview = await dailyOverview(env, publishMode(env) === "shadow");
+  out.overview = await dailyOverview(env, publishMode(env, "fan") === "shadow" || publishMode(env, "paid") === "shadow");
   if (new Date().getUTCDay() === 1) out.weekly = await weeklyReport(env);
   return out;
 }

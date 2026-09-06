@@ -6,7 +6,7 @@ Aufruf: python -m pipeline.main --campaign <id> --account A|B|AB
   (A: 1,3,5… B: 2,4,6…), immer mit Hook-Text (nie roh), Caption „<Hook> · Credit @mrbeast #mrbeast“.
 Env: CLIPFORGE_API_URL, CLIPFORGE_API_KEY, GOOGLE_API_KEY (Gemini), optional YT_COOKIES_B64
 """
-import argparse, re, sys, yaml
+import argparse, os, re, sys, yaml
 from pathlib import Path
 from pipeline import download, overlay, checks, storage, db, clipper, ai
 from platforms import REGISTRY
@@ -39,9 +39,12 @@ def main():
     try:
         sources = download.fetch(campaign["footage"], WORK / "src")
     except Exception as e:                            # z.B. YouTube-Bot-Check → Video als Fehler markieren, Job sauber beenden
-        err = str(e).replace("\n", " ")[-160:]
+        full = str(e).replace("\n", " ")
+        bot = "not a bot" in full or "exporting-youtube-cookies" in full
+        m = re.search(r"ERROR: \[youtube\] [\w-]+: ([^\n]{0,140})", str(e))
+        err = (m.group(1) if m else full[-160:])
         db.log(a.campaign, f"footage_error account={label} err={err[:120]}")
-        if video_id: db.patch_video(video_id, status="error", note=("bot check" if "not a bot" in err else "download: " + err[:100]))
+        if video_id: db.patch_video(video_id, status="error", note=("bot check" if bot else "download: " + err[:100]))
         db.notify(f"⚠️ Footage-Download fehlgeschlagen: {campaign['name']}\n{err[:200]}")
         sys.exit(0)
     if not sources:
@@ -90,45 +93,52 @@ def main():
                 jobs += [(acc, i, c, hooks.get(str(rank_of(c)), {}), rank_of(c)) for c in clips]
 
     kept = {t: 0 for t in targets}
+    previews = {t: 0 for t in targets}
+    preview_on = kind != "fan" or os.environ.get("PREVIEW", "").lower() in ("1", "true", "yes")   # Stufen-Test: 3 Standbilder je Account
     overlay_text = (campaign.get("required") or {}).get("overlay_text") or ""
     for acc, i, clip, meta, rank in jobs:
         th = by_id[acc].get("text_hook") or {}
         hook = meta.get("hook", "")
-        gen = ai.enrich(hook, meta.get("description", ""), meta.get("transcript", ""), campaign["name"])   # Hook-Satz + Kommentar-Frage
-        caption_hook = gen["caption_hook"] or meta.get("caption_hook", "") or hook
+        # Originalität: Kontextzeile in eigenen Worten (≤8 Wörter, kein Transkript-Zitat) = Hook-Text im Bild + erster Caption-Satz
+        gen = ai.enrich(hook, meta.get("description", ""), meta.get("transcript", ""), campaign["name"])
+        context_line = gen.get("context_line") or gen.get("caption_hook") or hook
+        accent_word = gen.get("accent_word") or ""
         pinned = gen["pinned_comment"] or meta.get("pinned_comment", "")
-        text_hook = gen.get("overlay_hook") or caption_hook or hook
-        caption = platform.caption(campaign, hook=caption_hook)
+        caption = platform.caption(campaign, hook=context_line)
         name = f"{acc}_s{i}_{clip.name}"
         staged = overlay.apply(clip, overlay_text, WORK / "stage", name=name)                # Pflicht-Overlay (paid, falls gesetzt)
-        if kind == "fan" and not text_hook.strip():                                           # Fan-Clips nie roh
+        if not context_line.strip():                                                          # nie roh (Fan wie paid)
             db.insert_clip(a.campaign, acc, str(staged), status="rejected_precheck", note="no_hook", hook=hook, video_id=video_id, rank=rank); continue
-        if th.get("enabled") or kind == "fan":                                                # Branding: 2-s-Hook-Text unten (65–72 %)
-            final = overlay.apply_text_hook(staged, text_hook, WORK / "final", name=name,
-                                            seconds=float(th.get("seconds", 2)), color=str(th.get("color", "white")),
-                                            accent=str(th.get("accent", "#FF5A1F")), style=str(th.get("style", "bar")))
-        else:
-            final = overlay.apply(staged, "", WORK / "final", name=name)                       # Kopie
+        final, cover_jpg = overlay.apply_text_hook(staged, context_line, WORK / "final", name=name,
+                                                   seconds=float(th.get("seconds", 2)), color=str(th.get("color", "white")),
+                                                   accent=str(th.get("accent", "#FF5A1F")), style=str(th.get("style", "bar")),
+                                                   accent_word=accent_word, cover=True)
         ok, reason = checks.validate(final, rules, forbidden=campaign.get("forbidden", {}))
         dur = checks.duration_of(final)
         if not ok:
             db.insert_clip(a.campaign, acc, str(final), status="rejected_precheck", note=reason, duration_s=dur, hook=hook,
-                           pinned_comment=pinned, video_id=video_id, rank=rank); continue
+                           pinned_comment=pinned, video_id=video_id, rank=rank, context_line=context_line); continue
         prefix = f"{a.campaign}/{acc}"
         url = storage.upload(final, prefix=prefix)
-        thumb_url = None
+        thumb_url = cover_url = None
         try:
             still = overlay.frame(final, WORK / "final" / f"{final.stem}.jpg", at=1.0)
             thumb_url = storage.upload(still, prefix=prefix)
+            if cover_jpg and cover_jpg.exists():
+                cover_url = storage.upload(cover_jpg, prefix=prefix)
         except Exception as e:
             print("thumbnail failed:", e)
         r = db.insert_clip(a.campaign, acc, url, status="ready", caption=caption, hook_type=overlay.hook_type_of(clip),
-                           duration_s=dur, hook=hook, pinned_comment=pinned, video_id=video_id, rank=rank, thumb_url=thumb_url)
+                           duration_s=dur, hook=hook, pinned_comment=pinned, video_id=video_id, rank=rank, thumb_url=thumb_url,
+                           context_line=context_line, cover_url=cover_url)
         kept[acc] += 1
-        if kind != "fan":                                                                    # paid: Vorschau je Clip per Telegram
+        if preview_on and previews[acc] < 3:                                                 # Vorschau: Standbild (Hook sichtbar) + Caption
+            previews[acc] += 1
             try:
                 db.notify_photo(WORK / "final" / f"{final.stem}.jpg", f"🖼 {campaign['name']} #{(r or {}).get('seq', '?')} · Account {acc} · {round(dur or 0)}s\n"
-                                                                     f"Caption:\n{caption}\n\n📌 Kommentar: {pinned or '–'}\n{url}")
+                                                                     f"Caption:\n{caption}\n\n📌 Kommentar: {pinned or '–'}")
+                if cover_jpg and cover_jpg.exists():
+                    db.notify_photo(cover_jpg, f"🖼 Cover #{(r or {}).get('seq', '?')} · Account {acc}")
             except Exception as e:
                 print("preview failed:", e)
     total = sum(kept.values())

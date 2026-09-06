@@ -4,6 +4,12 @@ on:
     inputs:
       campaign: { required: true, type: string }
       account:  { required: true, type: string }   # A | B | AB (fan: ein Schnitt, Verteilung nach Rang)
+      preview:  { required: false, type: string, default: "false" }   # "true": Standbilder + Caption per Telegram (Stufen-Test)
+# Nur ein Clip-Job gleichzeitig: YouTube-Cookies rotieren bei jedem Download; parallele Jobs würden sich den
+# Cookie-Stand gegenseitig überschreiben und die Sitzung ungültig machen. Weitere Jobs warten in der Queue.
+concurrency:
+  group: clip-jobs
+  cancel-in-progress: false
 jobs:
   clip:
     runs-on: ubuntu-latest
@@ -13,6 +19,7 @@ jobs:
       CLIPFORGE_API_KEY: ${{ secrets.CLIPFORGE_API_KEY }}
       GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
       YT_COOKIES_B64: ${{ secrets.YT_COOKIES_B64 }}   # optional: base64 cookies.txt gegen YouTube-Bot-Checks
+      PREVIEW: ${{ inputs.preview }}
     steps:
       - uses: actions/checkout@v4
         with: { submodules: recursive }

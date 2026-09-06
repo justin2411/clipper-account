@@ -47,12 +47,12 @@ async function newMails(env: Env, tok: string): Promise<Mail[]> {
   return out;
 }
 
-export async function dispatchClipJob(env: Env, campaignId: string, account: string): Promise<number> {
+export async function dispatchClipJob(env: Env, campaignId: string, account: string, extra: Record<string, string> = {}): Promise<number> {
   if (!env.GITHUB_TOKEN || !env.GITHUB_REPO) { console.log("[scout] GITHUB_TOKEN/REPO fehlt – kein Dispatch"); return 0; }
   const r = await fetch(`https://api.github.com/repos/${env.GITHUB_REPO}/actions/workflows/clip.yml/dispatches`, {
     method: "POST",
     headers: { Authorization: `Bearer ${env.GITHUB_TOKEN}`, Accept: "application/vnd.github+json", "User-Agent": "clipforge-worker", "Content-Type": "application/json" },
-    body: JSON.stringify({ ref: env.GITHUB_REF || "main", inputs: { campaign: campaignId, account } }),
+    body: JSON.stringify({ ref: env.GITHUB_REF || "main", inputs: { campaign: campaignId, account, ...extra } }),
   });
   if (r.status !== 204) console.log("[scout] dispatch fehlgeschlagen", r.status, await r.text());
   return r.status;

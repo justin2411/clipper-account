@@ -135,38 +135,131 @@ def _hex_to_ffmpeg(c: str) -> str:
     return c.replace("#", "0x") if c.startswith("#") else c
 
 
+# Safe-Zones (1080×1920): oben 140 px, unten 400 px, rechts 180 px frei; Hook nie unter 72 % Höhe.
+SAFE_TOP, SAFE_BOTTOM, SAFE_RIGHT = 140, 400, 180
+DEFAULT_STYLE = {"font": "dejavu-bold", "color": "#FFFFFF", "outline_px": 5, "outline_color": "#000000", "accent_color": None,
+                 "accent_mode": "bar", "box_color": None, "align": "center", "y_pct": 0.685, "max_lines": 2, "size_max": 72, "size_min": 36}
+
+
+def hook_png(text: str, style: dict, width: int, height: int, accent_word: str | None, out: Path) -> tuple[Path, int, int]:
+    """Hook-Text als PNG (pipeline/text.py). Rückgabe: (png, x, y) für ffmpeg overlay – Block um y_pct zentriert, nie unter 72 %."""
+    from pipeline import text as T
+    st = {**DEFAULT_STYLE, **{k: v for k, v in (style or {}).items() if v is not None}}
+    max_w = width - SAFE_RIGHT - 60 if st["align"] == "left" else int(width * 0.86)
+    max_h = int(height * 0.075)                                    # 2 Zeilen ≈ 65–72 %
+    img = T.render(text, max_w, max_h, font=st["font"], size_max=int(st["size_max"]), size_min=int(st["size_min"]), color=st["color"],
+                   outline_px=int(st["outline_px"]), outline_color=st["outline_color"],
+                   accent_word=accent_word if st.get("accent_mode") == "word" else None, accent_color=st.get("accent_color"),
+                   box_color=st.get("box_color"), align=st["align"], max_lines=int(st["max_lines"]))
+    T.save(img, out)
+    y_center = int(height * float(st["y_pct"]))
+    y = min(y_center - img.height // 2, int(height * 0.72) - img.height)
+    y = max(y, SAFE_TOP)
+    x = 60 if st["align"] == "left" else (width - img.width) // 2
+    return out, x, y
+
+
+def best_motion_frame(src: Path, window_s: float, min_scene: float = 0.4, min_luma: float = 40.0) -> float:
+    """Zeitpunkt (s) des Frames mit der höchsten Bewegung (scene score) im Fenster, Frames mit scene > min_scene bevorzugt,
+    dunkle Frames (Ø Luma < min_luma, z.B. Schwarzblende nach einem Cut) ausgeschlossen. Fallback 1.0 s."""
+    r = subprocess.run(["ffmpeg", "-v", "info", "-t", f"{window_s:.2f}", "-i", str(src),
+                        "-vf", "scale=240:-2,select='gte(scene,0)',signalstats,metadata=print", "-f", "null", "-"],
+                       capture_output=True, text=True)
+    frames: list[tuple[float, float, float]] = []      # (pts, scene, luma)
+    cur = {}
+    for line in r.stderr.splitlines():
+        m = re.search(r"pts_time:([\d.]+)", line)
+        if m:
+            if "pts" in cur: frames.append((cur["pts"], cur.get("scene", 0.0), cur.get("luma", 0.0)))
+            cur = {"pts": float(m.group(1))}
+        m = re.search(r"lavfi\.scene_score=([\d.]+)", line)
+        if m: cur["scene"] = float(m.group(1))
+        m = re.search(r"lavfi\.signalstats\.YAVG=([\d.]+)", line)
+        if m: cur["luma"] = float(m.group(1))
+    if "pts" in cur: frames.append((cur["pts"], cur.get("scene", 0.0), cur.get("luma", 0.0)))
+    bright = [f for f in frames if f[2] >= min_luma and f[0] >= 0.15]
+    if not bright:
+        return 1.0
+    hot = [f for f in bright if f[1] > min_scene]
+    ranked = sorted(hot or bright, key=lambda f: f[1], reverse=True)[:6]
+    for pts, _, _ in ranked:                           # Kandidaten prüfen: der per -ss extrahierte Frame muss wirklich hell sein
+        if _frame_luma(src, pts) >= min_luma:
+            return pts
+    return 1.0
+
+
+def _frame_luma(src: Path, at: float) -> float:
+    r = subprocess.run(["ffmpeg", "-v", "info", "-ss", f"{at:.3f}", "-i", str(src), "-frames:v", "1",
+                        "-vf", "scale=120:-2,signalstats,metadata=print", "-f", "null", "-"], capture_output=True, text=True)
+    m = re.search(r"lavfi\.signalstats\.YAVG=([\d.]+)", r.stderr)
+    return float(m.group(1)) if m else 0.0
+
+
+def cover_frame(src: Path, text: str, style: dict, accent_word: str | None, out_png: Path, out_jpg: Path | None = None) -> Path:
+    """Cover: Frame mit der stärksten Bewegung im ersten Drittel (select='gt(scene,0.4)', sonst 1.0 s), Hook-Text groß
+    (innerhalb der Safe-Zones, Mitte ≈ 45 % Höhe). PNG für das Video (erster Frame), JPEG für R2/Blotato-Vorschau."""
+    from PIL import Image
+    from pipeline import text as T
+    w, h = probe_size(src)
+    dur = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(src)],
+                               capture_output=True, text=True).stdout.strip() or 10)
+    tmp = out_png.with_suffix(".base.png")
+    at = best_motion_frame(src, max(1.0, dur / 3))
+    subprocess.run(["ffmpeg", "-y", "-ss", f"{at:.3f}", "-i", str(src), "-frames:v", "1", str(tmp)], check=True, capture_output=True)
+    base = Image.open(tmp).convert("RGBA")
+    st = {**DEFAULT_STYLE, **{k: v for k, v in (style or {}).items() if v is not None}}
+    img = T.render(text, w - SAFE_RIGHT - 80, int(h * 0.30), font=st["font"], size_max=140, size_min=64, color=st["color"], outline_px=8,
+                   outline_color=st["outline_color"], accent_word=accent_word if st.get("accent_mode") == "word" else None,
+                   accent_color=st.get("accent_color"), box_color=st.get("box_color"), align="center", max_lines=3)
+    x = (w - SAFE_RIGHT - img.width) // 2 + 20
+    y = int(h * 0.45) - img.height // 2
+    base.alpha_composite(img, (max(0, x), max(SAFE_TOP, y)))
+    base.convert("RGB").save(out_png, "PNG")
+    if out_jpg:
+        base.convert("RGB").save(out_jpg, "JPEG", quality=88)
+    tmp.unlink(missing_ok=True)
+    return out_png
+
+
 def apply_text_hook(src: Path, text: str, out_dir: Path, name: str | None = None, seconds: float = 2.0,
-                    color: str = "white", accent: str = "#FF5A1F", style: str = "bar") -> Path:
-    """Account-Branding über den Hook-Text (unten, Zone 65–72 %), `seconds` Sekunden eingeblendet.
-    style='bar': Schrift in `color` mit schwarzer Kontur, Akzentbalken in `accent` darunter (A: weiß/orange).
-    style='box': Schrift in `color` auf Box in `accent` (B: gelb/lila). Ohne Text → Kopie."""
+                    color: str = "white", accent: str = "#FF5A1F", style: str | dict = "bar", accent_word: str | None = None,
+                    cover: bool = True) -> tuple[Path, Path | None]:
+    """Hook-Text (Zone 65–72 %, `seconds` s) + Cover-Frame als erster Frame (2 Frames, Blotato videoCoverTimestamp=0).
+    style: 'bar' (A: weiß, Akzentbalken) | 'box' (B: Text auf Box) | dict mit Tokens aus config/brand.yaml.
+    Rückgabe: (Video, Cover-JPEG oder None). Ohne Text → Kopie."""
     out_dir.mkdir(parents=True, exist_ok=True)
     out = out_dir / (name or src.name)
     if not text or not text.strip():
         shutil.copyfile(src, out)
-        return out
+        return out, None
     w, h = probe_size(src)
-    lines, size = hook_layout(text, w, h)
-    textfile = _textfile(lines)
-    en = f"enable='between(t,0,{seconds})'"
-    n = len(lines)
-    text_h = int(n * size * 1.15 + (n - 1) * LINE_SP)
-    center = (HOOK_TOP + HOOK_BOTTOM) / 2
-    y_text = f"h*{center}-{text_h // 2}"
-    col, acc = _hex_to_ffmpeg(color), _hex_to_ffmpeg(accent)
-    if style == "box":
-        pad = max(12, size // 4)
-        vf = (f"drawtext=fontfile={FONT}:textfile={textfile}:fontcolor={col}:fontsize={size}:line_spacing={LINE_SP}:"
-              f"box=1:boxcolor={acc}@0.92:boxborderw={pad}:x=(w-text_w)/2:y={y_text}:{en}")
+    if isinstance(style, dict):
+        st = dict(style)
+    elif style == "box":
+        st = {"font": "dejavu-bold", "color": color, "box_color": accent, "accent_mode": "box", "align": "center"}
     else:
-        bar_h = max(6, size // 8)
-        bar_y = f"ih*{center}+{text_h // 2 + 10}"      # drawbox: ih = Bildhöhe (h wäre die Boxhöhe)
-        vf = (f"drawtext=fontfile={FONT}:textfile={textfile}:fontcolor={col}:fontsize={size}:line_spacing={LINE_SP}:"
-              f"borderw=3:bordercolor=black@0.85:x=(w-text_w)/2:y={y_text}:{en},"
-              f"drawbox=x=iw*0.2:y={bar_y}:w=iw*0.6:h={bar_h}:color={acc}@0.95:t=fill:{en}")
-    _render(src, vf, out)
-    Path(textfile).unlink(missing_ok=True)
-    return out
+        st = {"font": "dejavu-bold", "color": color, "accent_color": accent, "accent_mode": "bar", "align": "center"}
+    png, x, y = hook_png(text, st, w, h, accent_word, out_dir / f"{out.stem}.hook.png")
+    en = f"enable='between(t,0,{seconds})'"
+    inputs = ["-i", str(src), "-i", str(png)]
+    fc = [f"[0:v][1:v]overlay=x={x}:y={y}:{en}[hv]"]
+    if st.get("accent_mode") == "bar" and st.get("accent_color"):
+        from PIL import Image
+        ph = Image.open(png).height
+        fc[0] = fc[0].replace("[hv]", "[h0]") + f";[h0]drawbox=x=iw*0.2:y={y + ph + 8}:w=iw*0.6:h=8:color={_hex_to_ffmpeg(st['accent_color'])}@0.95:t=fill:{en}[hv]"
+    cover_jpg = None
+    if cover:
+        cover_png = cover_frame(src, text, st, accent_word, out_dir / f"{out.stem}.cover.png", out_dir / f"{out.stem}.cover.jpg")
+        cover_jpg = out_dir / f"{out.stem}.cover.jpg"
+        inputs += ["-loop", "1", "-t", "0.067", "-i", str(cover_png)]
+        fc.append(f"[2:v]scale={w}:{h},format=yuv420p,setsar=1,fps=30[cv];[hv]fps=30,setsar=1,format=yuv420p[vv];[cv][vv]concat=n=2:v=1:a=0[v];[0:a]adelay=67|67[a]")
+        maps = ["-map", "[v]", "-map", "[a]"]
+    else:
+        fc.append("[hv]format=yuv420p[v]"); maps = ["-map", "[v]", "-map", "0:a"]
+    subprocess.run(["ffmpeg", "-y", *inputs, "-filter_complex", ";".join(fc), *maps, "-c:v", "libx264", "-crf", "19", "-preset", "medium",
+                    "-pix_fmt", "yuv420p", "-r", "30", "-g", "60", "-keyint_min", "60", "-sc_threshold", "0",
+                    "-c:a", "aac", "-b:a", "160k", "-ar", "48000", "-movflags", "+faststart", str(out)], check=True, capture_output=True)
+    return out, cover_jpg
 
 
 def frame(src: Path, out_path: Path, at: float = 1.0, width: int = 540) -> Path:

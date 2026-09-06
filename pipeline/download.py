@@ -68,12 +68,12 @@ def _ytdlp(url: str, dest: Path, fmt: str = "bv*[height<=1080][ext=mp4]+ba[ext=m
         for attempt, extra in enumerate(([], ["--extractor-args", "youtube:player_client=default,web_safari"]), 1):
             r = subprocess.run(cmd + extra, capture_output=True, text=True)
             if r.returncode == 0:
+                _save_cookies(ck, before)              # nur nach Erfolg zurückschreiben (rotierte Cookies sind dann gültig)
                 return
             last = (r.stderr or r.stdout)[-400:]
             print(f"[download] yt-dlp Versuch {attempt} fehlgeschlagen: {last}")
             time.sleep(20)
     finally:
-        _save_cookies(ck, before)
         if ck: ck.unlink(missing_ok=True)
     raise RuntimeError(f"yt-dlp: {last}" + (" (Cookies vorhanden, aber abgelaufen? → python scripts/yt_cookies.py <cookies.txt>)" if ck and last and "not a bot" in last else ""))
 
