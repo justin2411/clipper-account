@@ -132,8 +132,21 @@ export async function runFan(env: Env) {
   // hängende Jobs freigeben
   await db.run(env, "UPDATE videos SET status = 'new', note = 'job timeout', updated_at = ? WHERE status = 'queued' AND dispatched_at < ?",
     nowIso(), new Date(Date.now() - JOB_TIMEOUT_MIN * 60000).toISOString());
-  // 2) Backlog nachfüllen, wenn der Vorrat unter dem Soll liegt
+  // 2) Backlog nachfüllen, wenn der Vorrat unter dem Soll liegt – außer YouTube blockt den Download (Bot-Check):
+  //    dann keine weiteren Jobs starten (Actions-Minuten), bis wieder ein Download geklappt hat (Cookies/YT_COOKIES_B64)
   stats.stock = await fanStock(env);
+  const since = new Date(Date.now() - 6 * 3600000).toISOString();
+  const bot = await db.first<{ n: number }>(env, "SELECT COUNT(*) AS n FROM videos WHERE status = 'error' AND note = 'bot check' AND updated_at >= ?", since);
+  const okSince = await db.first<{ n: number }>(env, "SELECT COUNT(*) AS n FROM videos WHERE status = 'clipped' AND updated_at >= ?", since);
+  if ((bot?.n ?? 0) >= 2 && !(okSince?.n ?? 0)) {
+    (stats as any).blocked = "youtube bot check";
+    const warned = await db.first(env, "SELECT id FROM events WHERE event LIKE 'fan blocked%' AND at >= ? LIMIT 1", new Date(Date.now() - 24 * 3600000).toISOString());
+    if (!warned) {
+      await logEvent(env, `fan blocked: youtube bot check (${bot?.n} Fehler in 6 h) – Backlog-Jobs pausiert bis YT_COOKIES_B64 gesetzt ist`);
+      await telegram(env, `⛔ Fan-Content pausiert: YouTube blockt den Download in GitHub Actions („Sign in to confirm you're not a bot“).\nLösung: GitHub-Secret YT_COOKIES_B64 setzen (Anleitung NEXT_STEPS.md). Danach: python scripts/run_fn.py fan`);
+    }
+    return stats;
+  }
   const deficit = Math.max(...Object.values(stats.stock as Record<string, { deficit: number }>).map((s) => s.deficit), 0);
   const inflight = await db.first<{ n: number }>(env, "SELECT COUNT(*) AS n FROM videos WHERE status = 'queued'");
   const perJob = 3;                                            // ≈3 Clips je Account und Video
