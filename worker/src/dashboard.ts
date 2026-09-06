@@ -98,8 +98,9 @@ export async function buildDashboard(env: Env, ws = "default") {
   for (const [id, a] of Object.entries(cfg)) {
     const st = state.find((s) => s.account === id);
     const ps = posts.filter((p) => p.account === id && p.status === "posted" && p.views != null);
-    const avg = ps.length ? Math.round(ps.reduce((x, p) => x + p.views, 0) / ps.length) : 0;
     const t = todayStat.find((x) => x.account === id), w = weekAgoStat.find((x) => x.account === id);
+    const withMetrics = ps.some((p) => Number(p.views) > 0) || Number(t?.views_7d ?? 0) > 0;   // Blotato liefert erst Zahlen, wenn es sie abgeholt hat
+    const avg = ps.length ? Math.round(ps.reduce((x, p) => x + p.views, 0) / ps.length) : 0;
     const earned30 = Math.round(posts.filter((p) => p.account === id && p.status === "posted" && p.posted_at >= new Date(now.getTime() - 30 * 86400000).toISOString()).reduce((x, p) => x + earnedOf(p), 0));
     const handle = String(a.handle ?? "");
     const niche = a.niche ?? nichesCfg.find((n) => n.accounts.includes(id))?.key ?? "";
@@ -108,7 +109,8 @@ export async function buildDashboard(env: Env, ws = "default") {
     const followers = live?.followers ?? t?.followers ?? 0;
     accounts.push({ id, handle, niche, platform: "tiktok", url: handle ? `https://www.tiktok.com/${handle.startsWith("@") ? handle : "@" + handle}` : "",
       followers, followers_7d: Math.max(0, followers - (w?.followers ?? followers)), likes_total: live?.likes_total ?? t?.likes_total ?? 0, videos: live?.videos ?? t?.videos ?? null,
-      views_7d: t?.views_7d ?? 0, views_30d: t?.views_30d ?? 0, earnings_30d: earned30, avg_views: avg, posts_7d: t?.posts_7d ?? 0,
+      views_7d: withMetrics ? (t?.views_7d ?? 0) : null, views_30d: withMetrics ? (t?.views_30d ?? 0) : null, earnings_30d: earned30, avg_views: withMetrics ? avg : null, posts_7d: t?.posts_7d ?? 0,
+      metrics: withMetrics ? "ok" : "pending",                                        // pending = Blotato hat noch nie Views geliefert
       paused: !!st?.paused, reason: st?.reason ?? null, niche_label: NICHE[a.niche ?? a.style ?? ""] ?? (a.niche ?? a.style ?? ""), live: !!live, health });
   }
   const niches = nichesCfg.map((n) => ({ key: n.key, label: n.label, color: n.color, accounts: n.accounts }));
