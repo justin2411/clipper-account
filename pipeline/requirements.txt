@@ -2,3 +2,4 @@ pyyaml
 requests
 gdown
 yt-dlp
+yt-dlp-ejs
