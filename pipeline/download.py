@@ -25,6 +25,23 @@ def _direct(url: str, dest: Path):
                 fh.write(chunk)
 
 
+YT_FORMAT = "bv*[vcodec^=avc1][height<=1080]+ba[ext=m4a]/bv*[vcodec^=avc1]+ba/bv*[height<=1080][ext=mp4]+ba/b[height<=1080]/b"
+
+
+def _ensure_h264(dest: Path) -> None:
+    """Quellen, die der Clipper nicht dekodieren kann (AV1/HEVC/VP9), nach H.264 transcodieren."""
+    for p in _videos(dest):
+        r = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=codec_name", "-of", "csv=p=0", str(p)],
+                           capture_output=True, text=True)
+        codec = r.stdout.strip()
+        if codec and codec != "h264":
+            print(f"[download] {p.name}: {codec} → H.264 transcodieren")
+            tmp = p.with_name(p.stem + ".h264.mp4")
+            subprocess.run(["ffmpeg", "-y", "-i", str(p), "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p",
+                            "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", str(tmp)], check=True, capture_output=True)
+            p.unlink(); tmp.rename(p)
+
+
 def _ytdlp(url: str, dest: Path, fmt: str = YT_FORMAT) -> None:
     """Nur noch für explizite yt-dlp-URLs (type=url ohne Dateiendung). YouTube-Fan-Footage kommt per Dashboard-Upload (R2)."""
     r = subprocess.run(["yt-dlp", "-f", fmt, "--merge-output-format", "mp4", "--no-playlist", "-o", str(dest / "%(id)s.%(ext)s"), url], capture_output=True, text=True)
