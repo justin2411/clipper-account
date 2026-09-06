@@ -23,7 +23,7 @@
 //   GET  /submissions/pending         offene Posts [{post_id, campaign_id, campaign_url, post_url, account, account_handle}]
 //   POST /submissions/mark            {post_id, status: submitted|failed, note}
 //   POST /notify                      {text} → Telegram
-import { Env, Row, db, json, keyMatches, logEvent, mediaUrl, nichesOf, nowIso, publishMode, toCampaign } from "./shared";
+import { Env, Row, db, json, keyMatches, logEvent, mediaUrl, nichesOf, nowIso, publishMode, tiktokProfile, tiktokVideo, toCampaign } from "./shared";
 import { runScout, dispatchClipJob } from "./scout";
 import { runPublisher, publishClipNow, publishCampaignSpaced, plannedPosts, releaseShadow } from "./publisher";
 import { runTracker } from "./tracker";
@@ -410,6 +410,10 @@ export async function handleRequest(req: Request, env: Env, ctx: ExecutionContex
       if (status === 204) await logEvent(env, `clip_job_dispatched account=${rest[2]} (manual)`, rest[1]);
       return json({ campaign: rest[1], account: rest[2], github_status: status, ok: status === 204 }, status === 204 ? 200 : 502);
     }
+
+    // TikTok-Zahlen live (Test/Debug): GET /api/tiktok/profile/:handle | GET /api/tiktok/video?url=
+    if (rest[0] === "tiktok" && rest[1] === "profile" && rest[2] && req.method === "GET") return json({ handle: rest[2], stats: await tiktokProfile(rest[2]) });
+    if (rest[0] === "tiktok" && rest[1] === "video" && req.method === "GET") return json({ url: url.searchParams.get("url"), stats: await tiktokVideo(url.searchParams.get("url") ?? "") });
 
     // blotato accounts
     if (rest[0] === "blotato" && rest[1] === "accounts" && req.method === "GET") {
