@@ -7,6 +7,7 @@
 // Modi (PUBLISH_MODE): live → Blotato-Schedule; shadow → nur Datenbank (posts.status='shadow'), nichts geht raus;
 // draft → sofort als TikTok-Entwurf (Sichtprüfung). Konzept angelehnt an clippyme SmartScheduler.
 import { BLOTATO, Env, PublishMode, blotatoHeaders, db, logEvent, publishMode, toCampaign } from "./shared";
+import { effectiveSettings } from "./settings";
 
 interface AccountCfg { slots: string[]; blotato: Record<string, string>; handle?: string; niche?: string; style?: string }
 export const accountsOf = (env: Env): Record<string, AccountCfg> => {
@@ -152,14 +153,22 @@ export async function runPublisher(env: Env) {
   for (const [acc, cfg] of Object.entries(accounts)) {
     if (paused.has(acc)) { stats.skipped.push(`${acc}: pausiert`); continue; }
     const rules = await accountRules(env, acc, now);
-    const free = planSlots(acc, cfg.slots ?? [], rules.maxPerDay, ctx.occ, GAP, rules.minGapMin, now);
+    const eff = await effectiveSettings(env, acc);                                        // Feinjustierung: Slots, Posts/Tag, Abstand, Fan-Anteil, Schatten
+    const es = eff.settings;
+    const slots = (es.slots?.length ? es.slots : cfg.slots) ?? [];
+    const maxPerDay = rules.rulesUntil ? rules.maxPerDay : Math.min(rules.maxPerDay, Number(es.posts_per_day || rules.maxPerDay));
+    const free = planSlots(acc, slots, maxPerDay, ctx.occ, Math.max(GAP, Number(es.min_gap_min || 0)), rules.minGapMin, now);
+    const fanQuota = Math.round((Number(es.fan_ratio ?? 60) / 100) * maxPerDay);            // Fan-Anteil je Tag; paid ersetzt Fan-Slots (PAID_SLOTS_PER_DAY)
+    ctx.paidPerDay = Math.max(paidPerDay, maxPerDay - fanQuota);
     for (const slot of free) {
       const c = await pickClip(env, acc, slot, ctx);
       if (!c) { stats.skipped.push(`${acc} ${slot.slice(5, 16)}: kein Clip`); continue; }
       const camp = toCampaign((await db.first(env, "SELECT * FROM campaigns WHERE id = ?", c.campaign_id))!);
-      const mode = modes[(c.kind === "fan" ? "fan" : "paid") as "paid" | "fan"];      // paid und Fan können getrennt live/shadow laufen
+      let mode = modes[(c.kind === "fan" ? "fan" : "paid") as "paid" | "fan"];      // paid und Fan können getrennt live/shadow laufen
+      if (c.kind === "fan" && eff.shadow) mode = "shadow";                           // Dashboard: global.shadow hält Fan-Clips im Schatten
       let anyOk = false, k = 0;
-      for (const platform of camp.platforms.length ? camp.platforms : ["tiktok"]) {
+      const platforms = (camp.platforms.length ? camp.platforms : ["tiktok"]).filter((p) => !es.platforms?.length || es.platforms.includes(p));
+      for (const platform of platforms.length ? platforms : ["tiktok"]) {
         const when = new Date(new Date(slot).getTime() + k++ * Number(env.PLATFORM_GAP_MIN || 30) * 60000).toISOString();
         if (mode === "shadow") { await record(env, mode, c, platform, null, when, null); anyOk = true; stats.shadow++; continue; }
         const accountId = cfg.blotato?.[platform];

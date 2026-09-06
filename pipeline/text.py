@@ -5,12 +5,27 @@ from PIL import Image, ImageDraw, ImageFont
 
 ROOT = Path(__file__).resolve().parent.parent
 FONTS = {"anton": ROOT / "assets/fonts/Anton-Regular.ttf", "bangers": ROOT / "assets/fonts/Bangers-Regular.ttf",
+         "bebas-neue": ROOT / "assets/fonts/BebasNeue-Regular.ttf", "luckiest-guy": ROOT / "assets/fonts/LuckiestGuy-Regular.ttf",
+         "montserrat": ROOT / "assets/fonts/Montserrat-Variable.ttf",
          "dejavu-bold": Path("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf")}
 
 
 def font_path(name: str) -> str:
     p = FONTS.get((name or "dejavu-bold").lower(), Path(name))
     return str(p if p.exists() else FONTS["dejavu-bold"])
+
+
+def load_font(name: str, size: int) -> ImageFont.FreeTypeFont:
+    """Font laden; variable Fonts (Montserrat) auf ExtraBold stellen."""
+    f = ImageFont.truetype(font_path(name), size)
+    try:
+        names = [n.decode() if isinstance(n, bytes) else n for n in f.get_variation_names()]
+        for want in ("ExtraBold", "Black", "Bold"):
+            if want in names:
+                f.set_variation_by_name(want); break
+    except Exception:
+        pass
+    return f
 
 
 def _wrap_balanced(words: list[str], font: ImageFont.FreeTypeFont, max_w: int, max_lines: int) -> list[str] | None:
@@ -39,9 +54,8 @@ def render(text: str, max_width: int, max_height: int, font: str = "dejavu-bold"
     words = [w for w in (text or "").split() if w]
     if not words:
         return Image.new("RGBA", (1, 1), (0, 0, 0, 0))
-    fp = font_path(font)
     for size in range(size_max, size_min - 1, -2):
-        f = ImageFont.truetype(fp, size)
+        f = load_font(font, size)
         lines = _wrap_balanced(words, f, max_width - 2 * box_pad - 2 * outline_px, max_lines)
         if not lines:
             continue
@@ -50,7 +64,7 @@ def render(text: str, max_width: int, max_height: int, font: str = "dejavu-bold"
         if total_h <= max_height:
             break
     else:   # Mindestgröße: Wörter abschneiden, bis es passt
-        f = ImageFont.truetype(fp, size_min)
+        f = load_font(font, size_min)
         while words and not (lines := _wrap_balanced(words, f, max_width - 2 * box_pad - 2 * outline_px, max_lines)):
             words = words[:-1]
         if not words:

@@ -3,6 +3,7 @@
 // Absender-Domain → Plattform-Adapter. Nach der ersten echten Vyro-Mail hier UND in platforms/vyro.py kalibrieren.
 import { Env, db, logEvent, telegram, toCampaign } from "./shared";
 import { runFan } from "./fan";
+import { syncTasks } from "./tasks";
 
 const SENDERS: Record<string, string> = { "vyro.com": "vyro", "whop.com": "whop" };
 const NEW_CAMPAIGN = /new campaign|campaign.*(live|dropped|open)/;
@@ -102,7 +103,8 @@ export async function runScout(env: Env) {
       await logEvent(env, "clip_jobs_dispatched", c.id);
     }
   }
-  // Fan-Content: YouTube-RSS (alle 30 min) + Backlog-Nachschub (Vorrat STOCK_DAYS Tage)
-  try { stats.fan = await runFan(env); } catch (e: any) { stats.fan = { error: String(e?.message ?? e).slice(0, 120) }; await logEvent(env, `fan error ${String(e?.message ?? e).slice(0, 120)}`); }
+  // Fan-Content: YouTube-RSS (alle 30 min), liegengebliebene Uploads, Vorrats-Hinweis; danach Aufgaben synchronisieren
+  try { stats.fan = await runFan(env, env.PUBLIC_ORIGIN ?? ""); } catch (e: any) { stats.fan = { error: String(e?.message ?? e).slice(0, 120) }; await logEvent(env, `fan error ${String(e?.message ?? e).slice(0, 120)}`); }
+  try { await syncTasks(env); } catch (e: any) { await logEvent(env, `tasks error ${String(e?.message ?? e).slice(0, 100)}`); }
   return stats;
 }

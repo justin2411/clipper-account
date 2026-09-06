@@ -113,15 +113,48 @@ def snap_to_words(start: float, end: float, words: list[dict], pre: float = 0.12
     return max(0.0, round(ws - pre, 3)), round(we + post, 3)
 
 
+SETTINGS: dict = {}          # select/cut aus der Feinjustierung (pipeline/main.py setzt sie), Feedback-Hinweise (Few-Shot)
+HINTS: dict = {}
+
+
+def weighted_total(scores: dict, weights: dict | None) -> float:
+    w = weights or {}
+    alias = {"context": "standalone"}
+    tot = 0.0
+    for k in CRITERIA:
+        wk = w.get(k, w.get({v: kk for kk, v in alias.items()}.get(k, k), 1))
+        tot += float(scores.get(k, 0)) * float(wk if wk is not None else 1)
+    return round(tot, 2)
+
+
+def few_shot_block() -> str:
+    """Feedback aus dem Review (Tags/Text) als Zusatzanweisung: was zuletzt abgelehnt oder neu gerendert wurde."""
+    parts = []
+    fb = os.environ.get("FEEDBACK", "").strip()
+    if fb:
+        parts.append(f"Editor feedback for THIS re-render (must be applied): {fb}")
+    tags = [t["tag"] for t in (HINTS.get("tags") or [])[:6]]
+    if tags:
+        parts.append("Recurring editor complaints on earlier clips (avoid them): " + ", ".join(tags))
+    ex = [e for e in (HINTS.get("examples") or []) if e.get("action") in ("reject", "redo")][:4]
+    for e in ex:
+        parts.append(f"- Rejected: \"{e.get('context_line') or ''}\" – {', '.join(e.get('tags') or [])} {e.get('text') or ''}".strip())
+    return ("\n\nEDITOR FEEDBACK:\n" + "\n".join(parts)) if parts else ""
+
+
 def analyze(transcript: str, cfg, out_dir: Path | None = None, top_n: int | None = None) -> list[dict]:
     """Drop-in für engine.analyze_with_ai: → Liste im Vendor-Format (rank, start_time, end_time, hook, …) + unsere Felder."""
     from google import genai
     from google.genai import types
-    n = int(top_n or getattr(cfg, "jumlah_clip", 8) or 8)
+    global MIN_S, MAX_S
+    sel, cut = SETTINGS.get("select") or {}, SETTINGS.get("cut") or {}
+    MIN_S, MAX_S = float(cut.get("min_s", MIN_S)), float(cut.get("max_s", MAX_S))
+    n = int(top_n or sel.get("render_top") or getattr(cfg, "jumlah_clip", 8) or 8)
+    cands_n = int(sel.get("candidates") or CANDIDATES)
     lines = _parse_transcript_lines(transcript)
     video_dur = max((e for _, e, _ in lines), default=None)
     client = genai.Client(api_key=getattr(cfg, "api_key_gemini", None) or os.environ.get("GOOGLE_API_KEY"))
-    prompt = PROMPT.format(transcript=transcript[:180000], n=CANDIDATES, min_s=int(MIN_S), max_s=int(MAX_S))
+    prompt = PROMPT.format(transcript=transcript[:180000], n=cands_n, min_s=int(MIN_S), max_s=int(MAX_S)) + few_shot_block()
     cands: list[dict] = []
     for attempt in range(2):
         r = client.models.generate_content(model=MODEL, contents=prompt,
@@ -133,9 +166,13 @@ def analyze(transcript: str, cfg, out_dir: Path | None = None, top_n: int | None
         cands = _clean_candidates(data.get("candidates") if isinstance(data, dict) else data, video_dur)
         if len(cands) >= max(3, n):
             break
-    words = load_words(out_dir)
+    words = load_words(out_dir) if cut.get("word_boundary", True) else []
     for c in cands:
-        c["start"], c["end"] = snap_to_words(c["start"], c["end"], words)
+        c["start"], c["end"] = snap_to_words(c["start"], c["end"], words, pre=float(cut.get("pad_start_ms", 120)) / 1000, post=float(cut.get("pad_end_ms", 250)) / 1000)
+        c["total"] = weighted_total(c["scores"], sel.get("weights"))
+    min_score = float(sel.get("min_score") or 0)
+    scale = (sum(float(v) for v in (sel.get("weights") or {}).values()) or 12) / 12   # min_score bezieht sich auf 0–12-Skala
+    cands = [c for c in cands if c["total"] >= min_score * scale] or cands[:max(3, n)]
     kept = dedupe(cands)[:n]
     items = []
     for i, c in enumerate(kept, 1):
