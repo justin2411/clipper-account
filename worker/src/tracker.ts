@@ -8,7 +8,7 @@ const DROP = 0.2;
 const STOP_WORDS = ["spam", "automation", "bot", "inauthentic"];
 
 export async function runTracker(env: Env) {
-  const stats = { checked: 0, posted: 0, failed: 0, archived: 0, paused: [] as string[] };
+  const stats = { checked: 0, posted: 0, failed: 0, archived: 0, paused: [] as string[], reconciled: null as unknown };
   if (env.BLOTATO_API_KEY) {
     const open = await db.all<any>(env, "SELECT * FROM posts WHERE status IN ('scheduled','posted') AND blotato_submission_id IS NOT NULL AND (post_url IS NULL OR views_7d IS NULL)");
     for (const p of open) {
@@ -79,18 +79,18 @@ export async function runTracker(env: Env) {
   for (const [acc, a] of Object.entries(accountsOf(env))) {
     const prof = a.handle ? await tiktokProfile(a.handle) : null;                 // Follower / Likes gesamt / Videos (TikTok-Profilseite)
     const agg = await db.first<any>(env,
-      `SELECT SUM(CASE WHEN p.posted_at >= ? THEN COALESCE(p.views, 0) ELSE 0 END) AS v7,
-              SUM(CASE WHEN p.posted_at >= ? THEN COALESCE(p.views, 0) ELSE 0 END) AS v30,
-              SUM(CASE WHEN p.posted_at >= ? THEN COALESCE(p.likes, 0) ELSE 0 END) AS l30,
+      `SELECT SUM(CASE WHEN p.posted_at >= ? THEN p.views END) AS v7,
+              SUM(CASE WHEN p.posted_at >= ? THEN p.views END) AS v30,
+              SUM(CASE WHEN p.posted_at >= ? THEN p.likes END) AS l30,
               SUM(CASE WHEN p.posted_at >= ? THEN 1 ELSE 0 END) AS n7
-       FROM posts p JOIN clips c ON c.id = p.clip_id WHERE c.account = ? AND p.status = 'posted'`,
+       FROM posts p JOIN clips c ON c.id = p.clip_id WHERE c.account = ? AND p.status = 'posted'`,   // SUM über NULL bleibt NULL: keine erfundene 0
       new Date(Date.now() - 7 * 86400000).toISOString(), new Date(Date.now() - 30 * 86400000).toISOString(),
       new Date(Date.now() - 30 * 86400000).toISOString(), new Date(Date.now() - 7 * 86400000).toISOString(), acc);
     await db.run(env,
       `INSERT INTO account_stats (account, day, views_7d, views_30d, likes_30d, posts_7d, followers, likes_total, videos) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(account, day) DO UPDATE SET views_7d = excluded.views_7d, views_30d = excluded.views_30d, likes_30d = excluded.likes_30d, posts_7d = excluded.posts_7d,
          followers = COALESCE(excluded.followers, account_stats.followers), likes_total = COALESCE(excluded.likes_total, account_stats.likes_total), videos = COALESCE(excluded.videos, account_stats.videos)`,
-      acc, today, agg?.v7 ?? 0, agg?.v30 ?? 0, agg?.l30 ?? 0, agg?.n7 ?? 0, prof?.followers ?? null, prof?.likes_total ?? null, prof?.videos ?? null);
+      acc, today, agg?.v7 ?? null, agg?.v30 ?? null, agg?.l30 ?? null, agg?.n7 ?? 0, prof?.followers ?? null, prof?.likes_total ?? null, prof?.videos ?? null);   // null = noch keine Zahlen von Blotato, nicht 0
   }
 
   // Kill-Switch pro Account
@@ -134,5 +134,11 @@ export async function runTracker(env: Env) {
     await db.run(env, "UPDATE clips SET status = 'archived' WHERE id = ?", c.id);
     stats.archived++;
   }
+  try {                                                    // Abgleich: veröffentlichte Blotato-Posts, die in D1 fehlen, nachtragen
+    const { reconcilePosts } = await import("./reconcile");
+    const rec = await reconcilePosts(env, 14);
+    stats.reconciled = { linked: rec.linked, attached: rec.attached, created: rec.created, ohne_video: rec.skipped_no_video };
+  } catch (e: any) { console.log("[tracker] reconcile", e?.message ?? e); }
+
   return stats;
 }

@@ -79,6 +79,8 @@
   inbox (Nachtrag 2): { items:[{id, kind, title, text, photo_url, sent_telegram, read, done, created_at, explain}], counts:{unread, open, total, <kind>…}, kinds:{key:label}, rules:{<kind>:{telegram, push}}, next_before }
               -> GET /inbox?filter=unread|open|done|all&kind=&before= · POST /inbox/{id|all}/{read|done|unread|reopen} · GET/PUT /inbox/rules. Jede Telegram-Nachricht (Text/Foto) wird gespiegelt;
               Regel telegram=false unterdrückt den Versand (Eintrag bleibt). „Erklären" → #chat:<Erkläre: Titel>. Push folgt mit der PWA (Nachtrag 8).
+  accounts[].metrics: "ok" | "pending" – pending heißt, Blotato hat für diesen Account noch nie Views abgerufen; views_7d/views_30d/avg_views sind dann null und werden als „–" gezeigt, nicht als 0.
+  POST /reconcile?days=14 gleicht veröffentlichte Blotato-Posts mit D1 ab (GET = Vorschau): fehlende URLs nachtragen, unbekannte Posts als Kampagne „extern" anlegen. Läuft auch im Tracker mit.
   accounts[].health (Nachtrag 1): { color:"green|yellow|red|grey", headline, reasons:[..], question:"Warum ist A rot?",
               metrics:{posts_with_views, avg_last10, avg_prev10, trend_pct, under_200_pct, engagement_pct, days_since_post, paused, pause_reason, kill_switches_30d}, history:[{at,text}] }
               Ampel in Rangliste/Nischen-Karten (Tiefe 1), Kennzahlen per Klick (Tiefe 2), Kill-Switch-Historie (Tiefe 3); rot/gelb → Deep-Link #chat:<Frage>
@@ -109,6 +111,7 @@ nav{background:var(--panel);border-right:1px solid var(--line);padding:18px 14px
 .nl:hover{background:var(--panel2)}.nl.on{background:var(--panel2);color:var(--ink)}
 .nl .sw{width:10px;height:10px;border-radius:50%;flex:none}
 .nl small{margin-left:auto;font-weight:500;color:var(--ink3);font-size:12px}
+.navcur,.burger{display:none}
 .nh{font-size:11px;color:var(--ink3);font-weight:700;letter-spacing:.06em;text-transform:uppercase;margin:16px 10px 6px}
 main{padding:22px 26px 60px;max-width:1280px}
 .top{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:18px}
@@ -296,7 +299,33 @@ td.r,th.r{text-align:right;font-variant-numeric:tabular-nums}
 .empty{color:var(--ink3);font-size:13px;padding:6px 0}
 .gate{max-width:420px;margin:60px auto;background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:24px}.gate input{width:100%;font:inherit;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink);margin:6px 0 10px}.gate button{width:100%;font:inherit;font-weight:800;padding:11px;border-radius:10px;border:0;background:var(--flame);color:#fff;cursor:pointer}
 .banner{font-size:12px;color:var(--ink3);margin:-8px 0 12px}
-@media (max-width:860px){.app{grid-template-columns:1fr}nav{position:static;height:auto;border-right:0;border-bottom:1px solid var(--line);display:flex;gap:6px;flex-wrap:wrap;padding:12px}.nh,.brand{display:none}.nl small{display:none}main{padding:14px}.g2,.g4{grid-template-columns:1fr 1fr}.flow{grid-template-columns:1fr 1fr}.stage:after{content:""}.steps{grid-template-columns:repeat(4,1fr)}}
+@media (max-width:860px){.app{grid-template-columns:1fr}
+ nav{position:sticky;top:0;z-index:50;height:auto;border-right:0;border-bottom:1px solid var(--line);padding:0;background:var(--panel)}
+ .navbar{display:flex;align-items:center;gap:10px;padding:12px 14px}
+ .brand{display:flex;margin:0;font-size:17px}
+ .burger{margin-left:auto;display:flex;flex-direction:column;justify-content:center;gap:4px;width:38px;height:38px;border-radius:10px;border:1px solid var(--line);background:transparent;cursor:pointer;padding:0 9px}
+ .burger i{display:block;height:2px;background:var(--ink);border-radius:2px;transition:.25s}
+ .burger.on i:nth-child(1){transform:translateY(6px) rotate(45deg)}
+ .burger.on i:nth-child(2){opacity:0}
+ .burger.on i:nth-child(3){transform:translateY(-6px) rotate(-45deg)}
+ .navcur{font-size:13px;font-weight:700;color:var(--ink2)}
+ .navlist{display:none;flex-direction:column;padding:4px 10px 12px;border-top:1px solid var(--line);max-height:70vh;overflow:auto}
+ .navlist.open{display:flex;animation:navdrop .25s ease both}
+ @keyframes navdrop{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
+ .navlist .nl{padding:12px 10px;font-size:15px}
+ .nh{display:block;margin:12px 10px 4px}
+ .nl small{display:inline;margin-left:auto}
+ main{padding:14px;min-width:0;overflow-x:hidden}
+ .top{flex-wrap:wrap;gap:6px}.top h1{font-size:20px}.top .meta{font-size:12px;flex-wrap:wrap}
+ .tk{grid-template-columns:auto 1fr;gap:8px}.tk .done{grid-column:2;justify-self:start;margin-top:6px}
+ .tk .urls{font-size:11px;white-space:pre-wrap;word-break:break-all}
+ .kpi b{font-size:22px}.kpi span{font-size:11px}
+ .app,nav,section,.grid,.cards,.sub,.set,.simple,.fc-wrap,.how{min-width:0}
+ section{overflow-x:hidden}
+ table{display:block;width:100%;overflow-x:auto;white-space:nowrap}
+ .flow,.steps,.wires{overflow-x:auto}
+ .posts{grid-template-columns:repeat(auto-fill,minmax(100px,1fr))}
+ img,video,svg{max-width:100%}.g2,.g4{grid-template-columns:1fr 1fr}.flow{grid-template-columns:1fr 1fr}.stage:after{content:""}.steps{grid-template-columns:repeat(4,1fr)}}
 /* mobil: keine horizontale Scrollleiste – Grid-Kinder dürfen schrumpfen, lange Links umbrechen */
 button.b.on{background:var(--flame);color:#fff;border-color:var(--flame)}
 .kpi .dl{font-size:12px;font-weight:700;margin-top:2px}.kpi .dl.up{color:var(--ok)}.kpi .dl.dn{color:var(--bad)}.kpi .dl.eq{color:var(--ink3)}
@@ -365,7 +394,7 @@ details.more{border:1px solid var(--line);border-radius:var(--r);background:var(
 .inst button{font:inherit;font-weight:700;font-size:13px;padding:6px 12px;border-radius:999px;border:0;background:var(--flame);color:#fff;cursor:pointer;margin-left:auto}
 main{min-width:0;overflow-x:hidden}section,.kpi,.tk,.card,.rv{min-width:0}
 .urls{white-space:pre-wrap;word-break:break-all}
-@media (max-width:480px){.g2,.g4,.flow,.cards{grid-template-columns:1fr}.steps{grid-template-columns:repeat(2,1fr)}table{display:block;overflow-x:auto}}
+@media (max-width:480px){.g2,.g4,.flow,.cards{grid-template-columns:1fr}.steps{grid-template-columns:repeat(2,1fr)}}
 </style>
 </head>
 <body><div class="app"><nav id="nav"></nav><main id="main"></main></div>
@@ -443,6 +472,7 @@ const DEMO={month:"2026-09",currency:"USD",eur_rate:0.92,goal_monthly:2000,
   {id:"t4",kind:"review",title:"Account C wieder freigeben",detail:"Kill-Switch: Views-Einbruch vor 3 h · prüfen, dann freigeben",niche:"gaming",account:"C",created:iso(180),auto_check:false}]};
 
 const $=s=>document.querySelector(s);
+const nv=v=>v==null?`<span title="Blotato hat für diesen Account noch keine Views geliefert" style="color:var(--ink3)">–</span>`:k(v);
 const fmt=n=>Math.round(n||0).toLocaleString("de-DE"), k=n=>n>=1e6?(n/1e6).toFixed(1)+"M":n>=1000?Math.round(n/1000)+"k":fmt(n), money=(n,c="$")=>fmt(n)+" "+c;
 const ago=i=>{const m=Math.max(0,Math.round((Date.now()-new Date(i))/60000));return m<60?`vor ${m} min`:m<1440?`vor ${Math.floor(m/60)} h`:`vor ${Math.floor(m/1440)} d`};
 const tm=i=>new Date(i).toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"});
@@ -461,8 +491,9 @@ const route=()=>location.hash.replace("#","")||"home";
 const nicheOf=(d,key)=>(d.niches||[]).find(n=>n.key===key);
 const av=(a,d)=>`<span class="av" style="background:${nicheOf(d,a.niche)?.color||"#555"}">${a.id}</span>`;
 
-function nav(d){const r=route();
-  $("#nav").innerHTML=`<div class="brand"><i></i>ClipForge</div>
+const PAGE_TITLES={home:"Übersicht",pipeline:"Pipeline",review:"Clip-Vorschau",settings:"Feinjustierung",tasks:"Aufgaben",report:"Wochenbericht",library:"Clip-Bibliothek",payouts:"Auszahlungen",calendar:"Kalender",chat:"Chat",inbox:"Posteingang",log:"Ereignis-Log",start:"Erste Schritte",how:"So funktioniert es",forecast:"Hochrechnung"};
+function nav(d){const r=route();const cur=r.startsWith("n:")?(nicheOf(d,r.slice(2))?.label||"Nische"):r.startsWith("chat")?"Chat":(PAGE_TITLES[r]||"ClipForge");
+  $("#nav").innerHTML=`<div class="navbar"><div class="brand"><i></i>ClipForge</div><span class="navcur">${cur}</span><button class="burger" id="burger" aria-label="Menü"><i></i><i></i><i></i></button></div><div class="navlist" id="navlist">
   <a class="nl ${r==="home"?"on":""}" href="#home">Übersicht<small>${d.accounts.length} Accounts</small></a>
   <a class="nl ${r==="pipeline"?"on":""}" href="#pipeline">Pipeline<small>${d.pipeline?.jobs?.length||0} aktiv</small></a>
   <div class="nh">Nischen</div>
@@ -481,7 +512,10 @@ function nav(d){const r=route();
   <a class="nl ${r==="inbox"?"on":""}" href="#inbox">Posteingang<small>${d.inbox?.counts?.unread?`${d.inbox.counts.unread} neu`:""}</small></a>
   <a class="nl ${r==="log"?"on":""}" href="#log">Ereignis-Log<small>${d.log?.counts?.error?`${d.log.counts.error} Fehler`:""}</small></a>
   <a class="nl ${r==="how"?"on":""}" href="#how">So funktioniert es</a>
-  <a class="nl ${r==="forecast"?"on":""}" href="#forecast">Hochrechnung</a>`;}
+  <a class="nl ${r==="forecast"?"on":""}" href="#forecast">Hochrechnung</a></div>`;
+  const bg=$("#burger"),nlst=$("#navlist");
+  if(bg)bg.onclick=()=>{bg.classList.toggle("on");nlst.classList.toggle("open")};
+  nlst.querySelectorAll(".nl").forEach(a=>a.onclick=()=>{if(bg){bg.classList.remove("on");nlst.classList.remove("open")}});}
 
 function leaderboard(d,filterNiche){
   const acc=d.accounts.filter(a=>!filterNiche||a.niche===filterNiche).slice().sort((a,b)=>(b[sortKey]||0)-(a[sortKey]||0));
@@ -489,7 +523,7 @@ function leaderboard(d,filterNiche){
   return `<table><thead><tr><th>#</th><th>Account</th>${th("followers","Follower")}${th("followers_7d","+7d")}${th("views_7d","Views 7d")}${th("views_30d","Views 30d")}${th("avg_views","Ø/Clip")}${th("earnings_30d","Einnahmen 30d")}<th>Status</th></tr></thead><tbody>
   ${acc.map((a,i)=>`<tr><td><span class="rank ${["g","s","b"][i]||""}">${i+1}</span></td>
    <td><div class="acct">${av(a,d)}<div><div class="h"><a href="${a.url}" target="_blank" rel="noopener">${a.handle}</a></div><div class="n">${nicheOf(d,a.niche)?.label||a.niche} · ${a.platform||"tiktok"}</div></div></div></td>
-   <td class="r">${k(a.followers)}</td><td class="r" style="color:var(--ok)">+${k(a.followers_7d||0)}</td><td class="r">${k(a.views_7d)}</td><td class="r">${k(a.views_30d)}</td><td class="r">${k(a.avg_views)}</td><td class="r"><b>${money(a.earnings_30d)}</b></td>
+   <td class="r">${k(a.followers)}</td><td class="r" style="color:var(--ok)">+${k(a.followers_7d||0)}</td><td class="r">${nv(a.views_7d)}</td><td class="r">${nv(a.views_30d)}</td><td class="r">${nv(a.avg_views)}</td><td class="r"><b>${money(a.earnings_30d)}</b></td>
    <td>${healthPill(a)}</td></tr>`).join("")}</tbody></table>`;}
 // Ampel (Nachtrag 1): Tiefe 1 = Farbe + Wort; Klick → Nischen-Seite (Details); rot/gelb → Chat-Frage
 function healthPill(a){const h=a.health;if(!h)return a.paused?`<span class="pill warn">pausiert</span>`:`<span class="pill ok">aktiv</span>`;
@@ -519,7 +553,7 @@ function page(d){const r=route(); nav(d);
   const banner=DEMO_MODE?`<div class="banner">Beispieldaten – noch nicht mit dem Worker verbunden</div>`:""; let html="";
   if(r==="home"){const t=d.totals,profit=t.revenue-t.costs,max=Math.max(1,...d.history.map(h=>h.revenue));
     html=`<div class="top"><h1>Übersicht</h1><div class="meta">${monthLabel(d.month)} <span class="live"><i></i>live</span><button class="b" id="rf">Aktualisieren</button></div></div>${banner}
-    <div class="grid g4" style="margin-bottom:14px"><div class="kpi"><b>${money(profit)}</b><span>Gewinn · ≈ ${fmt(profit*(d.eur_rate||0.92))} €</span><small>+${money(t.week_delta)} diese Woche</small></div><div class="kpi"><b>${money(t.revenue)}</b><span>Umsatz ausgezahlt</span></div><div class="kpi"><b>${k(d.accounts.reduce((a,x)=>a+(x.views_7d||0),0))}</b><span>Views 7 Tage · alle Accounts</span></div><div class="kpi"><b>${k(d.accounts.reduce((a,x)=>a+(x.followers||0),0))}</b><span>Follower gesamt</span><small>+${k(d.accounts.reduce((a,x)=>a+(x.followers_7d||0),0))} diese Woche</small></div></div>
+    <div class="grid g4" style="margin-bottom:14px"><div class="kpi"><b>${money(profit)}</b><span>Gewinn · ≈ ${fmt(profit*(d.eur_rate||0.92))} €</span><small>+${money(t.week_delta)} diese Woche</small></div><div class="kpi"><b>${money(t.revenue)}</b><span>Umsatz ausgezahlt</span></div><div class="kpi"><b>${d.accounts.every(x=>x.views_7d==null)?"–":k(d.accounts.reduce((a,x)=>a+(x.views_7d||0),0))}</b><span>Views 7 Tage · alle Accounts</span>${d.accounts.some(x=>x.metrics==="pending")?`<small style="color:var(--ink3);font-weight:500">Blotato liefert noch keine Views</small>`:""}</div><div class="kpi"><b>${k(d.accounts.reduce((a,x)=>a+(x.followers||0),0))}</b><span>Follower gesamt</span><small>+${k(d.accounts.reduce((a,x)=>a+(x.followers_7d||0),0))} diese Woche</small></div></div>
     ${INSTALL?`<div class="inst" id="instbar"><b>ClipForge als App installieren</b><span style="color:var(--ink3)">Startbildschirm, Vollbild, offline lesbar</span><button id="instgo">Installieren</button></div>`:""}
     ${(d.anomalies?.found||[]).length?`<section><h2>Auffälligkeiten <span>${tm(d.anomalies.at)} · täglicher Check</span></h2>${d.anomalies.found.map(a=>`<div class="sg"><div class="n" style="background:${a.severity==="alert"?"var(--bad)":"var(--warn)"};color:#fff">!</div><div class="t"><b>${a.title}</b><div style="font-size:12px;color:var(--ink3)">${a.detail}</div></div><a class="go" href="#chat:${encodeURIComponent(a.question)}">Erklären →</a></div>`).join("")}</section>`:""}
     ${d.onboarding&&!d.onboarding.complete&&!hideOnb()?onboardingBlock(d.onboarding,true):""}
@@ -538,7 +572,7 @@ function page(d){const r=route(); nav(d);
     const acc=d.accounts.filter(a=>n.accounts.includes(a.id)), src=d.sources.filter(s=>s.niche===n.key), posts=d.posts.filter(p=>p.niche===n.key).sort((a,b)=>new Date(b.posted_at)-new Date(a.posted_at)), camps=d.campaigns.filter(c=>c.niche===n.key);
     html=`<div class="top"><div class="nhead"><span class="sw" style="background:${n.color}"></span><h1>${n.label}</h1></div><div class="meta">${acc.length} Accounts · ${src.filter(s=>s.stage<5).length} in Arbeit <button class="b" id="rf">Aktualisieren</button></div></div>${banner}
     <section><h2>Accounts <span>Handle öffnet das Profil</span></h2><div class="cards">${acc.map(a=>`<div class="card"><div class="row"><div class="acct">${av(a,d)}<div><div class="h"><a href="${a.url}" target="_blank" rel="noopener">${a.handle}</a></div><div class="n">${a.platform||"tiktok"} · ${a.posts_7d||0} Posts/7d</div></div></div>${healthPill(a)}</div>
-      <div class="stats"><div><b>${k(a.followers)}</b>Follower <span style="color:var(--ok)">+${k(a.followers_7d||0)}</span></div><div><b>${k(a.views_7d)}</b>Views 7d</div><div><b>${money(a.earnings_30d)}</b>30 Tage</div></div>
+      <div class="stats"><div><b>${k(a.followers)}</b>Follower <span style="color:var(--ok)">+${k(a.followers_7d||0)}</span></div><div><b>${nv(a.views_7d)}</b>Views 7d</div><div><b>${money(a.earnings_30d)}</b>30 Tage</div></div>
       <div class="links"><a href="${a.url}" target="_blank" rel="noopener">Profil ↗</a>${a.paused?`<span class="pill warn">${a.reason||"pausiert"}</span>`:""}<a href="#" data-hd="${a.id}" style="margin-left:auto;font-size:12px;color:var(--ink3)">Details</a></div>${healthDetail(a)}</div>`).join("")}</div></section>
     ${suggestBlock(d,n)}
     ${(d.tasks||[]).filter(t=>t.niche===n.key).length?`<section><h2>Aufgaben in dieser Nische</h2>${(d.tasks||[]).filter(t=>t.niche===n.key).map(t=>taskCard(t,d)).join("")}</section>`:""}
