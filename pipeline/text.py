@@ -117,9 +117,12 @@ def render(text: str, max_width: int, max_height: int, font: str = "dejavu-bold"
            accent_color: str | None = None, box_color: str | None = None, box_pad: int = 18, align: str = "center",
            max_lines: int = 2, line_gap: float = 0.12, weight: int | None = None, spacing: float = 0, line_h: float | None = None,
            case: str = "none", box: str | None = None, box_opacity: float = 100, box_radius: int = 10, shadow: int = 0,
-           accent_idx: set[int] | None = None, visible_words: int | None = None) -> Image.Image:
+           accent_idx: set[int] | None = None, visible_words: int | None = None,
+           color_map: dict[int, str] | None = None) -> Image.Image:
     """Rendert `text` (≤ max_lines Zeilen) in ein RGBA-Bild. Schrift startet bei size_max und wird nur verkleinert, wenn der Text
-    sonst nicht in max_width × max_height passt. Akzentwörter (accent_idx oder accent_word) in accent_color."""
+    sonst nicht in max_width × max_height passt. Akzentwörter (accent_idx oder accent_word) in accent_color.
+    color_map setzt einzelne Wörter auf eine eigene Farbe (Wort-Index → Hex) – so werden farbige Teilstücke aus dem
+    Overlay-Text (<span style="color:…">) umgesetzt, ohne einen zweiten Layer zu brauchen."""
     if case == "upper":
         text = (text or "").upper()
     words = [w for w in (text or "").split() if w]
@@ -192,7 +195,7 @@ def render(text: str, max_width: int, max_height: int, font: str = "dejavu-bold"
         for j, word in enumerate(toks):
             token = word + (" " if j < len(toks) - 1 else "")
             visible = visible_words is None or idx < visible_words
-            fill = accent_color if idx in accent_idx else color
+            fill = (color_map or {}).get(idx) or (accent_color if idx in accent_idx else color)
             if visible:
                 if sd is not None:
                     _draw(sd, x + shadow, y + shadow * 1.5, token, f, (0, 0, 0, 170), outline_px, (0, 0, 0, 170), spacing)

@@ -157,12 +157,25 @@ export async function moveSlot(env: Env, postId: string, at: string, ws = "defau
     await logEvent(env, `slot_moved post=${p.id} to=${when.toISOString()} (${p.status})`);
     return { ok: true, post_id: p.id, at: when.toISOString(), mode: p.status };
   }
+  // Live-Post: den Zeitplan bei Blotato umdatieren (PATCH /v2/schedules/{id} mit {patch:{scheduledTime}}) statt ihn zu löschen
+  // und neu anzulegen – der Beitrag bleibt derselbe, nur die Zeit ändert sich. Erst wenn Blotato den Zeitplan nicht mehr
+  // kennt (404), wird der alte Weg genommen: stornieren und neu einplanen.
   if (env.BLOTATO_API_KEY) {
     const accId = (accountsOf(env)[p.account] as any)?.blotato?.[p.platform ?? "tiktok"];
     const schedId = accId ? await blotatoScheduleId(env, String(accId), p.scheduled_at) : null;
-    if (!schedId) return { ok: false, error: "Der Zeitplan liegt bei Blotato nicht (mehr) vor – bitte dort prüfen; es wurde nichts geändert." };
-    const r = await fetch(`${BLOTATO}/schedules/${schedId}`, { method: "DELETE", headers: blotatoHeaders(env) });
-    if (!r.ok && r.status !== 404) return { ok: false, error: `Blotato hat das Löschen des Zeitplans abgelehnt (${r.status}) – es wurde nichts geändert.` };
+    if (schedId) {
+      const r = await fetch(`${BLOTATO}/schedules/${schedId}`, { method: "PATCH", headers: blotatoHeaders(env),
+                                                                 body: JSON.stringify({ patch: { scheduledTime: when.toISOString() } }) });
+      if (r.ok) {
+        await db.run(env, "UPDATE posts SET scheduled_at = ? WHERE id = ?", when.toISOString(), p.id);
+        await logEvent(env, `slot_moved post=${p.id} to=${when.toISOString()} (live, umdatiert schedule=${schedId})`);
+        return { ok: true, post_id: p.id, at: when.toISOString(), mode: "rescheduled", schedule_id: schedId };
+      }
+      if (r.status !== 404) {
+        const body = (await r.text().catch(() => "")).slice(0, 160);
+        return { ok: false, error: `Blotato hat das Umdatieren abgelehnt (${r.status}) – es wurde nichts geändert.${body ? " " + body : ""}` };
+      }
+    }
   }
   await db.run(env, "UPDATE posts SET status = 'cancelled' WHERE id = ?", p.id);
   await db.run(env, "UPDATE clips SET status = 'ready' WHERE id = ?", p.clip);
