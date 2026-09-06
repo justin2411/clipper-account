@@ -136,12 +136,12 @@ const toCandidate = (v: any, list: "fresh" | "archive", rank: number): Candidate
   const account = fitA == null || fitB == null ? null : fitA >= fitB ? "A" : "B";
   let rating: Rating | null = null;
   try { rating = v.rating ? JSON.parse(v.rating) : null; } catch { rating = null; }
-  const reason = list === "fresh"
-    ? `Frisch (vor ${age} Tag${age === 1 ? "" : "en"}) · ${fmtViews(v.views ?? 0)} Aufrufe · ${fmtDur(v.duration_s)}${score != null ? ` · Bewertung ${score}` : " · noch nicht bewertet"}${account ? ` · passt zu ${account}` : ""}. Aktuelle Aufmerksamkeit, dafür viel Konkurrenz.`
-    : `Archiv (${age != null ? Math.round(age / 30) : "?"} Monate) · ${fmtViews(v.views ?? 0)} Aufrufe · ${fmtDur(v.duration_s)}${score != null ? ` · Bewertung ${score}` : " · noch nicht bewertet"}${account ? ` · passt zu ${account}` : ""}. Wenig Konkurrenz.`;
+  // Begründung ohne Zahlen: die stehen als eigene Felder daneben (Dashboard und Telegram zeigen sie getrennt)
+  const reason = (list === "fresh" ? "Aktuelle Aufmerksamkeit, dafür viel Konkurrenz." : "Wenig Konkurrenz, hohe Gesamtaufrufe.")
+    + (score != null ? "" : " Noch nicht bewertet.") + (rating?.note ? ` ${rating.note}` : "");
   return { id: v.id, title: v.title ?? v.id, url: v.url ?? yt(v.id), channel: v.channel_name ?? "", duration_s: v.duration_s ?? null,
            views: v.views ?? 0, published_at: v.published_at ?? null, age_days: age, list, score, fit_a: fitA, fit_b: fitB, account,
-           rank_value: Math.round(rank), height: v.height ?? null, reason: rating?.note ? `${reason} ${rating.note}` : reason };
+           rank_value: Math.round(rank), height: v.height ?? null, reason };
 };
 
 /** Zwei Listen: frisch (letzte 14 Tage, neueste zuerst) und Archiv (älter als 6 Monate, Aufrufe × Bewertung). */
