@@ -28,6 +28,24 @@ Footage lädt die Pipeline selbst: Frame.io-Share (ohne Login, `pipeline/frameio
 
 Alle Secrets stehen lokal in `SECRETS.local.md` (gitignored). Nach jeder Änderung an `.env`: `./scripts/cf_bootstrap.sh secrets`.
 
+## Fan-Content (Dauerbetrieb) und paid-Kampagnen
+- **Quellen**: YouTube-RSS der Kanäle MrBeast, Beast Reacts, MrBeast 2, Beast Philanthropy (Worker `fan.ts`, alle 30 min im Scout-Cron).
+  Neues Video → Kampagne `fan-<videoId>` (kind `fan`) → **ein** Clip-Job (Account `AB`): Momente nach Rang verteilt (A: 1,3,5… B: 2,4,6…).
+- **Backlog**: `python scripts/yt_backlog.py` (auch `backlog.yml`, wöchentlich) speichert alle Videos der vier Kanäle mit Aufrufzahlen in `videos`.
+  Kommt kein neues Video, füllt der Fan-Lauf den Vorrat aus dem Backlog auf: Videos der letzten 30 Tage zuerst, dann nach Aufrufen.
+  Videos, die Footage einer paid-Kampagne sind, werden übersprungen. **Vorproduktion**: `STOCK_DAYS` (3) × Tageslimit fertige Fan-Clips je Account.
+- **Fan-Clips**: immer mit Hook-Text im Account-Stil, nie roh; Caption `<Hook> · Credit @mrbeast #mrbeast`; kein Branded Content, keine Vyro-Einreichung.
+- **Planer (Publisher)**: Priorität paid > fan-neu (Video < 7 Tage) > backlog. `MAX_CLIPS_PER_DAY` (5) Posts je Account/Tag auf 5 Slots alle 3–4 h,
+  `POST_GAP_MIN` (90) Kollisionsschutz über alle Accounts und Quellen, nie zwei Clips desselben Videos am selben Tag.
+  Aktive paid-Kampagne ersetzt `PAID_SLOTS_PER_DAY` (2) Fan-Slots je Account/Tag, mehrere Kampagnen `PAID_SLOTS_PER_DAY_MULTI` (3);
+  nach Kampagnenende fallen die Slots automatisch an Fan-Content. Neue Accounts: `RAMP_DAYS` (7) Tage ab erstem Live-Post `RAMP_MAX_PER_DAY` (3).
+  Explizite Regeln in `account_state` (`scripts/run_fn.py account …`) gehen vor.
+- **Schattenmodus** `PUBLISH_MODE=shadow` (`worker/wrangler.toml`): alles läuft echt (Scout, RSS, Backlog, Clip-Jobs, Slot-Planung, Tracking),
+  der Publisher schreibt Posts nur in D1 (`posts.status='shadow'`) und schickt täglich 20:00 Berlin die Tagesübersicht per Telegram
+  (Slots der nächsten 24 h, Queue, neue Videos, Fehler, 3 zufällige Clips als Standbild + Caption). Umschalten auf live:
+  `python scripts/run_fn.py shadow_release` (Schatten-Posts archivieren, Clips wieder `ready`), dann `PUBLISH_MODE = "live"` deployen.
+- **Reports**: Tracker meldet jeden Live-Post mit Typ (💰 paid / ⭐ Fan); montags Wochenreport getrennt nach paid/fan.
+
 ## Täglicher Ablauf (automatisch)
 | Schritt | Wo | Auslöser |
 |---|---|---|
@@ -35,8 +53,9 @@ Alle Secrets stehen lokal in `SECRETS.local.md` (gitignored). Nach jeder Änderu
 | Du: Join + Footage-Link setzen (`scripts/set_footage.py`) | Mensch | – |
 | Clip-Job startet (je Account) | GitHub Actions `clip.yml` | Worker `scout` via workflow_dispatch |
 | Clips → R2, Zeilen in `clips` | Pipeline | Job-Ende |
-| Publisher schedult Slots bei Blotato (`BLOTATO_DRAFT=true` → TikTok-Entwürfe) | Worker `publisher` | Cron 30 min |
-| 21:00 Telegram mit Post-URLs zum Einreichen | Worker `notify` | Cron täglich |
+| Fan-Lauf: RSS der MrBeast-Kanäle, Fan-Kampagnen, Backlog-Nachschub | Worker `scout` → `fan` | Cron 10 min (RSS alle 30) |
+| Planer füllt Slots (paid > fan-neu > backlog), Blotato-Schedule oder Schatten-Eintrag (`PUBLISH_MODE`) | Worker `publisher` | Cron 30 min |
+| 20:00 Berlin: Einreich-Liste (paid), Tagesübersicht, montags Wochenreport | Worker `notify` | Cron täglich |
 | Tracker zieht Post-Status/URLs, meldet jeden Live-Post per Telegram, prüft Kill-Switch, löscht eingereichte Clips aus R2 | Worker `tracker` | Cron 6 h |
 
 ## Bedienung
@@ -46,7 +65,8 @@ python scripts/run_fn.py health                   # was ist konfiguriert?
 python scripts/set_footage.py <id> <drive_url> config/campaign_template.yaml   # Kampagne anlegen/joinen + Footage
 python scripts/run_fn.py scout                    # Clip-Jobs sofort starten (statt auf Cron zu warten)
 python scripts/run_fn.py publisher|tracker|notify # Funktionen manuell auslösen
-python scripts/run_fn.py overview                 # Status aller Tabellen
+python scripts/run_fn.py fan | plan [h] | videos [status] | daily | weekly | shadow_release   # Fan-Content / Schattenmodus
+python scripts/yt_backlog.py [--limit N]          # YouTube-Katalog (Backlog) aktualisieren
 python scripts/run_fn.py publish_campaign <id> [gap]  # alle fertigen Clips zeitversetzt (erster je Account sofort, dann alle 45 min)
 python scripts/mark_submitted.py <id>             # nach dem Einreichen bei Vyro
 ```
@@ -54,7 +74,8 @@ Lokal entwickeln: `cd worker && npm ci && npm run migrate:local && npm run dev` 
 
 ## Hinweise
 - **Blotato liefert keine Views.** `views_*` in `posts` bleiben leer, bis eine Quelle angebunden ist (V2). Der Views-Kill-Switch greift erst dann; der Ablehnungs-Kill-Switch (Spam/Automation) funktioniert sofort.
-- Cron-Zeiten sind UTC (`worker/wrangler.toml`); Slots in `config/accounts.yaml` ebenfalls (4 Slots/Account/Tag, 22:30 als letzter).
+- Cron-Zeiten sind UTC (`worker/wrangler.toml`); Slots in `config/accounts.yaml` ebenfalls (5 Slots/Account/Tag alle 3,5 h, A und B um 105 min versetzt).
+- YouTube-Download in GitHub Actions kann an Bot-Checks scheitern → optional Secret `YT_COOKIES_B64` (base64 einer `cookies.txt`, siehe NEXT_STEPS).
 - Telegram informiert nur (Kampagne angelegt, Clip-Job fertig, Post live, Einreichliste, Kill-Switch); es gibt keine Freigabe-Schleife.
 - Kampagnen-Budget für das Dashboard: `campaigns.budget_total_usd` / `budget_used_usd` manuell pflegen (`PATCH /api/campaigns/:id`).
 

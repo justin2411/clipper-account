@@ -1,0 +1,21 @@
+name: backlog
+# YouTube-Katalog der MrBeast-Kanäle (alle Videos mit Aufrufzahlen) in D1 aktualisieren. Wöchentlich + manuell.
+on:
+  workflow_dispatch:
+    inputs:
+      limit: { required: false, type: string, default: "0" }   # Videos je Kanal (0 = alle)
+  schedule:
+    - cron: "0 3 * * 0"
+jobs:
+  backlog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CLIPFORGE_API_URL: ${{ secrets.CLIPFORGE_API_URL }}
+      CLIPFORGE_API_KEY: ${{ secrets.CLIPFORGE_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: pip install yt-dlp requests pyyaml
+      - run: python scripts/yt_backlog.py --limit "${{ inputs.limit || '0' }}"

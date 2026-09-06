@@ -7,7 +7,11 @@
 //   GET  /api/clips?status=&account=&campaign= | POST /api/clips
 //   POST /api/events
 //   PUT  /api/media/<key>             Upload nach R2 → {url}
-//   POST /api/run/:fn                 scout | publisher | tracker | notify manuell starten
+//   POST /api/run/:fn                 scout | fan | publisher | tracker | notify | daily | weekly manuell starten
+//   GET  /api/videos?status=&limit=   YouTube-Katalog | POST /api/videos [..] (Upsert, scripts/yt_backlog.py) | PATCH /api/videos/:id
+//   POST /api/fan/:videoId            Fan-Kampagne + Clip-Job (AB) für ein Video starten
+//   GET  /api/plan?hours=24           geplante Posts (live/shadow)
+//   POST /api/shadow_release          Schattenmodus beenden: Schatten-Posts archivieren, Clips wieder 'ready'
 //   POST /api/dispatch/:campaign/:account   Clip-Job (GitHub Actions) gezielt für einen Account starten
 //   GET  /api/blotato/accounts        verbundene Blotato-Accounts (IDs für config/accounts.yaml)
 //   POST /api/telegram/send           {text}  Info-Nachricht (Pipeline meldet z.B. "Clip-Job fertig")
@@ -15,19 +19,21 @@
 //   GET  /submissions/pending         offene Posts [{post_id, campaign_id, campaign_url, post_url, account, account_handle}]
 //   POST /submissions/mark            {post_id, status: submitted|failed, note}
 //   POST /notify                      {text} → Telegram
-import { Env, Row, db, json, logEvent, mediaUrl, nowIso, toCampaign } from "./shared";
+import { Env, Row, db, json, logEvent, mediaUrl, nowIso, publishMode, toCampaign } from "./shared";
 import { runScout, dispatchClipJob } from "./scout";
-import { runPublisher, publishClipNow, publishCampaignSpaced } from "./publisher";
+import { runPublisher, publishClipNow, publishCampaignSpaced, plannedPosts, releaseShadow } from "./publisher";
 import { runTracker } from "./tracker";
-import { runNotify } from "./notify";
+import { runNotify, dailyOverview, weeklyReport } from "./notify";
+import { runFan, startFanJob } from "./fan";
 import { buildDashboard } from "./dashboard";
 import { BLOTATO, blotatoHeaders, telegram } from "./shared";
 
 export const FUNCTIONS: Record<string, (env: Env) => Promise<unknown>> = {
-  scout: runScout, publisher: runPublisher, tracker: runTracker, notify: runNotify,
+  scout: runScout, fan: runFan, publisher: runPublisher, tracker: runTracker, notify: runNotify,
+  daily: (env) => dailyOverview(env, true), weekly: weeklyReport,
 };
 
-const CAMPAIGN_FIELDS = ["platform", "name", "external_url", "status", "rate_per_1k_usd", "min_views", "max_per_post_usd", "min_seconds", "footage", "required", "forbidden", "accounts", "platforms", "budget_total_usd", "budget_used_usd"];
+const CAMPAIGN_FIELDS = ["platform", "kind", "name", "external_url", "status", "rate_per_1k_usd", "min_views", "max_per_post_usd", "min_seconds", "footage", "required", "forbidden", "accounts", "platforms", "budget_total_usd", "budget_used_usd"];
 const JSON_FIELDS = new Set(["footage", "required", "forbidden", "accounts", "platforms"]);
 const enc = (k: string, v: unknown) => (JSON_FIELDS.has(k) ? JSON.stringify(v ?? (k === "accounts" || k === "platforms" ? [] : {})) : v ?? null);
 
@@ -142,7 +148,7 @@ export async function handleRequest(req: Request, env: Env, ctx: ExecutionContex
 
   try {
     // health / overview
-    if (rest[0] === "health") return json({ ok: true, time: nowIso(), draft: (env.BLOTATO_DRAFT ?? "true") === "true",
+    if (rest[0] === "health") return json({ ok: true, time: nowIso(), mode: publishMode(env), draft: publishMode(env) === "draft",
       configured: { blotato: !!env.BLOTATO_API_KEY, telegram: !!(env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHAT_ID), gmail: !!env.GMAIL_REFRESH_TOKEN, github: !!env.GITHUB_TOKEN, accounts: !!env.ACCOUNTS_JSON } });
     if (rest[0] === "overview") {
       const counts = async (t: string) => db.all(env, `SELECT status, COUNT(*) AS n FROM ${t} GROUP BY status`);
@@ -204,14 +210,57 @@ export async function handleRequest(req: Request, env: Env, ctx: ExecutionContex
         const id = crypto.randomUUID().replace(/-/g, "");
         // seq = laufende Nummer je Kampagne (atomar im INSERT); Standardstatus 'ready' → Publisher postet zu den Slots
         await db.run(env,
-          `INSERT INTO clips (id, campaign_id, account, media_url, caption, hook_type, status, note, seq, duration_s, hook, pinned_comment)
-           SELECT ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(MAX(seq), 0) + 1, ?, ?, ? FROM clips WHERE campaign_id = ?`,
+          `INSERT INTO clips (id, campaign_id, account, media_url, caption, hook_type, status, note, seq, duration_s, hook, pinned_comment, video_id, rank, thumb_url)
+           SELECT ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(MAX(seq), 0) + 1, ?, ?, ?, ?, ?, ? FROM clips WHERE campaign_id = ?`,
           id, b.campaign_id, b.account, b.media_url, b.caption ?? null, b.hook_type ?? null, b.status ?? "ready", b.note ?? null,
-          b.duration_s ?? null, b.hook ?? null, b.pinned_comment ?? null, b.campaign_id);
+          b.duration_s ?? null, b.hook ?? null, b.pinned_comment ?? null, b.video_id ?? null, b.rank ?? null, b.thumb_url ?? null, b.campaign_id);
         const row = await db.first<{ seq: number }>(env, "SELECT seq FROM clips WHERE id = ?", id);
         return json({ id, seq: row?.seq ?? null }, 201);
       }
     }
+
+    // videos (YouTube-Katalog)
+    if (rest[0] === "videos") {
+      if (req.method === "GET" && !rest[1]) {
+        const st = url.searchParams.get("status"), lim = Number(url.searchParams.get("limit") || 100);
+        return json(await db.all(env, `SELECT * FROM videos ${st ? "WHERE status = ?" : ""} ORDER BY CASE WHEN published_at >= ? THEN 0 ELSE 1 END, views DESC LIMIT ?`,
+          ...(st ? [st] : []), new Date(Date.now() - 30 * 86400000).toISOString(), lim));
+      }
+      if (req.method === "POST" && !rest[1]) {
+        const items = (await req.json().catch(() => [])) as any[];
+        if (!Array.isArray(items)) return json({ error: "Array erwartet" }, 400);
+        let added = 0, updated = 0;
+        for (const v of items) {
+          if (!v?.id || !v?.channel_id) continue;
+          const r = await db.run(env,
+            `INSERT INTO videos (id, channel_id, channel_name, title, url, published_at, views, duration_s, is_short, source, status, note)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(id) DO UPDATE SET views = MAX(videos.views, excluded.views), duration_s = COALESCE(excluded.duration_s, videos.duration_s),
+               published_at = COALESCE(videos.published_at, excluded.published_at), title = COALESCE(videos.title, excluded.title),
+               is_short = MAX(videos.is_short, excluded.is_short), updated_at = excluded.updated_at`,
+            v.id, v.channel_id, v.channel_name ?? null, v.title ?? null, v.url ?? `https://www.youtube.com/watch?v=${v.id}`, v.published_at ?? null,
+            Number(v.views ?? 0), v.duration_s ?? null, v.is_short ? 1 : 0, v.source ?? "backlog",
+            v.is_short || (v.duration_s != null && v.duration_s < 180) ? "skipped" : "new", v.is_short ? "short" : (v.duration_s != null && v.duration_s < 180 ? "too short" : null));
+          if (r.meta.changes) { if (r.meta.last_row_id && (r.meta as any).changed_db) added++; else updated++; }
+        }
+        const total = await db.first<{ n: number }>(env, "SELECT COUNT(*) AS n FROM videos");
+        await logEvent(env, `backlog_import items=${items.length} total=${total?.n ?? 0}`);
+        return json({ received: items.length, total: total?.n ?? 0 }, 201);
+      }
+      if (req.method === "PATCH" && rest[1]) {
+        const b = await body();
+        const fields = ["status", "note", "duration_s", "views", "is_short", "campaign_id"].filter((k) => k in b);
+        if (!fields.length) return json({ error: "keine Felder" }, 400);
+        await db.run(env, `UPDATE videos SET ${fields.map((k) => `${k} = ?`).join(", ")}, updated_at = ? WHERE id = ?`, ...fields.map((k) => b[k] ?? null), nowIso(), rest[1]);
+        return json(await db.first(env, "SELECT * FROM videos WHERE id = ?", rest[1]));
+      }
+    }
+    // Fan-Job für ein Video manuell starten
+    if (rest[0] === "fan" && rest[1] && req.method === "POST") return json(await startFanJob(env, rest[1]));
+    // Plan der nächsten Stunden (live + shadow)
+    if (rest[0] === "plan" && req.method === "GET") return json(await plannedPosts(env, Number(url.searchParams.get("hours") || 24)));
+    // Schattenmodus beenden (danach PUBLISH_MODE=live deployen)
+    if (rest[0] === "shadow_release" && req.method === "POST") return json(await releaseShadow(env));
 
     // events
     if (rest[0] === "events" && req.method === "POST") {
@@ -254,7 +303,7 @@ export async function handleRequest(req: Request, env: Env, ctx: ExecutionContex
       const r = await db.run(env, "UPDATE clips SET status = 'ready' WHERE status = 'drafted'");
       await db.run(env, "UPDATE account_state SET paused = 0, reason = NULL WHERE reason = 'review'");
       await logEvent(env, `go_live: ${r.meta.changes} drafted clips → ready, review-pause aufgehoben`);
-      return json({ released: r.meta.changes, draft_mode_now: (env.BLOTATO_DRAFT ?? "true") === "true" });
+      return json({ released: r.meta.changes, mode: publishMode(env) });
     }
 
     // Account-Regeln: PATCH /api/accounts/:id {paused, paused_until, reason, max_per_day, min_gap_min, rules_until}; GET /api/accounts

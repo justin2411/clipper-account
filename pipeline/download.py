@@ -1,8 +1,9 @@
 """Footage holen. Rückgabe: Liste lokaler Videodateien (größte zuerst), leer wenn nichts geladen werden konnte.
   type=frameio  Share-Link (next.frame.io/share/<id>) – ohne Login, siehe pipeline/frameio.py
   type=gdrive   Google-Drive-Ordner oder -Datei mit Freigabe „Jeder mit dem Link“ (gdown)
-  type=url      direkte Videodatei(en) (http…mp4, auch mehrere durch Leerzeichen/Komma getrennt) oder yt-dlp-URL"""
-import re, subprocess, requests
+  type=url      direkte Videodatei(en) (http…mp4, auch mehrere durch Leerzeichen/Komma getrennt) oder yt-dlp-URL
+  type=youtube  YouTube-Video per yt-dlp (≤1080p, mp4). Optional YT_COOKIES_B64 (base64 cookies.txt) gegen Bot-Checks."""
+import base64, os, re, subprocess, time, requests
 from pathlib import Path
 
 VIDEO_EXT = (".mp4", ".mov", ".mkv", ".webm", ".m4v")
@@ -24,6 +25,21 @@ def _direct(url: str, dest: Path):
                 fh.write(chunk)
 
 
+def _ytdlp(url: str, dest: Path, fmt: str = "bv*[height<=1080][ext=mp4]+ba[ext=m4a]/b[height<=1080]/b") -> None:
+    cmd = ["yt-dlp", "-f", fmt, "--merge-output-format", "mp4", "--no-playlist", "-o", str(dest / "%(id)s.%(ext)s"), url]
+    if os.environ.get("YT_COOKIES_B64"):
+        ck = dest / "cookies.txt"; ck.write_bytes(base64.b64decode(os.environ["YT_COOKIES_B64"])); cmd[1:1] = ["--cookies", str(ck)]
+    last = None
+    for attempt, extra in enumerate(([], ["--extractor-args", "youtube:player_client=default,web_safari"]), 1):
+        r = subprocess.run(cmd + extra, capture_output=True, text=True)
+        if r.returncode == 0:
+            return
+        last = (r.stderr or r.stdout)[-400:]
+        print(f"[download] yt-dlp Versuch {attempt} fehlgeschlagen: {last}")
+        time.sleep(20)
+    raise RuntimeError(f"yt-dlp: {last}")
+
+
 def fetch(footage: dict, dest: Path) -> list[Path]:
     dest.mkdir(parents=True, exist_ok=True)
     t, url = footage.get("type"), (footage.get("url") or "").strip()
@@ -32,6 +48,8 @@ def fetch(footage: dict, dest: Path) -> list[Path]:
     if t == "frameio" or "frame.io/" in url or re.match(r"https?://(www\.)?f\.io/", url):
         from pipeline.frameio import FrameioShare
         FrameioShare(url).download_all(dest)
+    elif t == "youtube" or re.search(r"(youtube\.com/watch|youtu\.be/)", url):
+        _ytdlp(url, dest)
     elif t == "gdrive" or "drive.google.com" in url:
         if "/folders/" in url:
             subprocess.run(["gdown", "--folder", url, "-O", str(dest)], check=True)

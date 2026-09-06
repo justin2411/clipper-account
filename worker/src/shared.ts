@@ -4,8 +4,15 @@ export interface Env {
   DB: D1Database;
   CLIPS: R2Bucket;
   // vars (wrangler.toml)
-  BLOTATO_DRAFT?: string;
-  MAX_CLIPS_PER_DAY?: string;
+  BLOTATO_DRAFT?: string;            // veraltet – PUBLISH_MODE=draft
+  PUBLISH_MODE?: string;             // live | shadow | draft
+  MAX_CLIPS_PER_DAY?: string;        // Posts je Account und Tag (Dauerbetrieb)
+  POST_GAP_MIN?: string;             // Kollisionsschutz über alle Quellen/Accounts (Minuten)
+  RAMP_DAYS?: string;                // neue Accounts: erste N Tage …
+  RAMP_MAX_PER_DAY?: string;         // … höchstens so viele Posts/Tag
+  PAID_SLOTS_PER_DAY?: string;       // aktive paid-Kampagne ersetzt so viele Fan-Slots je Account/Tag
+  PAID_SLOTS_PER_DAY_MULTI?: string; // … bei mehreren paid-Kampagnen
+  STOCK_DAYS?: string;               // Vorproduktion: Vorrat fertiger Clips in Tagen
   PLATFORM_GAP_MIN?: string;
   GITHUB_REPO?: string;
   GITHUB_REF?: string;
@@ -31,8 +38,16 @@ export const parseJson = <T>(v: unknown, fallback: T): T => {
   try { return JSON.parse(v) as T; } catch { return fallback; }
 };
 
+export type PublishMode = "live" | "shadow" | "draft";
+/** Betriebsmodus des Publishers: PUBLISH_MODE, sonst (alt) BLOTATO_DRAFT. */
+export const publishMode = (env: Env): PublishMode => {
+  const m = (env.PUBLISH_MODE ?? "").toLowerCase();
+  if (m === "live" || m === "shadow" || m === "draft") return m;
+  return (env.BLOTATO_DRAFT ?? "true") === "true" ? "draft" : "live";
+};
+
 export interface Campaign {
-  id: string; platform: string; name: string; external_url: string | null; status: string;
+  id: string; platform: string; name: string; kind: "paid" | "fan"; external_url: string | null; status: string;
   rate_per_1k_usd: number | null; min_views: number; max_per_post_usd: number | null; min_seconds: number;
   footage: { type?: string; url?: string }; required: Record<string, any>; forbidden: Record<string, any>;
   accounts: string[]; platforms: string[]; created_at: string;
@@ -58,6 +73,17 @@ export const db = {
 
 export const logEvent = (env: Env, event: string, campaignId: string | null = null) =>
   db.run(env, "INSERT INTO events (campaign_id, event) VALUES (?, ?)", campaignId, event);
+
+/** Telegram-Foto per URL (z.B. Standbild aus R2) mit Bildunterschrift. */
+export async function telegramPhoto(env: Env, photoUrl: string, caption: string): Promise<boolean> {
+  if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_CHAT_ID) return false;
+  const r = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendPhoto`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chat_id: env.TELEGRAM_CHAT_ID, photo: photoUrl, caption: caption.slice(0, 1024) }),
+  });
+  if (!r.ok) console.log("[telegram] photo Fehler", r.status, await r.text());
+  return r.ok;
+}
 
 /** Telegram-Nachricht; ohne Token/Chat-ID nur Log (Einrichtung darf nicht blockieren). */
 export async function telegram(env: Env, text: string): Promise<boolean> {

@@ -2,6 +2,7 @@
 // startet Clip-Jobs (GitHub Actions) für Kampagnen mit Status 'joined' + Footage-URL.
 // Absender-Domain → Plattform-Adapter. Nach der ersten echten Vyro-Mail hier UND in platforms/vyro.py kalibrieren.
 import { Env, db, logEvent, telegram, toCampaign } from "./shared";
+import { runFan } from "./fan";
 
 const SENDERS: Record<string, string> = { "vyro.com": "vyro", "whop.com": "whop" };
 const NEW_CAMPAIGN = /new campaign|campaign.*(live|dropped|open)/;
@@ -60,7 +61,7 @@ export async function dispatchClipJob(env: Env, campaignId: string, account: str
 export const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40);
 
 export async function runScout(env: Env) {
-  const stats = { mails: 0, campaigns: 0, payouts: 0, dispatched: 0, gmail: false };
+  const stats = { mails: 0, campaigns: 0, payouts: 0, dispatched: 0, gmail: false, fan: null as any };
   const tok = await gmailToken(env);
   if (tok) {
     stats.gmail = true;
@@ -89,7 +90,7 @@ export async function runScout(env: Env) {
   }
 
   // Kampagnen mit Footage → Clip-Jobs starten (einmalig, dann 'active')
-  const ready = (await db.all(env, "SELECT * FROM campaigns WHERE status = 'joined' AND COALESCE(json_extract(footage, '$.url'), '') != ''")).map(toCampaign);
+  const ready = (await db.all(env, "SELECT * FROM campaigns WHERE status = 'joined' AND kind = 'paid' AND COALESCE(json_extract(footage, '$.url'), '') != ''")).map(toCampaign);
   for (const c of ready) {
     let okAll = true;
     for (const a of c.accounts) {
@@ -101,5 +102,7 @@ export async function runScout(env: Env) {
       await logEvent(env, "clip_jobs_dispatched", c.id);
     }
   }
+  // Fan-Content: YouTube-RSS (alle 30 min) + Backlog-Nachschub (Vorrat STOCK_DAYS Tage)
+  try { stats.fan = await runFan(env); } catch (e: any) { stats.fan = { error: String(e?.message ?? e).slice(0, 120) }; await logEvent(env, `fan error ${String(e?.message ?? e).slice(0, 120)}`); }
   return stats;
 }

@@ -20,8 +20,8 @@ export async function runTracker(env: Env) {
       if (s?.status === "published" && !p.post_url) {
         sets.push("post_url = ?", "posted_at = ?", "status = 'posted'"); vals.push(url ?? "", nowIso()); stats.posted++;
         await db.run(env, "UPDATE clips SET status = 'posted' WHERE id = ? AND status = 'scheduled'", p.clip_id);
-        const c = await db.first<any>(env, "SELECT c.seq, c.account, c.duration_s, c.hook, c.pinned_comment, c.campaign_id, ca.name FROM clips c JOIN campaigns ca ON ca.id = c.campaign_id WHERE c.id = ?", p.clip_id);
-        if (c) await telegram(env, `📤 Gepostet: ${c.name} #${c.seq ?? "?"} (${c.account}, ${c.duration_s ? Math.round(c.duration_s) + "s" : "?"})\n${c.hook ?? ""}\n${url ?? ""}${c.pinned_comment ? `\n📌 Kommentar anpinnen: ${c.pinned_comment}` : ""}`);
+        const c = await db.first<any>(env, "SELECT c.seq, c.account, c.duration_s, c.hook, c.pinned_comment, c.campaign_id, ca.name, ca.kind FROM clips c JOIN campaigns ca ON ca.id = c.campaign_id WHERE c.id = ?", p.clip_id);
+        if (c) await telegram(env, `📤 Gepostet (${c.kind === "fan" ? "⭐ Fan" : "💰 Paid"}): ${c.name} #${c.seq ?? "?"} (${c.account}, ${c.duration_s ? Math.round(c.duration_s) + "s" : "?"})\n${c.hook ?? ""}\n${url ?? ""}${c.pinned_comment ? `\n📌 Kommentar anpinnen: ${c.pinned_comment}` : ""}`);
       }
       if (typeof s?.views === "number" && p.posted_at) {
         const age = (Date.now() - new Date(p.posted_at).getTime()) / 36e5;
@@ -60,6 +60,15 @@ export async function runTracker(env: Env) {
     }
   }
 
+  // Fan-Clips brauchen keine Einreichung: 3 Tage nach dem Posten Datei löschen und archivieren
+  const fanDone = await db.all<{ id: string; media_url: string; thumb_url: string | null }>(env,
+    `SELECT c.id, c.media_url, c.thumb_url FROM clips c JOIN campaigns ca ON ca.id = c.campaign_id JOIN posts p ON p.clip_id = c.id
+     WHERE ca.kind = 'fan' AND c.status = 'posted' AND p.status = 'posted' AND p.posted_at < ?`, new Date(Date.now() - 3 * 86400000).toISOString());
+  for (const c of fanDone) {
+    for (const u of [c.media_url, c.thumb_url]) { const key = u ? mediaKeyFromUrl(u) : null; if (key) await env.CLIPS.delete(key); }
+    await db.run(env, "UPDATE clips SET status = 'archived' WHERE id = ?", c.id);
+    stats.archived++;
+  }
   // Eingereichte Clips: Datei aus R2 löschen, Zeile archivieren
   for (const c of await db.all<{ id: string; media_url: string }>(env, "SELECT id, media_url FROM clips WHERE status = 'submitted'")) {
     const key = mediaKeyFromUrl(c.media_url);

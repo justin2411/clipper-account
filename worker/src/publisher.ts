@@ -1,9 +1,14 @@
-// Publisher: nimmt 'ready'-Clips, verteilt sie auf freie Slots (heute/morgen, max N/Tag/Account) und
-// schedult sie bei Blotato, zeitversetzt über die Plattformen. TikTok-Pflichtfelder inkl. isBrandedContent
-// aus der Kampagne. BLOTATO_DRAFT=true → Posts landen als TikTok-Entwurf (Einlaufphase, Sichtprüfung).
-import { BLOTATO, Env, blotatoHeaders, db, logEvent, toCampaign } from "./shared";
+// Publisher (Slot-Planer): füllt die freien Slots je Account (heute + morgen) nach Priorität
+//   paid > fan-neu (Video < 7 Tage) > backlog (nach Aufrufen)
+// Regeln: MAX_CLIPS_PER_DAY Posts je Account/Tag (neue Accounts: RAMP_MAX_PER_DAY in den ersten RAMP_DAYS Tagen,
+// explizite account_state-Regeln gehen vor), POST_GAP_MIN Kollisionsschutz über ALLE Accounts und Quellen,
+// nie zwei Clips desselben Videos am selben Tag (über beide Accounts), aktive paid-Kampagnen ersetzen
+// PAID_SLOTS_PER_DAY Fan-Slots (mehrere: PAID_SLOTS_PER_DAY_MULTI); nach Kampagnenende fällt alles an Fan zurück.
+// Modi (PUBLISH_MODE): live → Blotato-Schedule; shadow → nur Datenbank (posts.status='shadow'), nichts geht raus;
+// draft → sofort als TikTok-Entwurf (Sichtprüfung). Konzept angelehnt an clippyme SmartScheduler.
+import { BLOTATO, Env, PublishMode, blotatoHeaders, db, logEvent, publishMode, toCampaign } from "./shared";
 
-interface AccountCfg { slots: string[]; blotato: Record<string, string> }
+interface AccountCfg { slots: string[]; blotato: Record<string, string>; handle?: string }
 export const accountsOf = (env: Env): Record<string, AccountCfg> => {
   try { return JSON.parse(env.ACCOUNTS_JSON || "{}"); } catch { return {}; }
 };
@@ -29,98 +34,158 @@ async function blotatoPost(env: Env, accountId: string, platform: string, mediaU
   return { ok: r.ok, status: r.status, id: body?.postSubmissionId as string | undefined, error: body?.message ?? body?.error };
 }
 
-const day = (d: Date) => d.toISOString().slice(0, 10);
+const day = (d: Date | string) => new Date(d).toISOString().slice(0, 10);
+const OCCUPYING = "('scheduled','posted','shadow')";       // Post-Status, die einen Slot belegen
 
-/** Wirksame Regeln eines Accounts: globales Limit, überschrieben durch account_state (max_per_day, min_gap_min) bis rules_until. */
+/** Wirksame Regeln eines Accounts: explizite account_state-Regel (bis rules_until) > Einlaufphase neuer Accounts
+ *  (erste RAMP_DAYS Tage ab erstem Live-Post: RAMP_MAX_PER_DAY) > globales MAX_CLIPS_PER_DAY. */
 export async function accountRules(env: Env, account: string, now = new Date()) {
   const st = await db.first<any>(env, "SELECT * FROM account_state WHERE account = ?", account);
-  const globalMax = Number(env.MAX_CLIPS_PER_DAY || 4);
-  const active = !!(st?.rules_until && new Date(st.rules_until).getTime() > now.getTime());
-  return { maxPerDay: active && st.max_per_day ? Number(st.max_per_day) : globalMax,
-           minGapMin: active && st.min_gap_min ? Number(st.min_gap_min) : 0, rulesUntil: active ? st.rules_until : null };
+  const globalMax = Number(env.MAX_CLIPS_PER_DAY || 5);
+  const rampDays = Number(env.RAMP_DAYS || 7), rampMax = Number(env.RAMP_MAX_PER_DAY || 3);
+  const explicit = !!(st?.rules_until && new Date(st.rules_until).getTime() > now.getTime());
+  const first = await db.first<{ t: string | null }>(env,
+    "SELECT MIN(p.posted_at) AS t FROM posts p JOIN clips c ON c.id = p.clip_id WHERE c.account = ? AND p.status = 'posted' AND p.mode = 'live'", account);
+  const ageDays = first?.t ? (now.getTime() - new Date(first.t).getTime()) / 86400000 : 0;
+  const ramp = ageDays < rampDays;
+  const maxPerDay = explicit && st.max_per_day ? Number(st.max_per_day) : ramp ? Math.min(globalMax, rampMax) : globalMax;
+  return { maxPerDay, minGapMin: explicit && st.min_gap_min ? Number(st.min_gap_min) : 0, rulesUntil: explicit ? st.rules_until : null,
+           ramp, rampUntil: ramp ? new Date((first?.t ? new Date(first.t).getTime() : now.getTime()) + rampDays * 86400000).toISOString() : null };
 }
 
-/** Freie Slot-Zeitpunkte (ISO) für einen Account: heute + morgen, nur Zukunft (>5 min), unbelegt, max N/Tag,
- *  optional Mindestabstand (Minuten) zu allen geplanten/geposteten und neu gewählten Zeiten. */
-export async function freeSlots(env: Env, account: string, slots: string[], maxPerDay: number, now = new Date(), minGapMin = 0): Promise<string[]> {
+interface Occ { t: number; account: string; video_id: string | null; kind: string | null; day: string }
+async function occupied(env: Env, now: Date): Promise<Occ[]> {
+  const rows = await db.all<any>(env,
+    `SELECT p.scheduled_at, c.account, c.video_id, COALESCE(p.kind, ca.kind) AS kind
+     FROM posts p JOIN clips c ON c.id = p.clip_id LEFT JOIN campaigns ca ON ca.id = c.campaign_id
+     WHERE p.status IN ${OCCUPYING} AND p.scheduled_at >= ? AND p.scheduled_at <= ?`,
+    new Date(now.getTime() - 2 * 86400000).toISOString(), new Date(now.getTime() + 3 * 86400000).toISOString());
+  return rows.map((r) => ({ t: new Date(r.scheduled_at).getTime(), account: r.account, video_id: r.video_id ?? null, kind: r.kind ?? null, day: day(r.scheduled_at) }));
+}
+
+/** n Elemente gleichmäßig verteilt aus einer sortierten Liste. */
+const spread = <T>(xs: T[], n: number): T[] => {
+  if (n >= xs.length) return xs;
+  if (n <= 0) return [];
+  if (n === 1) return [xs[0]];
+  const out: T[] = [];
+  for (let i = 0; i < n; i++) out.push(xs[Math.round((i * (xs.length - 1)) / (n - 1))]);
+  return [...new Set(out)];
+};
+
+/** Freie Slot-Zeitpunkte (ISO) eines Accounts für heute + morgen: Zukunft (>5 min), Tageslimit, Kollisionsschutz
+ *  POST_GAP_MIN über alle Accounts (plus eigener Mindestabstand), bei kleinerem Limit gleichmäßig über den Tag verteilt. */
+export function planSlots(account: string, slots: string[], maxPerDay: number, occ: Occ[], gapMin: number, ownGapMin: number, now = new Date()): string[] {
   const out: string[] = [];
-  const gap = minGapMin * 60000;
-  const occupied: number[] = (await db.all<{ scheduled_at: string }>(env,
-    `SELECT p.scheduled_at FROM posts p JOIN clips c ON c.id = p.clip_id WHERE c.account = ? AND p.status IN ('scheduled','posted') AND p.scheduled_at >= ?`,
-    account, new Date(now.getTime() - 2 * 86400000).toISOString())).map((u) => new Date(u.scheduled_at).getTime());
+  const gap = gapMin * 60000, ownGap = Math.max(gapMin, ownGapMin) * 60000;
+  const taken = [...occ];
   for (const offset of [0, 1]) {
     const d = new Date(now); d.setUTCDate(d.getUTCDate() + offset);
     const date = day(d);
-    const used = await db.all<{ scheduled_at: string }>(env,
-      `SELECT p.scheduled_at FROM posts p JOIN clips c ON c.id = p.clip_id
-       WHERE c.account = ? AND p.status IN ('scheduled','posted') AND substr(p.scheduled_at,1,10) = ?`, account, date);
-    let budget = Math.max(0, maxPerDay - used.length);
-    const taken = new Set(used.map((u) => u.scheduled_at.slice(0, 16)));
+    const used = taken.filter((o) => o.account === account && o.day === date).length;
+    const budget = Math.max(0, maxPerDay - used);
+    if (!budget) continue;
+    const cands: number[] = [];
     for (const s of [...slots].sort()) {
-      if (budget <= 0) break;
-      const t = new Date(`${date}T${s}:00Z`);
-      if (t.getTime() < now.getTime() + 5 * 60000) continue;
-      if (taken.has(t.toISOString().slice(0, 16))) continue;
-      if (gap && occupied.some((o) => Math.abs(o - t.getTime()) < gap)) continue;
-      out.push(t.toISOString()); occupied.push(t.getTime()); budget--;
+      const t = new Date(`${date}T${s}:00Z`).getTime();
+      if (t < now.getTime() + 5 * 60000) continue;
+      if (taken.some((o) => Math.abs(o.t - t) < (o.account === account ? ownGap : gap))) continue;
+      cands.push(t);
     }
+    // gleichmäßig verteilen, aber Mindestabstand auch unter den neu gewählten wahren
+    const chosen: number[] = [];
+    for (const t of spread(cands, budget)) {
+      if (chosen.some((c) => Math.abs(c - t) < ownGap)) continue;
+      chosen.push(t);
+    }
+    for (const t of chosen) { out.push(new Date(t).toISOString()); taken.push({ t, account, video_id: null, kind: null, day: date }); }
   }
   return out;
 }
 
+interface Ctx { paidActive: number; paidPerDay: number; occ: Occ[]; usedClips: Set<string>; fillEmpty: boolean }
+
+/** Nächsten Clip für einen Slot wählen: paid-Quote des Tages zuerst, dann Fan (neu vor Backlog), nie zweimal dasselbe Video am Tag. */
+async function pickClip(env: Env, account: string, slotIso: string, ctx: Ctx) {
+  const d = day(slotIso);
+  const videoUsed = new Set(ctx.occ.filter((o) => o.day === d && o.video_id).map((o) => o.video_id as string));
+  const paidToday = ctx.occ.filter((o) => o.day === d && o.account === account && o.kind === "paid").length;
+  const paidQuota = ctx.paidActive ? Math.max(0, ctx.paidPerDay - paidToday) : 0;
+  const ok = (c: any) => !ctx.usedClips.has(c.id) && !(c.video_id && videoUsed.has(c.video_id));
+  const paid = async () => (await db.all<any>(env,
+    `SELECT c.*, ca.kind, ca.name AS campaign_name FROM clips c JOIN campaigns ca ON ca.id = c.campaign_id
+     WHERE c.status = 'ready' AND c.account = ? AND ca.kind = 'paid' AND ca.status = 'active' ORDER BY c.created_at ASC LIMIT 50`, account)).find(ok);
+  const fan = async () => (await db.all<any>(env,
+    `SELECT c.*, ca.kind, ca.name AS campaign_name, v.published_at, v.views, v.source
+     FROM clips c JOIN campaigns ca ON ca.id = c.campaign_id LEFT JOIN videos v ON v.id = c.video_id
+     WHERE c.status = 'ready' AND c.account = ? AND ca.kind = 'fan' AND ca.status = 'active'
+     ORDER BY CASE WHEN v.published_at >= ? THEN 0 ELSE 1 END, COALESCE(v.views, 0) DESC, c.rank ASC, c.created_at ASC LIMIT 100`,
+    account, new Date(Date.now() - 7 * 86400000).toISOString())).find(ok);
+  let c = paidQuota > 0 ? await paid() : null;
+  if (!c) c = await fan();
+  if (!c && ctx.fillEmpty && paidQuota <= 0) c = await paid();      // Fan-Queue leer → paid darf den Slot füllen
+  return c ?? null;
+}
+
+async function record(env: Env, mode: PublishMode, c: any, platform: string, submissionId: string | null, when: string, error: string | null) {
+  const status = error ? "error" : mode === "shadow" ? "shadow" : mode === "draft" ? "draft" : "scheduled";
+  await db.run(env,
+    "INSERT INTO posts (clip_id, platform, blotato_submission_id, scheduled_at, status, rejection_reason, kind, mode) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    c.id, platform, submissionId, when, status, error, c.kind ?? "paid", mode);
+  return status;
+}
+
 export async function runPublisher(env: Env) {
-  const DRAFT = (env.BLOTATO_DRAFT ?? "true") === "true";
-  const GAP = Number(env.PLATFORM_GAP_MIN || 30);
+  const mode = publishMode(env);
+  const now = new Date();
   const accounts = accountsOf(env);
-  const stats = { draft: DRAFT, scheduled: 0, errors: 0, skipped: [] as string[] };
-  if (!env.BLOTATO_API_KEY) { stats.skipped.push("BLOTATO_API_KEY fehlt"); return stats; }
-  // Zeitgesteuerte Pausen automatisch beenden
-  await db.run(env, "UPDATE account_state SET paused = 0, reason = NULL, paused_until = NULL WHERE paused = 1 AND paused_until IS NOT NULL AND paused_until <= ?", new Date().toISOString());
+  const stats = { mode, scheduled: 0, shadow: 0, errors: 0, skipped: [] as string[], plan: [] as string[] };
+  if (mode !== "shadow" && !env.BLOTATO_API_KEY) { stats.skipped.push("BLOTATO_API_KEY fehlt"); return stats; }
+  await db.run(env, "UPDATE account_state SET paused = 0, reason = NULL, paused_until = NULL WHERE paused = 1 AND paused_until IS NOT NULL AND paused_until <= ?", now.toISOString());
   const paused = new Set((await db.all<{ account: string }>(env, "SELECT account FROM account_state WHERE paused = 1")).map((x) => x.account));
+  const paidActive = (await db.first<{ n: number }>(env, "SELECT COUNT(*) AS n FROM campaigns WHERE kind = 'paid' AND status = 'active'"))?.n ?? 0;
+  const paidPerDay = paidActive >= 2 ? Number(env.PAID_SLOTS_PER_DAY_MULTI || 3) : Number(env.PAID_SLOTS_PER_DAY || 2);
+  const ctx: Ctx = { paidActive, paidPerDay, occ: await occupied(env, now), usedClips: new Set(), fillEmpty: true };
+  const GAP = Number(env.POST_GAP_MIN || 90);
 
   for (const [acc, cfg] of Object.entries(accounts)) {
     if (paused.has(acc)) { stats.skipped.push(`${acc}: pausiert`); continue; }
-    const rules = await accountRules(env, acc);
-    const free = await freeSlots(env, acc, cfg.slots ?? [], rules.maxPerDay, new Date(), rules.minGapMin);
-    if (!free.length) continue;
-    const clips = await db.all(env, "SELECT * FROM clips WHERE status = 'ready' AND account = ? ORDER BY created_at ASC LIMIT ?", acc, free.length);
-    for (let i = 0; i < clips.length; i++) {
-      const c = clips[i] as any, slot = free[i];
-      const campRow = await db.first(env, "SELECT * FROM campaigns WHERE id = ?", c.campaign_id);
-      if (!campRow) { stats.skipped.push(`${c.id}: Kampagne fehlt`); continue; }
-      const camp = toCampaign(campRow);
-      if (camp.status === "paused" || camp.status === "ended") { stats.skipped.push(`${c.id}: Kampagne ${camp.status}`); continue; }
-      let k = 0, anyOk = false;
+    const rules = await accountRules(env, acc, now);
+    const free = planSlots(acc, cfg.slots ?? [], rules.maxPerDay, ctx.occ, GAP, rules.minGapMin, now);
+    for (const slot of free) {
+      const c = await pickClip(env, acc, slot, ctx);
+      if (!c) { stats.skipped.push(`${acc} ${slot.slice(5, 16)}: kein Clip`); continue; }
+      const camp = toCampaign((await db.first(env, "SELECT * FROM campaigns WHERE id = ?", c.campaign_id))!);
+      let anyOk = false, k = 0;
       for (const platform of camp.platforms.length ? camp.platforms : ["tiktok"]) {
+        const when = new Date(new Date(slot).getTime() + k++ * Number(env.PLATFORM_GAP_MIN || 30) * 60000).toISOString();
+        if (mode === "shadow") { await record(env, mode, c, platform, null, when, null); anyOk = true; stats.shadow++; continue; }
         const accountId = cfg.blotato?.[platform];
         if (!accountId) { stats.skipped.push(`${acc}/${platform}: keine Blotato-Account-ID`); continue; }
-        const when = new Date(new Date(slot).getTime() + k++ * GAP * 60000).toISOString();
-        const target = buildTarget(platform, c.caption ?? "", DRAFT, camp.required?.tiktok ?? {});
-        // Draft-Modus: sofort als Entwurf anlegen (nicht öffentlich) statt auf den Slot zu warten → schnelle Sichtprüfung
-        const res = await blotatoPost(env, accountId, platform, c.media_url, c.caption ?? "", DRAFT ? null : when, target);
-        // Draft-Modus: Zeilen als 'draft'/'drafted' führen – zählen nicht als Slot, Tracker/Notify ignorieren sie,
-        // beim Umschalten auf Live werden 'drafted'-Clips wieder auf 'ready' gesetzt (scripts/run_fn.py go_live).
-        await db.run(env,
-          "INSERT INTO posts (clip_id, platform, blotato_submission_id, scheduled_at, status, rejection_reason) VALUES (?, ?, ?, ?, ?, ?)",
-          c.id, platform, res.id ?? null, when, res.id ? (DRAFT ? "draft" : "scheduled") : "error", res.id ? null : String(res.error ?? res.status));
+        const target = buildTarget(platform, c.caption ?? "", mode === "draft", camp.required?.tiktok ?? {});
+        const res = await blotatoPost(env, accountId, platform, c.media_url, c.caption ?? "", mode === "draft" ? null : when, target);
+        await record(env, mode, c, platform, res.id ?? null, when, res.id ? null : String(res.error ?? res.status));
         if (res.id) { anyOk = true; stats.scheduled++; } else stats.errors++;
       }
-      if (anyOk) await db.run(env, "UPDATE clips SET status = ? WHERE id = ?", DRAFT ? "drafted" : "scheduled", c.id);
-      else {
-        // Dauerfehler (z.B. Blotato lehnt Medium ab): nach 3 Fehlversuchen nicht mehr retryen
+      if (anyOk) {
+        await db.run(env, "UPDATE clips SET status = ? WHERE id = ?", mode === "shadow" ? "shadow" : mode === "draft" ? "drafted" : "scheduled", c.id);
+        ctx.usedClips.add(c.id);
+        ctx.occ.push({ t: new Date(slot).getTime(), account: acc, video_id: c.video_id ?? null, kind: c.kind ?? "paid", day: day(slot) });
+        stats.plan.push(`${acc} ${slot.slice(5, 16)} ${c.kind} ${String(c.campaign_name ?? c.campaign_id).slice(0, 40)}`);
+      } else {
         const fails = await db.first<{ n: number }>(env, "SELECT COUNT(*) AS n FROM posts WHERE clip_id = ? AND status = 'error'", c.id);
         if ((fails?.n ?? 0) >= 3) await db.run(env, "UPDATE clips SET status = 'rejected_platform', note = 'blotato: 3x fehlgeschlagen' WHERE id = ?", c.id);
       }
     }
   }
-  if (stats.scheduled) await logEvent(env, `publisher scheduled=${stats.scheduled} draft=${DRAFT}`);
+  if (stats.scheduled || stats.shadow) await logEvent(env, `publisher mode=${mode} scheduled=${stats.scheduled} shadow=${stats.shadow} paid_active=${paidActive}`);
   return stats;
 }
 
-/** Einen 'ready'-Clip posten – sofort oder zu `when` (ISO). Nutzt dieselben Regeln wie der Cron-Lauf. */
+/** Einen 'ready'-Clip posten – sofort oder zu `when` (ISO). Im Schattenmodus nur Datenbank. */
 export async function publishClipNow(env: Env, clipId: string, when: string | null = null) {
-  const DRAFT = (env.BLOTATO_DRAFT ?? "true") === "true";
-  const c = await db.first<any>(env, "SELECT * FROM clips WHERE id = ?", clipId);
+  const mode = publishMode(env);
+  const c = await db.first<any>(env, "SELECT c.*, ca.kind FROM clips c LEFT JOIN campaigns ca ON ca.id = c.campaign_id WHERE c.id = ?", clipId);
   if (!c) return { error: "clip not found" };
   if (c.status !== "ready") return { error: `clip status is ${c.status}, not ready` };
   const campRow = await db.first(env, "SELECT * FROM campaigns WHERE id = ?", c.campaign_id);
@@ -131,24 +196,22 @@ export async function publishClipNow(env: Env, clipId: string, when: string | nu
   const results: unknown[] = [];
   let anyOk = false;
   for (const platform of camp.platforms.length ? camp.platforms : ["tiktok"]) {
+    const at = when ?? new Date().toISOString();
+    if (mode === "shadow") { await record(env, mode, c, platform, null, at, null); anyOk = true; results.push({ platform, shadow: true }); continue; }
     const accountId = cfg.blotato?.[platform];
     if (!accountId) { results.push({ platform, error: "no Blotato account id" }); continue; }
-    const target = buildTarget(platform, c.caption ?? "", DRAFT, camp.required?.tiktok ?? {});
-    const res = await blotatoPost(env, accountId, platform, c.media_url, c.caption ?? "", DRAFT ? null : when, target);
-    const at = when ?? new Date().toISOString();
-    await db.run(env,
-      "INSERT INTO posts (clip_id, platform, blotato_submission_id, scheduled_at, status, rejection_reason) VALUES (?, ?, ?, ?, ?, ?)",
-      c.id, platform, res.id ?? null, at, res.id ? (DRAFT ? "draft" : "scheduled") : "error", res.id ? null : String(res.error ?? res.status));
+    const target = buildTarget(platform, c.caption ?? "", mode === "draft", camp.required?.tiktok ?? {});
+    const res = await blotatoPost(env, accountId, platform, c.media_url, c.caption ?? "", mode === "draft" ? null : when, target);
+    await record(env, mode, c, platform, res.id ?? null, at, res.id ? null : String(res.error ?? res.status));
     if (res.id) anyOk = true;
     results.push({ platform, accountId, submission: res.id ?? null, error: res.error ?? null });
   }
-  if (anyOk) await db.run(env, "UPDATE clips SET status = ? WHERE id = ?", DRAFT ? "drafted" : "scheduled", c.id);
-  await logEvent(env, `publish_now clip=${c.id} account=${c.account} at=${when ?? "now"} draft=${DRAFT}`, c.campaign_id);
-  return { clip: c.id, account: c.account, at: when ?? "now", draft: DRAFT, results };
+  if (anyOk) await db.run(env, "UPDATE clips SET status = ? WHERE id = ?", mode === "shadow" ? "shadow" : mode === "draft" ? "drafted" : "scheduled", c.id);
+  await logEvent(env, `publish_now clip=${c.id} account=${c.account} at=${when ?? "now"} mode=${mode}`, c.campaign_id);
+  return { clip: c.id, account: c.account, at: when ?? "now", mode, results };
 }
 
-/** Alle 'ready'-Clips einer Kampagne zeitversetzt posten: je Account der erste sofort, die weiteren alle `gapMin` Minuten.
- *  Nie zwei Posts eines Accounts gleichzeitig; das Tageslimit MAX_CLIPS_PER_DAY gilt auch hier – der Rest wartet auf die Slots. */
+/** Alle 'ready'-Clips einer Kampagne zeitversetzt posten (erster je Account sofort, weitere alle gapMin Minuten), Tageslimit gilt. */
 export async function publishCampaignSpaced(env: Env, campaignId: string, gapMin = 45) {
   const today = day(new Date());
   const maxOf: Record<string, number> = {};
@@ -160,10 +223,9 @@ export async function publishCampaignSpaced(env: Env, campaignId: string, gapMin
   for (const c of clips) {
     if (budget[c.account] == null) {
       const r = await accountRules(env, c.account); maxOf[c.account] = r.maxPerDay; if (r.minGapMin > gapMin) gapMin = r.minGapMin;
-      const MAX = r.maxPerDay;
       const used = await db.first<{ n: number }>(env,
-        `SELECT COUNT(*) AS n FROM posts p JOIN clips x ON x.id = p.clip_id WHERE x.account = ? AND p.status IN ('scheduled','posted') AND substr(p.scheduled_at,1,10) = ?`, c.account, today);
-      budget[c.account] = Math.max(0, MAX - (used?.n ?? 0));
+        `SELECT COUNT(*) AS n FROM posts p JOIN clips x ON x.id = p.clip_id WHERE x.account = ? AND p.status IN ${OCCUPYING} AND substr(p.scheduled_at,1,10) = ?`, c.account, today);
+      budget[c.account] = Math.max(0, r.maxPerDay - (used?.n ?? 0));
     }
     if (budget[c.account] <= 0) { skipped.push(`${c.account}#${c.seq}: Tageslimit ${maxOf[c.account]} erreicht → Slot-Plan`); continue; }
     budget[c.account]--;
@@ -173,4 +235,22 @@ export async function publishCampaignSpaced(env: Env, campaignId: string, gapMin
     perAccount[c.account] = k + 1;
   }
   return { campaign: campaignId, gap_min: gapMin, max_per_day: maxOf, posted: out, skipped };
+}
+
+/** Geplante Posts (live/shadow) der nächsten `hours` Stunden – für Tagesübersicht und CLI. */
+export async function plannedPosts(env: Env, hours = 24, from = new Date()) {
+  return db.all<any>(env,
+    `SELECT p.id, p.scheduled_at, p.status, p.mode, COALESCE(p.kind, ca.kind) AS kind, c.account, c.caption, c.hook, c.video_id, c.thumb_url,
+            c.campaign_id, ca.name AS campaign_name
+     FROM posts p JOIN clips c ON c.id = p.clip_id LEFT JOIN campaigns ca ON ca.id = c.campaign_id
+     WHERE p.status IN ${OCCUPYING} AND p.scheduled_at >= ? AND p.scheduled_at < ? ORDER BY p.scheduled_at`,
+    from.toISOString(), new Date(from.getTime() + hours * 3600000).toISOString());
+}
+
+/** Schattenmodus beenden: Schatten-Posts archivieren, ihre Clips wieder auf 'ready' (werden live neu geplant). */
+export async function releaseShadow(env: Env) {
+  const clips = await db.run(env, "UPDATE clips SET status = 'ready' WHERE status = 'shadow'");
+  const posts = await db.run(env, "UPDATE posts SET status = 'shadow_done' WHERE status = 'shadow'");
+  await logEvent(env, `shadow_release clips=${clips.meta.changes} posts=${posts.meta.changes}`);
+  return { clips: clips.meta.changes, posts: posts.meta.changes };
 }

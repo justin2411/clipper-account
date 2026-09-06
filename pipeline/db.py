@@ -25,10 +25,24 @@ def upsert_campaign(body):
     return _req("POST", "/campaigns", json=body)
 
 
-def insert_clip(campaign_id, account, url, status, caption=None, note=None, hook_type=None, duration_s=None, hook=None, pinned_comment=None):
+def insert_clip(campaign_id, account, url, status, caption=None, note=None, hook_type=None, duration_s=None, hook=None, pinned_comment=None,
+                video_id=None, rank=None, thumb_url=None):
     return _req("POST", "/clips", json={"campaign_id": campaign_id, "account": account, "media_url": url,
                                        "status": status, "caption": caption, "note": note, "hook_type": hook_type,
-                                       "duration_s": duration_s, "hook": hook, "pinned_comment": pinned_comment})
+                                       "duration_s": duration_s, "hook": hook, "pinned_comment": pinned_comment,
+                                       "video_id": video_id, "rank": rank, "thumb_url": thumb_url})
+
+
+def patch_video(video_id, **fields):
+    """Status/Notiz eines YouTube-Videos im Katalog (schlägt nie hart fehl)."""
+    try:
+        return _req("PATCH", f"/videos/{video_id}", json=fields)
+    except SystemExit as e:
+        print("patch_video failed:", e); return None
+
+
+def post_videos(items):
+    return _req("POST", "/videos", json=items)
 
 
 def notify_photo(path, caption):
