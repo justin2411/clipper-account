@@ -14,8 +14,8 @@ export const CHANNELS: Record<string, string> = {
 const RSS_EVERY_MIN = 30;
 const MIN_DURATION_S = 180;               // kürzer = Short/Teaser → überspringen
 const NEW_DAYS = 7;                       // "fan-neu": Video jünger als 7 Tage
-const MAX_DISPATCH_PER_RUN = 3;           // Clip-Jobs je Lauf (GitHub-Runner-Parallelität)
-const JOB_TIMEOUT_MIN = 240;              // 'queued' ohne Ergebnis → wieder frei
+const MAX_DISPATCH_PER_RUN = 1;           // nur EIN Clip-Job gleichzeitig (Cookie-Rotation; parallele Jobs machen die Sitzung ungültig)
+const JOB_TIMEOUT_MIN = 150;              // 'queued' ohne Ergebnis → wieder frei
 
 export const FAN_REQUIRED = { caption: "Credit @mrbeast", hashtags: ["#mrbeast"], tiktok: { isBrandedContent: false, isYourBrand: false } };
 
@@ -116,6 +116,8 @@ export async function fanStock(env: Env) {
 /** Fan-Lauf: RSS (alle 30 min) → neue Videos sofort clippen; sonst Backlog nachfüllen, bis der Vorrat reicht. */
 export async function runFan(env: Env) {
   const stats = { rss: null as any, new_jobs: 0, backlog_jobs: 0, stock: {} as any, skipped: [] as string[] };
+  const inflight0 = await db.first<{ n: number }>(env, "SELECT COUNT(*) AS n FROM videos WHERE status = 'queued'");
+  const busy = (inflight0?.n ?? 0) > 0;
   // 1) RSS, gedrosselt auf alle 30 Minuten (Scout läuft alle 10)
   const last = await db.first<{ at: string }>(env, "SELECT at FROM events WHERE event LIKE 'rss_check%' ORDER BY id DESC LIMIT 1");
   if (!last || Date.now() - new Date(last.at).getTime() >= (RSS_EVERY_MIN - 1) * 60000) {
@@ -123,6 +125,7 @@ export async function runFan(env: Env) {
     await logEvent(env, `rss_check channels=${stats.rss.checked} new=${stats.rss.added.length}${stats.rss.errors.length ? " errors=" + stats.rss.errors.join(";") : ""}`);
     for (const id of stats.rss.added) {
       const v = await db.first<any>(env, "SELECT * FROM videos WHERE id = ?", id);
+      if (busy || stats.new_jobs) { stats.skipped.push(`${id}: wartet (ein Job läuft)`); continue; }   // neue Videos kommen beim nächsten Lauf zuerst dran
       const r = await startFanJob(env, id);
       if (r.ok) { stats.new_jobs++; await telegram(env, `🎬 Neues Video: ${v.channel_name} – ${v.title}\n${v.url}\nClip-Job für A und B gestartet.`); }
       else if (r.status === 409) { stats.skipped.push(`${id}: Footage der paid-Kampagne ${r.campaign}`); await telegram(env, `🎬 Neues Video: ${v.channel_name} – ${v.title}\nIst Footage der paid-Kampagne ${r.campaign} → kein Fan-Clip.`); }
@@ -153,11 +156,12 @@ export async function runFan(env: Env) {
   const inflight = await db.first<{ n: number }>(env, "SELECT COUNT(*) AS n FROM videos WHERE status = 'queued'");
   const perJob = 3;                                            // ≈3 Clips je Account und Video
   let want = Math.min(MAX_DISPATCH_PER_RUN, Math.max(0, Math.ceil(deficit / perJob) - (inflight?.n ?? 0)));
-  if (want > 0 && !stats.new_jobs) {
+  if (want > 0 && !stats.new_jobs && !(inflight?.n ?? 0)) {
     const cutoff = new Date(Date.now() - 30 * 86400000).toISOString();
     const next = await db.all<any>(env,
       `SELECT * FROM videos WHERE status = 'new' AND is_short = 0 AND COALESCE(duration_s, 9999) >= ?
-       ORDER BY CASE WHEN published_at >= ? THEN 0 ELSE 1 END, views DESC LIMIT ?`, MIN_DURATION_S, cutoff, want);
+       ORDER BY CASE WHEN source = 'rss' AND published_at >= ? THEN 0 WHEN published_at >= ? THEN 1 ELSE 2 END, views DESC LIMIT ?`,
+      MIN_DURATION_S, new Date(Date.now() - 7 * 86400000).toISOString(), cutoff, want);
     for (const v of next) {
       const r = await startFanJob(env, v.id);
       if (r.ok) stats.backlog_jobs++; else stats.skipped.push(`${v.id}: ${r.status === 409 ? "paid-Footage " + r.campaign : "dispatch " + r.status}`);
