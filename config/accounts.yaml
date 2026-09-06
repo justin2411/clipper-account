@@ -32,8 +32,8 @@ max_clips_per_source: 3      # paid: harte Obergrenze pro Quellvideo und Account
 # Fan-Content (YouTube-Kanäle MrBeast, Beast Reacts, MrBeast 2, Beast Philanthropy – worker/src/fan.ts):
 # EIN Schnitt je Video, Momente nach Rang verteilt (A: 1,3,5… B: 2,4,6…), Hook-Text im Account-Stil, nie roh.
 fan:
-  clipper_flags: "--clips 6 --no-hook --no-subs --no-broll --no-bgm --whisper-model small --whisper-device cpu --whisper-compute-type int8"
-  max_clips_per_source: 6    # 3 je Account
+  clipper_flags: "--clips 8 --no-hook --no-subs --no-broll --no-bgm --whisper-model small --whisper-device cpu --whisper-compute-type int8"
+  max_clips_per_source: 8    # Momentwahl: 20 Kandidaten → Dedupe → Top 8 (4 je Account); pipeline/moments.py
   caption: "Credit @mrbeast" # Caption = "<Hook> · Credit @mrbeast #mrbeast" (platforms/fan.py); kein Branded Content, keine Einreichung
   hashtags: ["#mrbeast"]
 # Keine eingebrannten Untertitel (TikTok Auto-Captions); Hook-Text: max. 8 Wörter, 2 Zeilen, Zone 65–72 % (pipeline/overlay.py).

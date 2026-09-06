@@ -91,6 +91,27 @@ def _install_prompt_patch(engine):
     engine._clipforge_prompt_patched = True
 
 
+def _install_moments_patch(engine, work_dir: Path):
+    """Stufe 3: eigene Momentwahl mit Bewertungsraster (pipeline/moments.py) statt der Vendor-Analyse; Wort-Zeitstempel
+    der Transkription nach outputs/words.json (Schnitt auf Wortgrenzen, Stufe 4). Monkeypatch pro Lauf (work_dir wechselt)."""
+    from pipeline import moments
+    out_dir = work_dir / "outputs"
+    orig_tr = getattr(engine, "_clipforge_orig_transcribe", None) or engine.transcribe_video
+
+    def transcribe(*a, **k):
+        transcript, segs = orig_tr(*a, **k)
+        try:
+            out_dir.mkdir(parents=True, exist_ok=True)
+            (out_dir / "words.json").write_text(json.dumps(segs))
+        except Exception as e:
+            print("[clipper] words.json:", e)
+        return transcript, segs
+
+    engine._clipforge_orig_transcribe = orig_tr
+    engine.transcribe_video = transcribe
+    engine.analyze_with_ai = lambda transcript, cfg: moments.analyze(transcript, cfg, out_dir)
+
+
 def _cap_clips(argv: list[str], max_clips: int) -> list[str]:
     out, i = [], 0
     while i < len(argv):
@@ -125,10 +146,14 @@ def hooks_of(work_dir: Path) -> dict[str, dict]:
             if not isinstance(m, dict) or "rank" not in m:
                 continue
             r = str(m["rank"])
-            cur = out.setdefault(r, {"hook": "", "caption_hook": "", "pinned_comment": ""})
+            cur = out.setdefault(r, {"hook": "", "caption_hook": "", "pinned_comment": "", "context_line": "", "accent_word": "", "scores": None})
             cur["hook"] = cur["hook"] or str(m.get("title_inggris") or m.get("youtube_title_final") or m.get("thumbnail_text") or m.get("title") or "").strip()
             cur["caption_hook"] = cur["caption_hook"] or _words(m.get("caption_hook") or m.get("description_hook") or m.get("title_inggris") or "", 12)
             cur["pinned_comment"] = cur["pinned_comment"] or str(m.get("pinned_comment") or "").strip()
+            cur["context_line"] = cur["context_line"] or str(m.get("context_line") or "").strip()
+            cur["accent_word"] = cur["accent_word"] or str(m.get("accent_word") or "").strip()
+            cur["scores"] = cur["scores"] or (m.get("scores") if isinstance(m.get("scores"), dict) else None)
+            cur.setdefault("start", m.get("start_time")); cur.setdefault("end", m.get("end_time"))
             cur.setdefault("description", str(m.get("description_hook") or "") + " " + str(m.get("description_context") or ""))
             cur.setdefault("transcript", str(m.get("transcript_text") or m.get("teks") or ""))
     return out
@@ -147,6 +172,7 @@ def run(source: Path, flags: str, work_dir: Path, label_url: str = "", max_clips
     from clipping.config import build_config          # noqa: E402
     from clipping import engine, runner                # noqa: E402
     _install_prompt_patch(engine)
+    _install_moments_patch(engine, work_dir)
 
     argv = _cap_clips(shlex.split(flags), max_clips)
     vertical = is_vertical(source)

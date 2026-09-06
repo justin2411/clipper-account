@@ -101,11 +101,18 @@ def main():
     for acc, i, clip, meta, rank in jobs:
         th = by_id[acc].get("text_hook") or {}
         hook = meta.get("hook", "")
-        # Originalität: Kontextzeile in eigenen Worten (≤8 Wörter, kein Transkript-Zitat) = Hook-Text im Bild + erster Caption-Satz
-        gen = ai.enrich(hook, meta.get("description", ""), meta.get("transcript", ""), campaign["name"])
-        context_line = gen.get("context_line") or gen.get("caption_hook") or hook
-        accent_word = gen.get("accent_word") or ""
-        pinned = gen["pinned_comment"] or meta.get("pinned_comment", "")
+        # Originalität: Kontextzeile in eigenen Worten (≤8 Wörter, kein Transkript-Zitat) = Hook-Text im Bild + erster Caption-Satz.
+        # Kommt aus der Momentwahl (Stufe 3); fehlt sie oder zitiert sie das Transkript, liefert ai.enrich() Ersatz.
+        transcript = meta.get("transcript", "")
+        context_line = meta.get("context_line") or ""
+        accent_word, pinned = meta.get("accent_word") or "", meta.get("pinned_comment", "")
+        if not context_line or len(context_line.split()) > ai.MAX_WORDS or ai.quotes_transcript(context_line, transcript) or not pinned:
+            gen = ai.enrich(hook, meta.get("description", ""), transcript, campaign["name"])
+            if not context_line or len(context_line.split()) > ai.MAX_WORDS or ai.quotes_transcript(context_line, transcript):
+                context_line, accent_word = gen.get("context_line") or gen.get("caption_hook") or hook, gen.get("accent_word") or ""
+            pinned = pinned or gen["pinned_comment"]
+        if not accent_word:
+            accent_word = ai._pick_accent(context_line)
         caption = platform.caption(campaign, hook=context_line)
         name = f"{acc}_s{i}_{clip.name}"
         staged = overlay.apply(clip, overlay_text, WORK / "stage", name=name)                # Pflicht-Overlay (paid, falls gesetzt)
@@ -133,7 +140,7 @@ def main():
             print("thumbnail failed:", e)
         r = db.insert_clip(a.campaign, acc, url, status="ready", caption=caption, hook_type=overlay.hook_type_of(clip),
                            duration_s=dur, hook=hook, pinned_comment=pinned, video_id=video_id, rank=rank, thumb_url=thumb_url,
-                           context_line=context_line, cover_url=cover_url)
+                           context_line=context_line, cover_url=cover_url, scores=meta.get("scores"))
         kept[acc] += 1
         if preview_on and previews[acc] < 3:                                                 # Vorschau: Standbild (Hook sichtbar) + Caption
             previews[acc] += 1
