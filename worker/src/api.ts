@@ -43,7 +43,7 @@ import { runWeeklyReportAI, runAnomalyCheck, detectAnomalies, lastAnomalies } fr
 import { reconcilePosts } from "./reconcile";
 import { buildPacer, runPacer, lastPacer } from "./pacer";
 import { probeStatus, probeAction, capacity, ProbeAction } from "./probe";
-import { reportProgress, jobProgress, cancelJob, retryStage, cleanupJobs, cancelActionsRun, actionsRunState } from "./progress";
+import { reportProgress, jobProgress, cancelJob, retryStage, cleanupJobs, cancelActionsRun, actionsRunState, pulse } from "./progress";
 import { resolveWorkspace, listWorkspaces, createWorkspace, patchWorkspace } from "./workspace";
 import { runFan, startUploadJob } from "./fan";
 import { getSettings, effectiveSettings, validateAll, diffSettings, putSettings, listVersions, getVersion, defaultSettings, deepMerge } from "./settings";
@@ -153,7 +153,7 @@ export async function handleRequest(req: Request, env: Env, ctx: ExecutionContex
     return json({ error: "method not allowed" }, 405);
   }
   // Dashboard-Aktionen (Header x-api-key = DASHBOARD_READ_KEY oder CLIPFORGE_API_KEY, CORS): Review, Settings, Aufgaben, Resume
-  if (["review", "settings", "tasks", "report", "ab", "log", "onboarding", "suggest", "inbox", "chat", "calendar", "payouts", "library", "anomalies", "reconcile", "pacer", "catalog", "probe", "jobs"].includes(seg[0]) || (seg[0] === "accounts" && seg[2] === "resume")) {
+  if (["review", "settings", "tasks", "report", "ab", "log", "onboarding", "suggest", "inbox", "chat", "calendar", "payouts", "library", "anomalies", "reconcile", "pacer", "catalog", "probe", "jobs", "pulse"].includes(seg[0]) || (seg[0] === "accounts" && seg[2] === "resume")) {
     const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "x-api-key, content-type", "Access-Control-Allow-Methods": "GET, POST, PUT, OPTIONS" };
     const J = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status, headers: { "Content-Type": "application/json", ...cors } });
     if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
@@ -216,6 +216,9 @@ export async function handleRequest(req: Request, env: Env, ctx: ExecutionContex
       // POST /jobs/cancel {key, reason} bricht den Actions-Lauf ab · POST /jobs/retry {key, stage} startet dieselbe Stufe neu
       // GET /jobs/permission prüft einmalig, ob der Worker-Token Läufe abbrechen darf (403 = Recht „Actions: write" fehlt)
       if (seg[0] === "jobs" && !seg[1] && req.method === "GET") return J(await jobProgress(env, ws, url.searchParams.get("key") ?? undefined));
+      // Schlanker Takt (drei Abfragen): das Dashboard fragt hier alle 30 s nach und laedt nur bei Aenderung neu
+      if (seg[0] === "jobs" && seg[1] === "pulse" && req.method === "GET") return J(await pulse(env, ws));
+      if (seg[0] === "pulse" && !seg[1] && req.method === "GET") return J(await pulse(env, ws));
       if (seg[0] === "jobs" && seg[1] === "cancel" && req.method === "POST") {
         const body = (await b()) as any;
         const r = await cancelJob(env, String(body.key ?? ""), String(body.reason ?? ""), ws);
@@ -371,10 +374,22 @@ export async function handleRequest(req: Request, env: Env, ctx: ExecutionContex
     if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
     const wsr = await resolveWorkspace(env, req.headers.get("x-api-key") ?? "", url.searchParams.get("ws") ?? req.headers.get("x-workspace"));
     if (!wsr) return new Response(JSON.stringify({ error: "unauthorized" }), { status: 401, headers: { "Content-Type": "application/json", ...cors } });
+    // Kurzer Zwischenspeicher (45 s) im Worker-Cache, nicht in D1: mehrere offene Tabs oder ein hektisches
+    // Neuladen kosten so eine Abfragerunde statt vierundzwanzig je Aufruf.
+    const cache = (caches as any).default as Cache | undefined;
+    const cacheKey = new Request(`${url.origin}/__dash/${wsr.ws}`, { method: "GET" });
+    if (cache && !url.searchParams.get("fresh")) {
+      const hit = await cache.match(cacheKey);
+      if (hit) return new Response(hit.body, { headers: { "Content-Type": "application/json", "Cache-Control": "no-store", "x-cache": "hit", ...cors } });
+    }
     try {
-      return new Response(JSON.stringify(await buildDashboard(wsr.env, wsr.ws)), { headers: { "Content-Type": "application/json", "Cache-Control": "no-store", ...cors } });
+      const body = JSON.stringify(await buildDashboard(wsr.env, wsr.ws));
+      if (cache) ctx.waitUntil(cache.put(cacheKey, new Response(body, { headers: { "Content-Type": "application/json", "Cache-Control": "max-age=45" } })));
+      return new Response(body, { headers: { "Content-Type": "application/json", "Cache-Control": "no-store", "x-cache": "miss", ...cors } });
     } catch (e: any) {
-      return new Response(JSON.stringify({ error: String(e?.message ?? e) }), { status: 500, headers: { "Content-Type": "application/json", ...cors } });
+      const msg = String(e?.message ?? e);
+      const limit = /daily row read limit|exceeded/i.test(msg);
+      return new Response(JSON.stringify({ error: msg, limit }), { status: limit ? 503 : 500, headers: { "Content-Type": "application/json", ...cors } });
     }
   }
 
