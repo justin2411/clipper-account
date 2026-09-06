@@ -7,7 +7,7 @@
 // API-Keys nur im Worker (ANTHROPIC_API_KEY). Antwortformat: kurze Antwort zuerst, nach einer Zeile „---" die Begründung („mehr").
 import { Env, db, nowIso, logEvent, nichesOf } from "./shared";
 import { accountsOf, plannedPosts, publishClipNow } from "./publisher";
-import { getSettings, effectiveSettings, diffSettings, validateSettings, putSettings } from "./settings";
+import { getSettings, effectiveSettings, diffSettings, validateAll, putSettings } from "./settings";
 import { listReview, reviewAction } from "./review";
 import { listTasks, completeTask, resumeAccount } from "./tasks";
 import { abStats } from "./ab";
@@ -123,7 +123,7 @@ async function runActTool(env: Env, name: string, a: any, ws: string): Promise<u
       const niche = String(a.niche ?? Object.keys(cur.niches)[0]); if (!next.niches[niche]) return { ok: false, error: `Nische ${niche} unbekannt` };
       const path = String(a.path).split("."); let o: any = next.niches[niche]; for (const k of path.slice(0, -1)) o = o[k] ??= {};
       o[path.at(-1)!] = a.value;
-      const errors = validateSettings(next); if (errors.length) return { ok: false, errors };
+      const { errors } = await validateAll(env, next, ws, cur); if (errors.length) return { ok: false, errors };
       const diff = diffSettings(env, cur, next); if (!diff.length) return { ok: true, unchanged: true };
       const r = await putSettings(env, next, ws, diff); await logEvent(env, `settings_saved changes=${diff.length} version=${r.version} (chat)`);
       return { ok: true, ...r, diff };

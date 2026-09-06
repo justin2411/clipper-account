@@ -36,7 +36,14 @@
                 select:{ candidates, render_top, dedupe_s, weights:{surprise,stakes,reaction,cliffhanger,context,clarity}, min_score, context_line:true },
                 visual:{ font, color, accent, outline_px, hook_y_pct, hook_max_words, hook_max_lines, zoom_pct, zoom_max_per_clip, zoom_ease_ms, safe_top_px, safe_bottom_px, safe_right_px, cover_text:true,
                          hook_size (px bei 1080 breit), hook_weight (400–900), hook_spacing (Buchstabenabstand px), hook_line_h, hook_align:"left|center|right", hook_x_pct, hook_w_pct (Textbox-Breite), hook_case:"upper|none",
-                         box:"none|solid|blur", box_color, box_opacity (0–100), box_pad, box_radius, shadow (0–6), anim:"none|pop|slide|typewriter", accent_mode:"none|last2|first|keyword" },
+                         box:"none|solid|blur", box_color, box_opacity (0–100), box_pad, box_radius, shadow (0–6), anim:"none|pop|slide|typewriter", accent_mode:"none|last2|first|keyword",
+                         overlay:{ show:"auto|always|never" (auto = nur wenn Kampagne einen Pflichttext vorgibt), text (leer = Kampagnentext bzw. Kontext-Zeile),
+                                   font, size, weight, color, case, y_pct, x_pct, w_pct, align, box, box_color, box_opacity, box_pad, box_radius, outline_px, shadow, lines,
+                                   anim:"none|fade|slide", duration (Sekunden, 0 = ganzer Clip) },
+                         cover:{ mode:"hook|custom|none" (hook = Hook-Text als Cover-Titel, custom = eigener Text, none = nur Bild),
+                                 text, font, size, weight, color, accent, case, align, y_pct, x_pct, w_pct, max_words, lines, outline_px, shadow,
+                                 box, box_color, box_opacity, box_pad, box_radius,
+                                 frame:"motion|face|first|manual" (Auswahl des Standbilds), frame_skip_s (erste n Sekunden überspringen), dim (Bild abdunkeln 0–60 %) } },
                 audio:{ lufs, true_peak, normalize:true },
                 caption:{ template:"{hook} · Credit @mrbeast #mrbeast", hashtags:[...], pinned_comment:true, tone:"knapp|locker" },
                 qa:{ threshold, checks:{hook_legible,no_overlap,face_in_frame,not_blurry,safe_zone} } }
@@ -105,8 +112,8 @@ a{color:inherit;text-decoration:none}
 .app{display:grid;grid-template-columns:230px 1fr;min-height:100vh}
 nav{background:var(--panel);border-right:1px solid var(--line);padding:18px 14px;position:sticky;top:0;height:100vh;overflow:auto}
 .brand{display:flex;align-items:center;gap:10px;font-weight:800;font-size:18px;margin:4px 6px 18px}
-.brand i{width:26px;height:26px;border-radius:8px;background:var(--flame);position:relative}
-.brand i:after{content:"";position:absolute;inset:7px 9px;background:var(--bg);clip-path:polygon(60% 0,20% 55%,48% 55%,35% 100%,80% 40%,52% 40%)}
+.brand .mk{width:30px;height:30px;border-radius:9px;background:linear-gradient(150deg,#FF7A3D,#FF5A1F 55%,#E8410A);display:flex;align-items:center;justify-content:center;box-shadow:0 2px 10px rgba(255,90,31,.35);flex:none}
+.brand .mk svg{width:17px;height:17px}
 .nl{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:10px;font-size:14px;font-weight:700;color:var(--ink2);cursor:pointer}
 .nl:hover{background:var(--panel2)}.nl.on{background:var(--panel2);color:var(--ink)}
 .nl .sw{width:10px;height:10px;border-radius:50%;flex:none}
@@ -214,7 +221,9 @@ td.r,th.r{text-align:right;font-variant-numeric:tabular-nums}
 @keyframes hookpop{from{opacity:0;transform:translateX(-50%) scale(.7)}to{opacity:1;transform:translateX(-50%) scale(1)}}
 @keyframes hookslide{from{opacity:0;transform:translateX(-50%) translateY(14px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
 @keyframes hooktype{from{width:0}to{width:var(--w,84%)}}
-.frame .top{position:absolute;left:8%;right:8%;top:11%;text-align:center;font-size:10px;color:#fff;background:rgba(0,0,0,.5);padding:4px;border-radius:6px}
+.frame .ovl{position:absolute;overflow:hidden}
+@keyframes ovfade{from{opacity:0}to{opacity:1}}
+@keyframes ovslide{from{opacity:0;transform:translateX(-50%) translateY(-10px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
 .frame .face{position:absolute;left:50%;top:38%;width:34%;aspect-ratio:1;border-radius:50%;transform:translateX(-50%);background:radial-gradient(circle at 40% 35%,#d9b08c,#8a6a52);opacity:.85}
 .prev .cap{font-size:12px;color:var(--ink2);margin-top:10px;line-height:1.4}
 .pv-tools{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}.pv-tools button,.pv-tools select{font:inherit;font-size:11px;font-weight:700;padding:4px 9px;border-radius:999px;border:1px solid var(--line);background:transparent;color:var(--ink2);cursor:pointer}.pv-tools button.on{background:var(--panel2);color:var(--ink);border-color:var(--ink3)}
@@ -224,7 +233,7 @@ td.r,th.r{text-align:right;font-variant-numeric:tabular-nums}
 @keyframes punch{from{transform:scale(1)}to{transform:scale(var(--zs,1.08))}}
 .frame .hidden-ui .sz,.frame .hidden-ui .ui,.frame .hidden-ui .capbar{display:none}
 .cover{width:100%;aspect-ratio:9/16;border-radius:10px;overflow:hidden;position:relative;background:linear-gradient(180deg,#2b3140,#0d0f16);border:1px solid var(--line)}
-.cover .ct{position:absolute;left:6%;right:6%;top:26%;font-weight:900;text-transform:uppercase;text-align:center;line-height:1;font-size:22px;-webkit-text-stroke:1.5px #000}
+.cover .ct{position:absolute;font-weight:900;line-height:1.02;overflow:hidden}
 .cover .lb{position:absolute;left:6px;bottom:6px;font-size:10px;color:#fff;background:rgba(0,0,0,.55);padding:2px 6px;border-radius:6px}
 .pv-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}
 .diff{margin-top:10px;font-size:12px;color:var(--ink2)}.diff b{color:var(--ink)}.diff .d{display:flex;justify-content:space-between;padding:4px 0;border-top:1px solid var(--line)}.diff .d span:last-child{color:var(--flame);font-weight:700}
@@ -235,6 +244,29 @@ td.r,th.r{text-align:right;font-variant-numeric:tabular-nums}
 .hinfo .kv{display:flex;justify-content:space-between;font-size:12.5px;padding:6px 0;border-top:1px solid var(--line)}.hinfo .kv span{color:var(--ink3)}
 .hinfo .who{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;margin-bottom:8px}.who.a{background:color-mix(in srgb,var(--ok) 18%,transparent);color:var(--ok)}.who.m{background:color-mix(in srgb,var(--flame) 18%,transparent);color:var(--flame)}
 .hmore{margin-top:8px}.hmore summary{cursor:pointer;font-size:12px;font-weight:700;color:var(--ink2)}.hmore ul{margin:6px 0 0;padding-left:18px;font-size:12px;color:var(--ink2)}
+/* how cards */
+.hgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.hcard{position:relative;background:var(--panel2);border:1px solid var(--line);border-radius:14px;padding:14px 14px 13px;cursor:pointer;transition:transform .18s,border-color .18s,box-shadow .18s;overflow:hidden}
+.hcard:before{content:"";position:absolute;inset:0;background:linear-gradient(135deg,color-mix(in srgb,var(--flame) 8%,transparent),transparent 55%);opacity:0;transition:.18s}
+.hcard:hover{transform:translateY(-3px);border-color:color-mix(in srgb,var(--flame) 45%,var(--line));box-shadow:0 8px 22px rgba(0,0,0,.25)}
+.hcard:hover:before{opacity:1}
+.hcard .hic{width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--flame) 12%,transparent);border:1px solid color-mix(in srgb,var(--flame) 30%,transparent);color:var(--flame);margin-bottom:10px}
+.hcard .hic svg{width:18px;height:18px}
+.hcard.m .hic{background:color-mix(in srgb,var(--flame) 20%,transparent);color:var(--flame)}
+.hcard.a .hic{background:color-mix(in srgb,var(--ok) 12%,transparent);border-color:color-mix(in srgb,var(--ok) 28%,transparent);color:var(--ok)}
+.hcard .hn{position:absolute;top:12px;right:14px;font-size:11px;font-weight:800;color:var(--ink3)}
+.hcard b{display:block;font-size:14px;margin-bottom:3px;position:relative}
+.hcard span{font-size:11.5px;color:var(--ink3);line-height:1.4;display:block;position:relative}
+.hcard .harrow{position:absolute;right:14px;bottom:12px;color:var(--ink3);font-style:normal;transition:transform .18s}
+.hcard:hover .harrow{transform:translateX(3px);color:var(--flame)}
+.hloop{display:flex;align-items:center;gap:10px;margin:10px 2px 0;font-size:11px;color:var(--ink3)}
+.hloop svg{width:180px;height:26px;flex:none}
+.hleg{display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin-top:12px;font-size:12px;color:var(--ink2)}
+.hleg .d{width:9px;height:9px;border-radius:50%;display:inline-block;margin-right:6px}
+.hleg .d.a{background:var(--ok)}.hleg .d.m{background:var(--flame)}
+.lensic{width:44px;height:44px;border-radius:12px;display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--flame) 12%,transparent);border:1px solid color-mix(in srgb,var(--flame) 30%,transparent);color:var(--flame);flex:none}
+.lensic svg{width:22px;height:22px}
+@media (max-width:860px){.hgrid{grid-template-columns:1fr 1fr}.hloop svg{width:120px}}
 /* x-ray */
 .xr{position:relative;min-height:420px}
 .xr .lvl{transition:opacity .35s ease,transform .45s cubic-bezier(.2,.8,.2,1)}
@@ -272,10 +304,32 @@ td.r,th.r{text-align:right;font-variant-numeric:tabular-nums}
 .fc-big div{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:14px}.fc-big b{display:block;font-size:26px;font-weight:800;letter-spacing:-.02em}.fc-big span{font-size:12px;color:var(--ink3)}
 .fc-chart{height:240px}
 .fc-p{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:8px}.fc-p label{display:flex;justify-content:space-between;font-size:11px;color:var(--ink3);font-weight:700}.fc-p label b{color:var(--ink)}.fc-p input{width:100%;accent-color:var(--flame)}.fc-p small{display:block;font-size:11px;color:var(--ink3);margin-top:2px}
+.ist{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--ink3);margin-top:6px}
+.ist b{color:var(--ink)}
+.ist.up b{color:var(--warn)}.ist.dn b{color:var(--ok)}
+.ist button{font:inherit;font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:999px;border:1px solid var(--line);background:transparent;color:var(--ink2);cursor:pointer;margin-left:auto}
+.ist.none{color:var(--ink3);opacity:.7}
+.istbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12.5px;color:var(--ink2);background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:10px 0 12px}
+.istbar b{color:var(--ink)}
 .scen{display:flex;gap:6px;margin-bottom:10px}.scen button{font:inherit;font-size:12px;font-weight:700;padding:6px 10px;border-radius:999px;border:1px solid var(--line);background:transparent;color:var(--ink2);cursor:pointer}.scen button.on{background:var(--flame);border-color:var(--flame);color:#fff}
 @media (max-width:900px){.how,.fc-wrap{grid-template-columns:1fr}}
 .modeswitch{display:inline-flex;border:1px solid var(--line);border-radius:999px;overflow:hidden;margin-left:8px}.modeswitch button{font:inherit;font-size:12px;font-weight:700;padding:5px 12px;border:0;background:transparent;color:var(--ink2);cursor:pointer}.modeswitch button.on{background:var(--panel2);color:var(--ink)}
 @media (max-width:900px){.simple{grid-template-columns:1fr}.prev{position:static}}
+.grp{border:1px solid var(--line);border-radius:12px;margin-bottom:10px;overflow:hidden;background:var(--panel2)}
+.grp>summary{list-style:none;cursor:pointer;padding:13px 16px;display:flex;align-items:center;gap:10px;font-weight:800;font-size:14px;user-select:none}
+.grp>summary::-webkit-details-marker{display:none}
+.grp>summary .ch{margin-left:auto;color:var(--ink3);font-size:12px;font-weight:500;transition:transform .2s}
+.grp[open]>summary .ch{transform:rotate(90deg)}
+.grp>summary .ic{width:28px;height:28px;border-radius:8px;display:flex;align-items:center;justify-content:center;background:color-mix(in srgb,var(--flame) 12%,transparent);border:1px solid color-mix(in srgb,var(--flame) 30%,transparent);color:var(--flame);flex:none}
+.grp>summary .ic svg{width:16px;height:16px}
+.grp>summary small{font-weight:500;color:var(--ink3);font-size:12px}
+.grp .body{padding:0 16px 14px}
+.chg{display:inline-block;font-size:10px;font-weight:800;padding:1px 7px;border-radius:999px;background:var(--flame);color:#fff;margin-left:6px}
+.hint{font-size:12px;color:var(--ink3);margin:0 0 10px;line-height:1.45}
+.f label .q{cursor:help;color:var(--ink3);font-weight:500;margin-left:4px}
+.warnbox{font-size:12px;color:var(--warn);background:color-mix(in srgb,var(--warn) 12%,transparent);border-radius:8px;padding:8px 10px;margin-top:8px}
+.searchbox{width:100%;font:inherit;font-size:13px;padding:9px 12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink);margin-bottom:10px}
+.f.hidden{display:none}
 .set{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px}
 .set label{display:block;font-size:11px;color:var(--ink3);font-weight:700;margin-bottom:4px}
 .set .f{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
@@ -286,7 +340,8 @@ td.r,th.r{text-align:right;font-variant-numeric:tabular-nums}
 .tk{display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:start;padding:14px 0;border-top:1px solid var(--line)}
 .tk:first-of-type{border-top:0}
 .tk .ic{width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px;color:#111}
-.tk.submit .ic{background:var(--flame);color:#fff}.tk.join .ic{background:var(--gold)}.tk.footage .ic{background:var(--violet);color:#fff}.tk.review .ic{background:var(--warn)}.tk.calibrate .ic{background:var(--line);color:var(--ink)}
+.tk .ic{background:color-mix(in srgb,var(--flame) 12%,transparent);border:1px solid color-mix(in srgb,var(--flame) 30%,transparent);color:var(--flame)}
+.tk .ic svg{width:17px;height:17px}
 .tk .ti{font-weight:800;font-size:14px}.tk .td{font-size:12px;color:var(--ink3);margin-top:2px}
 .tk .tools{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
 .tk .tools a,.tk .tools button{font:inherit;font-size:12px;font-weight:700;padding:6px 11px;border-radius:8px;border:1px solid var(--line);background:var(--panel2);color:var(--ink);cursor:pointer}
@@ -442,21 +497,21 @@ const DEMO={month:"2026-09",currency:"USD",eur_rate:0.92,goal_monthly:2000,
    mrbeast:{mode:"review",platforms:["tiktok"],posts_per_day:5,slots:["12:00","15:00","18:00","20:30","22:30"],min_gap_min:90,fan_ratio:60,
     cut:{min_s:15,max_s:35,cold_open:true,pad_start_ms:120,pad_end_ms:250,silence_trim_s:0.6,word_boundary:true,end_style:"freeze"},
     select:{candidates:20,render_top:8,dedupe_s:25,weights:{surprise:2,stakes:2,reaction:1,cliffhanger:2,context:2,clarity:2},min_score:7,context_line:true},
-    visual:{font:"Anton",color:"#FFFFFF",accent:"#FF6A00",outline_px:5,hook_y_pct:68,hook_max_words:8,hook_max_lines:2,zoom_pct:8,zoom_max_per_clip:2,zoom_ease_ms:400,safe_top_px:140,safe_bottom_px:400,safe_right_px:180,cover_text:true,hook_size:52,hook_weight:800,hook_spacing:-1,hook_line_h:1.05,hook_align:"center",hook_x_pct:50,hook_w_pct:84,hook_case:"upper",box:"none",box_color:"#000000",box_opacity:55,box_pad:10,box_radius:10,shadow:2,anim:"pop",accent_mode:"last2"},
+    visual:{font:"Anton",color:"#FFFFFF",accent:"#FF6A00",outline_px:5,hook_y_pct:68,hook_max_words:8,hook_max_lines:2,zoom_pct:8,zoom_max_per_clip:2,zoom_ease_ms:400,safe_top_px:140,safe_bottom_px:400,safe_right_px:180,cover_text:true,hook_size:52,hook_weight:800,hook_spacing:-1,hook_line_h:1.05,hook_align:"center",hook_x_pct:50,hook_w_pct:84,hook_case:"upper",box:"none",box_color:"#000000",box_opacity:55,box_pad:10,box_radius:10,shadow:2,anim:"pop",accent_mode:"last2",cover:{mode:"hook",text:"",font:"Anton",size:64,weight:800,color:"#FFFFFF",accent:"#FF6A00",case:"upper",align:"center",y_pct:30,x_pct:50,w_pct:86,max_words:5,lines:3,outline_px:5,shadow:3,box:"none",box_color:"#000000",box_opacity:45,box_pad:10,box_radius:12,frame:"motion",frame_skip_s:3,dim:25},overlay:{show:"auto",text:"",font:"Montserrat",size:34,weight:800,color:"#FFFFFF",case:"none",y_pct:12,x_pct:50,w_pct:84,align:"center",box:"solid",box_color:"#000000",box_opacity:55,box_pad:8,box_radius:8,outline_px:0,shadow:1,lines:2,anim:"none",duration:0}},
     audio:{lufs:-14,true_peak:-1.5,normalize:true},
     caption:{template:"{hook} · Credit @mrbeast #mrbeast",hashtags:["#mrbeast"],pinned_comment:true,tone:"knapp"},
     qa:{threshold:7,checks:{hook_legible:true,no_overlap:true,face_in_frame:true,not_blurry:true,safe_zone:true}}},
    gaming:{mode:"review",platforms:["tiktok"],posts_per_day:4,slots:["13:00","17:00","20:00","22:00"],min_gap_min:120,fan_ratio:40,
     cut:{min_s:20,max_s:40,cold_open:true,pad_start_ms:80,pad_end_ms:200,silence_trim_s:0.5,word_boundary:false,end_style:"cut"},
     select:{candidates:20,render_top:8,dedupe_s:20,weights:{surprise:2,stakes:2,reaction:2,cliffhanger:1,context:2,clarity:2},min_score:7,context_line:true},
-    visual:{font:"Bebas Neue",color:"#FFFFFF",accent:"#8B5CF6",outline_px:4,hook_y_pct:66,hook_max_words:7,hook_max_lines:2,zoom_pct:6,zoom_max_per_clip:3,zoom_ease_ms:300,safe_top_px:140,safe_bottom_px:400,safe_right_px:180,cover_text:true,hook_size:52,hook_weight:800,hook_spacing:-1,hook_line_h:1.05,hook_align:"center",hook_x_pct:50,hook_w_pct:84,hook_case:"upper",box:"none",box_color:"#000000",box_opacity:55,box_pad:10,box_radius:10,shadow:2,anim:"pop",accent_mode:"last2"},
+    visual:{font:"Bebas Neue",color:"#FFFFFF",accent:"#8B5CF6",outline_px:4,hook_y_pct:66,hook_max_words:7,hook_max_lines:2,zoom_pct:6,zoom_max_per_clip:3,zoom_ease_ms:300,safe_top_px:140,safe_bottom_px:400,safe_right_px:180,cover_text:true,hook_size:52,hook_weight:800,hook_spacing:-1,hook_line_h:1.05,hook_align:"center",hook_x_pct:50,hook_w_pct:84,hook_case:"upper",box:"none",box_color:"#000000",box_opacity:55,box_pad:10,box_radius:10,shadow:2,anim:"pop",accent_mode:"last2",cover:{mode:"hook",text:"",font:"Anton",size:64,weight:800,color:"#FFFFFF",accent:"#FF6A00",case:"upper",align:"center",y_pct:30,x_pct:50,w_pct:86,max_words:5,lines:3,outline_px:5,shadow:3,box:"none",box_color:"#000000",box_opacity:45,box_pad:10,box_radius:12,frame:"motion",frame_skip_s:3,dim:25},overlay:{show:"auto",text:"",font:"Montserrat",size:34,weight:800,color:"#FFFFFF",case:"none",y_pct:12,x_pct:50,w_pct:84,align:"center",box:"solid",box_color:"#000000",box_opacity:55,box_pad:8,box_radius:8,outline_px:0,shadow:1,lines:2,anim:"none",duration:0}},
     audio:{lufs:-14,true_peak:-1.5,normalize:true},
     caption:{template:"{hook} #gaming",hashtags:["#gaming"],pinned_comment:true,tone:"locker"},
     qa:{threshold:7,checks:{hook_legible:true,no_overlap:true,face_in_frame:false,not_blurry:true,safe_zone:true}}},
    film:{mode:"review",platforms:["tiktok"],posts_per_day:3,slots:["14:00","19:00","22:00"],min_gap_min:120,fan_ratio:50,
     cut:{min_s:15,max_s:30,cold_open:true,pad_start_ms:120,pad_end_ms:250,silence_trim_s:0.7,word_boundary:true,end_style:"cut"},
     select:{candidates:16,render_top:6,dedupe_s:30,weights:{surprise:2,stakes:1,reaction:2,cliffhanger:2,context:2,clarity:2},min_score:7,context_line:true},
-    visual:{font:"Montserrat",color:"#FFFFFF",accent:"#3DD68C",outline_px:4,hook_y_pct:68,hook_max_words:8,hook_max_lines:2,zoom_pct:5,zoom_max_per_clip:2,zoom_ease_ms:400,safe_top_px:140,safe_bottom_px:400,safe_right_px:180,cover_text:true,hook_size:52,hook_weight:800,hook_spacing:-1,hook_line_h:1.05,hook_align:"center",hook_x_pct:50,hook_w_pct:84,hook_case:"upper",box:"none",box_color:"#000000",box_opacity:55,box_pad:10,box_radius:10,shadow:2,anim:"pop",accent_mode:"last2"},
+    visual:{font:"Montserrat",color:"#FFFFFF",accent:"#3DD68C",outline_px:4,hook_y_pct:68,hook_max_words:8,hook_max_lines:2,zoom_pct:5,zoom_max_per_clip:2,zoom_ease_ms:400,safe_top_px:140,safe_bottom_px:400,safe_right_px:180,cover_text:true,hook_size:52,hook_weight:800,hook_spacing:-1,hook_line_h:1.05,hook_align:"center",hook_x_pct:50,hook_w_pct:84,hook_case:"upper",box:"none",box_color:"#000000",box_opacity:55,box_pad:10,box_radius:10,shadow:2,anim:"pop",accent_mode:"last2",cover:{mode:"hook",text:"",font:"Anton",size:64,weight:800,color:"#FFFFFF",accent:"#FF6A00",case:"upper",align:"center",y_pct:30,x_pct:50,w_pct:86,max_words:5,lines:3,outline_px:5,shadow:3,box:"none",box_color:"#000000",box_opacity:45,box_pad:10,box_radius:12,frame:"motion",frame_skip_s:3,dim:25},overlay:{show:"auto",text:"",font:"Montserrat",size:34,weight:800,color:"#FFFFFF",case:"none",y_pct:12,x_pct:50,w_pct:84,align:"center",box:"solid",box_color:"#000000",box_opacity:55,box_pad:8,box_radius:8,outline_px:0,shadow:1,lines:2,anim:"none",duration:0}},
     audio:{lufs:-14,true_peak:-1.5,normalize:true},
     caption:{template:"{hook}",hashtags:[],pinned_comment:true,tone:"knapp"},
     qa:{threshold:7,checks:{hook_legible:true,no_overlap:true,face_in_frame:true,not_blurry:true,safe_zone:true}}}},
@@ -481,7 +536,7 @@ let INSTALL=null;
 let LIB=null, libQ="", libStatus="all", libSort="new", libAcc="all", libSrc="all", libScore=0;
 let CAL=null, calWeek=0, calDay=new Date().toISOString().slice(0,10), calSel=null;
 let REP=null, LOG=null, logCat="all", logQ="", INB=null, inbFilter="open", inbKind="all", CHAT={id:null,msgs:[],busy:false,budget:null};
-let cfg=(CONFIG.apiUrl&&CONFIG.apiKey)?{...CONFIG}:null, DATA=null, DEMO_MODE=false, sortKey="earnings_30d", setNiche=null, PEND=null, expert=false, pvAcc="", pvUI=true, pvZoom=true, pvSrc="clip", howSel=-1, howSub=-1, fcScen="konsequent", FC=null;
+let cfg=(CONFIG.apiUrl&&CONFIG.apiKey)?{...CONFIG}:null, DATA=null, DEMO_MODE=false, sortKey="earnings_30d", setNiche=null, PEND=null, SAVED=null, OPEN={posting:true}, expert=false, pvAcc="", pvUI=true, pvZoom=true, pvSrc="clip", howSel=-1, howSub=-1, fcScen="konsequent", FC=null;
 const get=(o,p)=>p.split(".").reduce((x,k)=>x?.[k],o);
 const setp=(o,p,v)=>{const ks=p.split(".");let x=o;ks.slice(0,-1).forEach(k=>{x[k]=x[k]||{};x=x[k]});x[ks.at(-1)]=v};
 const flatten=(o,pre="")=>Object.entries(o||{}).reduce((a,[k,v])=>{const kk=pre?pre+"."+k:k;if(v&&typeof v==="object"&&!Array.isArray(v))Object.assign(a,flatten(v,kk));else a[kk]=Array.isArray(v)?v.join(","):v;return a},{});
@@ -493,7 +548,7 @@ const av=(a,d)=>`<span class="av" style="background:${nicheOf(d,a.niche)?.color|
 
 const PAGE_TITLES={home:"Übersicht",pipeline:"Pipeline",review:"Clip-Vorschau",settings:"Feinjustierung",tasks:"Aufgaben",report:"Wochenbericht",library:"Clip-Bibliothek",payouts:"Auszahlungen",calendar:"Kalender",chat:"Chat",inbox:"Posteingang",log:"Ereignis-Log",start:"Erste Schritte",how:"So funktioniert es",forecast:"Hochrechnung"};
 function nav(d){const r=route();const cur=r.startsWith("n:")?(nicheOf(d,r.slice(2))?.label||"Nische"):r.startsWith("chat")?"Chat":(PAGE_TITLES[r]||"ClipForge");
-  $("#nav").innerHTML=`<div class="navbar"><div class="brand"><i></i>ClipForge</div><span class="navcur">${cur}</span><button class="burger" id="burger" aria-label="Menü"><i></i><i></i><i></i></button></div><div class="navlist" id="navlist">
+  $("#nav").innerHTML=`<div class="navbar"><div class="brand"><span class="mk"><svg viewBox="0 0 24 24" fill="none"><path d="M13.4 2.2c.6 3.1-.7 4.6-2.3 6.2-1.7 1.7-3.6 3.4-3.6 6.3A6.5 6.5 0 0 0 14 21.2c3.4-.6 5.6-3.4 5.6-6.7 0-4.3-3.2-6.3-3.9-9.6-1 .9-1.6 2-1.8 3.2-.9-2.2-.9-4.2-.5-5.9z" fill="#fff" fill-opacity=".95"/><path d="M12.2 10.6l-2.4 4.1h2.1l-1 3.6 3.2-4.5h-2.1l1.1-3.2z" fill="#FF5A1F"/></svg></span>ClipForge</div><span class="navcur">${cur}</span><button class="burger" id="burger" aria-label="Menü"><i></i><i></i><i></i></button></div><div class="navlist" id="navlist">
   <a class="nl ${r==="home"?"on":""}" href="#home">Übersicht<small>${d.accounts.length} Accounts</small></a>
   <a class="nl ${r==="pipeline"?"on":""}" href="#pipeline">Pipeline<small>${d.pipeline?.jobs?.length||0} aktiv</small></a>
   <div class="nh">Nischen</div>
@@ -593,11 +648,13 @@ function page(d){const r=route(); nav(d);
       <div class="act"><button class="ok" data-act="approve">Freigeben → nächster Slot</button><button class="re" data-act="redo">Neu schneiden</button><button class="no" data-act="reject">Verwerfen</button><input placeholder="Feedback in eigenen Worten (optional) …"></div></div></div>`).join("")||`<div class="empty">Keine Clips in der Vorschau – Accounts im Modus „auto" posten direkt.</div>`}</section>`;
   } else if(r==="settings"){const st=d.settings||{global:{},niches:{},accounts:{}};
     const keys=Object.keys(st.niches);if(!setNiche||!st.niches[setNiche])setNiche=keys[0];const N=st.niches[setNiche]||{};const n=nicheOf(d,setNiche);
-    const R=(path,label,min,max,step,unit="")=>{const v=get(N,path);return `<div class="f"><label>${label}<span class="v">${v}${unit}</span></label><input type="range" min="${min}" max="${max}" step="${step}" value="${v}" data-p="${path}" data-unit="${unit}"></div>`};
-    const T=(path,label,on="an",off="aus")=>{const v=get(N,path);return `<div class="f"><label>${label}</label><div class="seg"><button class="${v?"on":""}" data-p="${path}" data-v="true">${on}</button><button class="${v?"":"on"}" data-p="${path}" data-v="false">${off}</button></div></div>`};
-    const S=(path,label,opts)=>{const v=get(N,path);return `<div class="f"><label>${label}</label><select data-p="${path}">${opts.map(o=>`<option ${v===o?"selected":""}>${o}</option>`).join("")}</select></div>`};
-    const X=(path,label)=>`<div class="f"><label>${label}</label><input type="text" value="${get(N,path)}" data-p="${path}"></div>`;
-    const C=(path,label)=>`<div class="f"><label>${label}</label><input type="color" value="${get(N,path)}" data-p="${path}"></div>`;
+    const dirty=(path)=>{const a=get(st.niches[setNiche],path),b=get(SAVED?.niches?.[setNiche]||{},path);return SAVED&&JSON.stringify(a)!==JSON.stringify(b)};
+    const G=(id,icon,title,sub,body,warn)=>`<details class="grp" ${OPEN[id]?"open":""} data-grp="${id}"><summary><span class="ic">${icon}</span>${title}<small style="margin-left:8px">${sub}</small><span class="ch">›</span></summary><div class="body">${warn?`<div class="warnbox">${warn}</div>`:""}<div class="set">${body}</div></div></details>`;
+    const R=(path,label,min,max,step,unit="")=>{const v=get(N,path);return `<div class="f" data-search="${label.toLowerCase()}"><label>${label}${TIP[path]?`<span class="q" title="${TIP[path]}">?</span>`:""}${dirty(path)?`<span class="chg">geändert</span>`:""}<span class="v">${v}${unit}</span></label><input type="range" min="${min}" max="${max}" step="${step}" value="${v}" data-p="${path}" data-unit="${unit}"></div>`};
+    const T=(path,label,on="an",off="aus")=>{const v=get(N,path);return `<div class="f" data-search="${label.toLowerCase()}"><label>${label}${TIP[path]?`<span class="q" title="${TIP[path]}">?</span>`:""}${dirty(path)?`<span class="chg">geändert</span>`:""}</label><div class="seg"><button class="${v?"on":""}" data-p="${path}" data-v="true">${on}</button><button class="${v?"":"on"}" data-p="${path}" data-v="false">${off}</button></div></div>`};
+    const S=(path,label,opts)=>{const v=get(N,path);return `<div class="f" data-search="${label.toLowerCase()}"><label>${label}${TIP[path]?`<span class="q" title="${TIP[path]}">?</span>`:""}${dirty(path)?`<span class="chg">geändert</span>`:""}</label><select data-p="${path}">${opts.map(o=>`<option ${v===o?"selected":""}>${o}</option>`).join("")}</select></div>`};
+    const X=(path,label)=>`<div class="f" data-search="${label.toLowerCase()}"><label>${label}${dirty(path)?`<span class="chg">geändert</span>`:""}</label><input type="text" value="${get(N,path)}" data-p="${path}"></div>`;
+    const C=(path,label)=>`<div class="f" data-search="${label.toLowerCase()}"><label>${label}${dirty(path)?`<span class="chg">geändert</span>`:""}</label><input type="color" value="${get(N,path)}" data-p="${path}"></div>`;
     const accs=d.accounts.filter(a=>a.niche===setNiche);
     html=`<div class="top"><h1>Feinjustierung</h1><div class="meta">gilt für alle Accounts der Kategorie · Accounts können einzeln abweichen <button class="save" id="save">Speichern</button></div></div>${banner}
     <div class="tabs" style="margin-bottom:14px">${keys.map(kk=>`<button class="tab ${kk===setNiche?"on":""}" data-niche="${kk}"><span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${nicheOf(d,kk)?.color||"#888"};margin-right:6px"></span>${nicheOf(d,kk)?.label||kk}</button>`).join("")}
@@ -607,45 +664,64 @@ function page(d){const r=route(); nav(d);
     ${abPanel(d)}
     ${expert?"":simpleView(N,n,d)}
     ${expert?`<div class="simple"><div id="expertwrap">`:`<div id="expertwrap" style="display:none">`}
-    <section><h2>Posting <span>${n?.label||""}</span></h2><div class="set">
+    <input class="searchbox" id="setsearch" placeholder="Einstellung suchen … (z. B. Zoom, Hook, Lautheit)">
+    ${G("posting",ICO.posting,"Posting","wann und wie oft",`
       <div class="f"><label>Freigabe</label><div class="seg"><button class="${N.mode==="review"?"on":""}" data-p="mode" data-v="review">Erst Vorschau</button><button class="${N.mode==="auto"?"on":""}" data-p="mode" data-v="auto">Automatisch</button></div></div>
       ${R("posts_per_day","Posts pro Tag",1,8,1)}${R("min_gap_min","Mindestabstand",30,240,10," min")}${R("fan_ratio","Anteil Fan-Content",0,100,10," %")}${R("stock_days","Vorrat in Tagen",1,14,1," Tage")}
-      ${X("slots","Slots (Uhrzeiten, Komma)")}<div class="f"><label>Plattformen</label>${["tiktok","instagram","youtube"].map(pl=>`<label style="display:inline-flex;align-items:center;gap:6px;margin-right:10px;font-size:13px;color:var(--ink)"><input type="checkbox" data-pl="${pl}" ${(N.platforms||[]).includes(pl)?"checked":""}>${pl}</label>`).join("")}</div>
-    </div></section>
+      ${X("slots","Slots (Uhrzeiten, Komma)")}<div class="f" data-search="plattformen"><label>Plattformen</label>${["tiktok","instagram","youtube"].map(pl=>`<label style="display:inline-flex;align-items:center;gap:6px;margin-right:10px;font-size:13px;color:var(--ink)"><input type="checkbox" data-pl="${pl}" ${(N.platforms||[]).includes(pl)?"checked":""}>${pl}</label>`).join("")}</div>
+    `,SET_WARN.posting(N))}
 
-    <section><h2>Momentwahl <span>Gewichte 0–3 · was einen guten Moment ausmacht</span></h2><div class="set">
+    ${G("moment",ICO.moment,"Momentwahl","was die KI sucht",`
       ${R("select.candidates","Kandidaten pro Video",6,40,2)}${R("select.render_top","davon rendern",2,16,1)}${R("select.dedupe_s","Mindestabstand Momente",10,60,5," s")}${R("select.min_score","Mindest-Score",4,10,0.5)}
       ${R("select.weights.surprise","Überraschung",0,3,1)}${R("select.weights.stakes","Einsatz sichtbar",0,3,1)}${R("select.weights.reaction","Reaktion",0,3,1)}${R("select.weights.cliffhanger","Cliffhanger",0,3,1)}${R("select.weights.context","Ohne Kontext verständlich",0,3,1)}${R("select.weights.clarity","Klarheit Sekunde 1",0,3,1)}
       ${T("select.context_line","Kontext-Zeile in eigenen Worten (Originalität)")}
-    </div></section>
+    `,SET_WARN.moment(N))}
 
-    <section><h2>Schnitt</h2><div class="set">
+    ${G("cut",ICO.cut,"Schnitt","Länge, Cuts, Stille",`
       ${R("cut.min_s","Clip mindestens",8,40,1," s")}${R("cut.max_s","Clip höchstens",15,90,1," s")}${T("cut.cold_open","Cold Open (kein Teaser)")}${T("cut.word_boundary","Schnitt auf Wortgrenzen")}
       ${R("cut.pad_start_ms","Puffer vor erstem Wort",0,400,10," ms")}${R("cut.pad_end_ms","Puffer nach letztem Wort",0,600,10," ms")}${R("cut.silence_trim_s","Stille trimmen ab",0.3,1.5,0.1," s")}${S("cut.end_style","Ende",["freeze","cut","none"])}
-    </div></section>
+    `,SET_WARN.cut(N))}
 
-    <section><h2>Hook-Text <span>Schrift, Größe, Lage, Box – alles live rechts sichtbar</span></h2><div class="set">
+    ${G("hook",ICO.hook,"Hook-Text","der Satz im Clip",`
       ${S("visual.font","Schrift",["Anton","Bangers","Bebas Neue","Luckiest Guy","Montserrat","Oswald","Archivo Black"])}${R("visual.hook_size","Schriftgröße",28,96,2," px")}${R("visual.hook_weight","Dicke",400,900,100)}${R("visual.hook_spacing","Buchstabenabstand",-3,4,0.5," px")}
       ${R("visual.hook_line_h","Zeilenhöhe",0.9,1.4,0.05)}${S("visual.hook_case","Großschreibung",["upper","none"])}${S("visual.hook_align","Ausrichtung",["left","center","right"])}${R("visual.hook_max_lines","Max. Zeilen",1,3,1)}
       ${R("visual.hook_y_pct","Höhe (Position)",50,72,1," %")}${R("visual.hook_x_pct","Horizontale Mitte",20,80,1," %")}${R("visual.hook_w_pct","Breite der Textbox",40,92,1," %")}${R("visual.hook_max_words","Max. Wörter",4,12,1)}
       ${C("visual.color","Textfarbe")}${C("visual.accent","Akzentfarbe")}${S("visual.accent_mode","Akzent auf",["none","last2","first","keyword"])}${R("visual.outline_px","Outline",0,8,1," px")}
       ${R("visual.shadow","Schatten",0,6,1)}${S("visual.box","Hintergrund-Box",["none","solid","blur"])}${C("visual.box_color","Box-Farbe")}${R("visual.box_opacity","Box-Deckkraft",0,100,5," %")}
-      ${R("visual.box_pad","Box-Innenabstand",0,30,2," px")}${R("visual.box_radius","Box-Rundung",0,30,2," px")}${S("visual.anim","Einblendung",["none","pop","slide","typewriter"])}${T("visual.cover_text","Hook-Text auf Cover")}
-    </div></section>
-    <section><h2>Bild & Bewegung</h2><div class="set">
-      ${R("visual.zoom_pct","Punch-in-Zoom",0,12,1," %")}${R("visual.zoom_max_per_clip","Zooms pro Clip max.",0,4,1)}${R("visual.zoom_ease_ms","Zoom-Einlauf",100,800,50," ms")}
-      ${R("visual.safe_top_px","Safe-Zone oben",80,220,10," px")}${R("visual.safe_bottom_px","Safe-Zone unten",250,500,10," px")}${R("visual.safe_right_px","Safe-Zone rechts",100,240,10," px")}
-    </div></section>
+      ${R("visual.box_pad","Box-Innenabstand",0,30,2," px")}${R("visual.box_radius","Box-Rundung",0,30,2," px")}${S("visual.anim","Einblendung",["none","pop","slide","typewriter"])}
+    `,SET_WARN.hook(N))}
 
-    <section><h2>Ton & Caption</h2><div class="set">
+    ${G("overlay",ICO.overlay,"Overlay oben","Pflichttext der Kampagne",`
+      ${S("visual.overlay.show","Anzeigen",["auto","always","never"])}${X("visual.overlay.text","Eigener Text (leer = Kampagnentext)")}${S("visual.overlay.font","Schrift",["Anton","Bangers","Bebas Neue","Luckiest Guy","Montserrat","Oswald","Archivo Black"])}${R("visual.overlay.size","Schriftgröße",18,64,2," px")}
+      ${R("visual.overlay.weight","Dicke",400,900,100)}${S("visual.overlay.case","Großschreibung",["upper","none"])}${S("visual.overlay.align","Ausrichtung",["left","center","right"])}${R("visual.overlay.lines","Max. Zeilen",1,4,1)}
+      ${R("visual.overlay.y_pct","Höhe (Position)",8,30,1," %")}${R("visual.overlay.x_pct","Horizontale Mitte",20,80,1," %")}${R("visual.overlay.w_pct","Breite",40,92,1," %")}${C("visual.overlay.color","Textfarbe")}
+      ${S("visual.overlay.box","Hintergrund-Box",["none","solid","blur"])}${C("visual.overlay.box_color","Box-Farbe")}${R("visual.overlay.box_opacity","Box-Deckkraft",0,100,5," %")}${R("visual.overlay.box_pad","Innenabstand",0,24,2," px")}
+      ${R("visual.overlay.box_radius","Rundung",0,24,2," px")}${R("visual.overlay.outline_px","Outline",0,6,1," px")}${R("visual.overlay.shadow","Schatten",0,6,1)}${S("visual.overlay.anim","Einblendung",["none","fade","slide"])}
+      ${R("visual.overlay.duration","Nur erste … Sekunden (0 = ganzer Clip)",0,15,1," s")}
+    `,SET_WARN.overlay(N))}
+
+    ${G("cover",ICO.cover,"Cover","Standbild im Profil",`
+      ${S("visual.cover.mode","Cover-Text",["hook","custom","none"])}${X("visual.cover.text","Eigener Text (bei custom)")}${S("visual.cover.frame","Standbild wählen",["motion","face","first","manual"])}${R("visual.cover.frame_skip_s","Erste Sekunden überspringen",0,15,1," s")}
+      ${S("visual.cover.font","Schrift",["Anton","Bangers","Bebas Neue","Luckiest Guy","Montserrat","Oswald","Archivo Black"])}${R("visual.cover.size","Schriftgröße",32,120,4," px")}${R("visual.cover.weight","Dicke",400,900,100)}${S("visual.cover.case","Großschreibung",["upper","none"])}
+      ${R("visual.cover.max_words","Max. Wörter",2,10,1)}${R("visual.cover.lines","Max. Zeilen",1,4,1)}${S("visual.cover.align","Ausrichtung",["left","center","right"])}${R("visual.cover.w_pct","Breite",40,92,1," %")}
+      ${R("visual.cover.y_pct","Höhe (Position)",10,80,1," %")}${R("visual.cover.x_pct","Horizontale Mitte",20,80,1," %")}${C("visual.cover.color","Textfarbe")}${C("visual.cover.accent","Akzentfarbe")}
+      ${R("visual.cover.outline_px","Outline",0,10,1," px")}${R("visual.cover.shadow","Schatten",0,8,1)}${R("visual.cover.dim","Bild abdunkeln",0,60,5," %")}${S("visual.cover.box","Box hinter Text",["none","solid","blur"])}
+      ${C("visual.cover.box_color","Box-Farbe")}${R("visual.cover.box_opacity","Box-Deckkraft",0,100,5," %")}${R("visual.cover.box_pad","Innenabstand",0,30,2," px")}${R("visual.cover.box_radius","Rundung",0,30,2," px")}
+    `)}
+
+    ${G("motion",ICO.motion,"Bild & Bewegung","Zoom und Safe-Zones",`
+      ${R("visual.zoom_pct","Punch-in-Zoom",0,12,1," %")}${R("visual.zoom_max_per_clip","Zooms pro Clip max.",0,4,1)}${R("visual.zoom_ease_ms","Zoom-Einlauf",100,800,50," ms")}${T("visual.cover_text","Hook-Text auf Cover (alt)")}
+      ${R("visual.safe_top_px","Safe-Zone oben",80,220,10," px")}${R("visual.safe_bottom_px","Safe-Zone unten",250,500,10," px")}${R("visual.safe_right_px","Safe-Zone rechts",100,240,10," px")}
+    `)}
+
+    ${G("audio",ICO.audio,"Ton & Caption","Lautheit und Text unter dem Post",`
       ${T("audio.normalize","Lautheit normalisieren")}${R("audio.lufs","Ziel-Lautheit",-20,-10,0.5," LUFS")}${R("audio.true_peak","True Peak",-3,-0.5,0.5," dBTP")}
       ${X("caption.template","Caption-Vorlage ({hook} = Hook)")}${X("caption.hashtags","Hashtags (Komma)")}${S("caption.tone","Tonalität",["knapp","locker","dramatisch"])}${T("caption.pinned_comment","Angepinnten Kommentar vorschlagen")}
-    </div></section>
+    `)}
 
-    <section><h2>Qualitätsprüfung <span>Clips unter Schwelle werden verworfen</span></h2><div class="set">
+    ${G("qa",ICO.qa,"Qualitätsprüfung","was verworfen wird",`
       ${R("qa.threshold","QA-Schwelle",5,9.5,0.5)}${T("qa.checks.hook_legible","Hook lesbar")}${T("qa.checks.no_overlap","Keine Textüberlappung")}${T("qa.checks.face_in_frame","Gesicht im Rahmen")}${T("qa.checks.not_blurry","Schärfe")}${T("qa.checks.safe_zone","Safe-Zones")}
-    </div></section>
-
+    `)}
     </div>${expert?`<div class="prev" id="prev">${previewPanel(N,n,d)}</div></div>`:""}
     <section><h2>Abweichungen pro Account <span>leer = erbt von „${n?.label||""}"</span></h2>${accs.map(a=>{const o=st.accounts[a.id]||{};const flat=flatten(o);const keysO=Object.keys(flat);return `<div class="src"><div class="t"><b>${a.id} · ${a.handle}</b><span>${keysO.length?keysO.length+" Abweichung(en)":"erbt alles"}</span></div>${keysO.length?`<div class="sc">${keysO.map(kk=>`<span>${kk} <b>${flat[kk]}</b> <button data-clr="${a.id}|${kk}" style="border:0;background:transparent;color:var(--bad);cursor:pointer;font-weight:800">×</button></span>`).join("")}</div>`:""}<div class="act"><select data-ov="${a.id}"><option value="">Abweichung hinzufügen …</option>${["visual.font","visual.color","visual.accent","visual.zoom_pct","visual.hook_y_pct","caption.tone","caption.template","posts_per_day","fan_ratio","mode","cut.min_s","cut.max_s"].map(kk=>`<option>${kk}</option>`).join("")}</select><input placeholder="Wert" data-ovv="${a.id}" style="max-width:160px"><button data-ovadd="${a.id}">Setzen</button></div></div>`}).join("")}</section>`;
   } else if(r==="how"){
@@ -747,7 +823,12 @@ function reportBody(rep,d){const t=rep.totals,p=rep.prev||{};
 function wireReport(d){document.querySelectorAll("[data-week]").forEach(b=>b.onclick=async()=>{if(DEMO_MODE||!cfg)return;const st=$("#repstat");if(st)st.textContent="lädt …";
   try{const r=await fetch(cfg.apiUrl+"/report?week="+encodeURIComponent(b.dataset.week),{headers:{"x-api-key":cfg.apiKey}});REP=await r.json();page(d)}catch(e){if(st)st.textContent="Fehler: "+e.message}})}
 
-function taskCard(t,d){const n=nicheOf(d,t.niche);const icon={submit:"↥",join:"+",footage:"▲",review:"!",calibrate:"⚙"}[t.kind]||"•";
+function taskCard(t,d){const n=nicheOf(d,t.niche);const TICO={submit:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M6 11l6-6 6 6"/></svg>`,
+  join:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>`,
+  footage:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="13" height="12" rx="2.5"/><path d="M16 10l5-3v10l-5-3"/></svg>`,
+  review:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 8v5M12 16.5v.5"/><circle cx="12" cy="12" r="9"/></svg>`,
+  calibrate:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 8h14M5 16h14"/><circle cx="9" cy="8" r="2.2"/><circle cx="15" cy="16" r="2.2"/></svg>`};
+  const icon=TICO[t.kind]||TICO.calibrate;
   let tools="";
   if(t.kind==="submit")tools=`<div class="urls">${(t.urls||[]).join("<br>")}</div><div class="tools"><button class="go" data-copy="${t.id}">Links kopieren</button><a href="${t.campaign_url}" target="_blank" rel="noopener">Vyro öffnen ↗</a></div>`;
   if(t.kind==="join")tools=`<div class="tools"><a class="go" href="${t.campaign_url}" target="_blank" rel="noopener">Kampagne öffnen & Join ↗</a></div>`;
@@ -805,8 +886,20 @@ function simpleView(N,n,d){
     <div class="lbl" style="margin-top:8px"><span>Textbox-Breite</span><span>${get(N,"visual.hook_w_pct")} %</span></div><input type="range" min="40" max="92" value="${get(N,"visual.hook_w_pct")}" data-p="visual.hook_w_pct" data-live="1" data-unit=" %">
     <div class="opts" style="margin-top:10px">${[["none","Ohne Box"],["solid","Farbige Box"],["blur","Glas-Box"]].map(([kk,l])=>`<button class="${get(N,"visual.box")===kk?"on":""}" data-p="visual.box" data-v="${kk}" data-live="1">${l}</button>`).join("")}</div>
     <div class="opts" style="margin-top:6px">${[["none","Keine Animation"],["pop","Pop"],["slide","Slide"],["typewriter","Tippen"]].map(([kk,l])=>`<button class="${get(N,"visual.anim")===kk?"on":""}" data-p="visual.anim" data-v="${kk}" data-live="1">${l}</button>`).join("")}</div></div>`;
+  const ov=`<div class="sc-card"><h3>Text oben (Kampagnen-Pflichttext)</h3><p>Bei bezahlten Kampagnen steht oben der vorgeschriebene Text. Hier stellst du ein, wie er aussieht – rechts siehst du es sofort.</p>
+    <div class="opts">${[["auto","Nur wenn nötig"],["always","Immer zeigen"],["never","Nie"]].map(([kk,l])=>`<button class="${get(N,"visual.overlay.show")===kk?"on":""}" data-p="visual.overlay.show" data-v="${kk}" data-live="1">${l}</button>`).join("")}</div>
+    <div class="lbl" style="margin-top:10px"><span>Größe</span><span>${get(N,"visual.overlay.size")} px</span></div><input type="range" min="18" max="64" step="2" value="${get(N,"visual.overlay.size")}" data-p="visual.overlay.size" data-live="1" data-unit=" px">
+    <div class="lbl" style="margin-top:8px"><span>Höhe</span><span>${get(N,"visual.overlay.y_pct")} %</span></div><input type="range" min="8" max="30" value="${get(N,"visual.overlay.y_pct")}" data-p="visual.overlay.y_pct" data-live="1" data-unit=" %">
+    <div class="opts" style="margin-top:10px">${[["none","Ohne Box"],["solid","Farbige Box"],["blur","Glas-Box"]].map(([kk,l])=>`<button class="${get(N,"visual.overlay.box")===kk?"on":""}" data-p="visual.overlay.box" data-v="${kk}" data-live="1">${l}</button>`).join("")}</div></div>`;
+  const cv=`<div class="sc-card"><h3>Cover im Profil</h3><p>Das Standbild, das andere in deinem Profil-Raster sehen. Ein klarer Satz auf einem starken Bild bringt Follower.</p>
+    <div class="opts">${[["hook","Hook als Titel"],["custom","Eigener Text"],["none","Nur Bild"]].map(([kk,l])=>`<button class="${get(N,"visual.cover.mode")===kk?"on":""}" data-p="visual.cover.mode" data-v="${kk}" data-live="1">${l}</button>`).join("")}</div>
+    <div class="opts" style="margin-top:6px">${[["motion","Bewegtes Bild"],["face","Gesicht"],["first","Erster Frame"]].map(([kk,l])=>`<button class="${get(N,"visual.cover.frame")===kk?"on":""}" data-p="visual.cover.frame" data-v="${kk}" data-live="1">${l}</button>`).join("")}</div>
+    <div class="lbl" style="margin-top:10px"><span>Textgröße</span><span>${get(N,"visual.cover.size")} px</span></div><input type="range" min="32" max="120" step="4" value="${get(N,"visual.cover.size")}" data-p="visual.cover.size" data-live="1" data-unit=" px">
+    <div class="lbl" style="margin-top:8px"><span>Höhe</span><span>${get(N,"visual.cover.y_pct")} %</span></div><input type="range" min="10" max="80" value="${get(N,"visual.cover.y_pct")}" data-p="visual.cover.y_pct" data-live="1" data-unit=" %">
+    <div class="lbl" style="margin-top:8px"><span>Max. Wörter</span><span>${get(N,"visual.cover.max_words")}</span></div><input type="range" min="2" max="10" value="${get(N,"visual.cover.max_words")}" data-p="visual.cover.max_words" data-live="1">
+    <div class="lbl" style="margin-top:8px"><span>Bild abdunkeln</span><span>${get(N,"visual.cover.dim")} %</span></div><input type="range" min="0" max="60" step="5" value="${get(N,"visual.cover.dim")}" data-p="visual.cover.dim" data-live="1" data-unit=" %"></div>`;
   const mode=`<div class="sc-card"><h3>Freigabe</h3><p>„Erst Vorschau": jeder Clip wartet in der Clip-Vorschau auf dein Freigeben und geht dann automatisch in den nächsten Slot. „Automatisch": postet ohne Nachfrage.</p><div class="opts"><button class="${N.mode==="review"?"on":""}" data-p="mode" data-v="review">Erst Vorschau</button><button class="${N.mode==="auto"?"on":""}" data-p="mode" data-v="auto">Automatisch</button></div></div>`;
-  return `<div class="simple"><div>${mode}${moment}${style}${cards}</div><div class="prev" id="prev">${previewPanel(N,n,d)}</div></div>`}
+  return `<div class="simple"><div>${mode}${moment}${style}${ov}${cv}${cards}</div><div class="prev" id="prev">${previewPanel(N,n,d)}</div></div>`}
 function effective(N,d){const o=(d.settings?.accounts||{})[pvAcc]||{};const m=JSON.parse(JSON.stringify(N));Object.entries(flatten(o)).forEach(([k,v])=>setp(m,k,v));return m}
 function sample(d,n){const rv=(d.review||[]).find(c=>c.niche===n?.key&&c.video_url)||(d.review||[]).find(c=>c.niche===n?.key);const po=(d.posts||[]).find(p=>p.niche===n?.key&&p.thumb);return {video:rv?.video_url||"",cover:rv?.cover_url||po?.thumb||"",hook:rv?.hook||""}}
 function previewPanel(N,n,d){const accs=d.accounts.filter(a=>a.niche===n?.key);if(pvAcc&&!accs.some(a=>a.id===pvAcc))pvAcc="";const E=effective(N,d);const sm=sample(d,n);const v=E.visual||{};
@@ -815,8 +908,19 @@ function previewPanel(N,n,d){const accs=d.accounts.filter(a=>a.niche===n?.key);i
   const diff=(()=>{const base=flatten(N),cur=flatten(E);const rows=Object.keys(cur).filter(k=>String(base[k])!==String(cur[k]));return rows.length?`<div class="diff"><b>Abweichungen ${pvAcc}:</b>${rows.map(k=>`<div class="d"><span>${k}</span><span>${cur[k]}</span></div>`).join("")}</div>`:""})();
   return `${tools}<div class="frame" id="frame">${framePreview(E,sm)}</div>
   <div class="pv-grid"><div class="cover" id="coverpv">${coverPreview(E,sm)}</div><div class="cap" style="margin:0">Links: Clip mit Hook, Overlay und Zoom-Bewegung.<br>Unten links: das <b>Cover</b>, wie es im Profil-Raster erscheint.<br>Schraffiert: von TikToks Oberfläche verdeckt.</div></div>${diff}`}
-function coverPreview(E,sm){const v=E.visual||{};const fontcss=fontOf(v.font);const hook=(sm.hook||"The moment the boat started sinking").split(" ").slice(0,v.hook_max_words||8).join(" ");
-  return `${sm.cover?`<img class="bg" src="${sm.cover}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover">`:""}${v.cover_text?`<div class="ct" style="font-family:${fontcss};color:${v.color||"#fff"};font-weight:${v.hook_weight||800};text-transform:${v.hook_case==="none"?"none":"uppercase"}">${hook}</div>`:""}<div class="lb">Cover</div>`}
+function coverPreview(E,sm){const v=E.visual||{};const c=v.cover||{};const sc=150/1080;
+  const base=c.mode==="custom"?(c.text||"Ein starker Satz"):(sm.hook||"The moment the boat started sinking");
+  const words=base.split(" ").slice(0,c.max_words||5);const acc=words.length>2?words.slice(-2).join(" "):"";const head=acc?words.slice(0,-2).join(" ")+" ":words.join(" ");
+  const fs=(c.size||64)*sc*1.15,pad=(c.box_pad??10)*sc,rad=(c.box_radius??12)*sc;
+  const bg=c.box==="solid"?`background:${hexa(c.box_color||"#000",c.box_opacity??45)};`:c.box==="blur"?`background:${hexa(c.box_color||"#000",Math.min(60,c.box_opacity??45))};backdrop-filter:blur(4px);`:"";
+  const txt=c.mode==="none"?"":`<div class="ct" style="top:${c.y_pct??30}%;left:${c.x_pct??50}%;transform:translateX(-50%);width:${c.w_pct??86}%;text-align:${c.align||"center"};font-family:${fontOf(c.font)};font-size:${fs}px;font-weight:${c.weight||800};text-transform:${c.case==="none"?"none":"uppercase"};color:${c.color||"#fff"};-webkit-text-stroke:${Math.min(2.5,(c.outline_px||5)*sc*1.3)}px #000;paint-order:stroke fill;text-shadow:0 ${(c.shadow??3)*0.7}px ${(c.shadow??3)*0.6}px rgba(0,0,0,.85);${bg}padding:${pad}px ${pad*1.3}px;border-radius:${rad}px;line-height:1.02">${head}<span style="color:${c.accent||v.accent||"#FF6A00"}">${acc}</span></div>`;
+  return `${sm.cover?`<img class="bg" src="${sm.cover}">`:""}${c.dim?`<div style="position:absolute;inset:0;background:rgba(0,0,0,${(c.dim||0)/100})"></div>`:""}${txt}<div class="lb">Cover · ${({motion:"Bewegung",face:"Gesicht",first:"1. Frame",manual:"manuell"})[c.frame||"motion"]}</div>`}
+function overlayHtml(N,sc){const o=(N.visual&&N.visual.overlay)||{};if(o.show==="never")return "";
+  const txt=o.text||"The Most Dangerous Games · $1,000,000 · First challenge Sept 14";
+  const fs=(o.size||34)*sc*1.15,pad=(o.box_pad??8)*sc,rad=(o.box_radius??8)*sc;
+  const bg=o.box==="solid"?`background:${hexa(o.box_color||"#000",o.box_opacity??55)};`:o.box==="blur"?`background:${hexa(o.box_color||"#000",Math.min(60,o.box_opacity??55))};backdrop-filter:blur(5px);`:"";
+  const anim={fade:"ovfade .6s ease both",slide:"ovslide .5s ease-out both"}[o.anim]||"none";
+  return `<div class="ovl" style="top:${o.y_pct??12}%;left:${o.x_pct??50}%;transform:translateX(-50%);width:${o.w_pct??84}%;text-align:${o.align||"center"};font-family:${fontOf(o.font||"Montserrat")};font-size:${fs}px;font-weight:${o.weight||800};text-transform:${o.case==="upper"?"uppercase":"none"};color:${o.color||"#fff"};-webkit-text-stroke:${(o.outline_px||0)*sc*1.2}px #000;text-shadow:0 ${(o.shadow??1)*0.8}px ${(o.shadow??1)*0.6}px rgba(0,0,0,.8);${bg}padding:${pad}px ${pad*1.3}px;border-radius:${rad}px;line-height:1.15;animation:${anim}">${txt}</div>`}
 function hexa(hex,op){const h=hex.replace("#","");const r=parseInt(h.slice(0,2),16),g=parseInt(h.slice(2,4),16),b=parseInt(h.slice(4,6),16);return `rgba(${r},${g},${b},${(op||0)/100})`}
 function fontOf(f){return {Oswald:"'Oswald',Impact,sans-serif","Archivo Black":"'Archivo Black',Impact,sans-serif",Anton:"'Anton',Impact,sans-serif",Bangers:"'Bangers',Impact,sans-serif","Bebas Neue":"'Bebas Neue',Impact,sans-serif","Luckiest Guy":"'Luckiest Guy',Impact,sans-serif",Montserrat:"'Montserrat',sans-serif"}[f]||"Impact,sans-serif"}
 function framePreview(N,sm={}){const v=N.visual||{};const H=1920;const top=(v.safe_top_px||140)/H*100,bot=(v.safe_bottom_px||400)/H*100;
@@ -832,11 +936,11 @@ function framePreview(N,sm={}){const v=N.visual||{};const H=1920;const top=(v.sa
   const anim={pop:"hookpop .5s cubic-bezier(.2,.8,.2,1) both",slide:"hookslide .5s ease-out both",typewriter:"hooktype 1.2s steps(24) both"}[v.anim]||"none";
   const hookStyle=`top:${v.hook_y_pct||68}%;left:${v.hook_x_pct||50}%;transform:translateX(-50%);width:${v.hook_w_pct||84}%;text-align:${v.hook_align||"center"};font-family:${fontcss};font-size:${fs}px;font-weight:${v.hook_weight||800};letter-spacing:${(v.hook_spacing||0)*sc}px;line-height:${v.hook_line_h||1.05};text-transform:${v.hook_case==="none"?"none":"uppercase"};color:${v.color||"#fff"};-webkit-text-stroke:${Math.min(2.5,(v.outline_px||5)*sc*1.2)}px #000;paint-order:stroke fill;text-shadow:0 ${(v.shadow??2)*0.8}px ${(v.shadow??2)*0.6}px rgba(0,0,0,.8);${boxbg}padding:${pad}px ${pad*1.4}px;border-radius:${rad}px;animation:${anim};overflow:hidden;white-space:${v.anim==="typewriter"?"nowrap":"normal"}`;
   return `<div class="${uiCls}">${bg}<div class="sz" style="top:0;height:${top}%"></div><div class="sz" style="bottom:0;height:${bot}%"></div><div class="sz" style="top:${top}%;bottom:${bot}%;left:auto;right:0;width:${(v.safe_right_px||180)/1080*100}%"></div>
-  <div class="top">The Most Dangerous Games · $1,000,000 · Sept 14</div>
+  ${overlayHtml(N,sc)}
   <div class="hook" style="${hookStyle}">${accHtml}</div>
   ${pvZoom&&(v.zoom_pct||0)>0?`<div class="zoomlbl">Zoom ${v.zoom_pct} % · ${v.zoom_ease_ms} ms</div>`:""}
   <div class="ui"><i></i><i></i><i></i><i></i></div><div class="capbar"></div></div>`}
-function repaint(d){const N=PEND.niches[setNiche];const n=nicheOf(d,setNiche);const pv=$("#prev");if(pv)pv.innerHTML=previewPanel(N,n,d);wirePreview(d)}
+function repaint(d){const N=PEND.niches[setNiche];const n=nicheOf(d,setNiche);const pv=$("#prev");if(pv)pv.innerHTML=previewPanel(N,n,d);wirePreview(d);repaintWarn()}
 function wirePreview(d){const sel=document.querySelector("[data-pvacc]");if(sel)sel.onchange=()=>{pvAcc=sel.value;repaint(d)};
   const u=document.querySelector("[data-pvui]");if(u)u.onclick=()=>{pvUI=!pvUI;repaint(d)};const z=document.querySelector("[data-pvzoom]");if(z)z.onclick=()=>{pvZoom=!pvZoom;repaint(d)};
   document.querySelectorAll("[data-pvsrc]").forEach(b=>b.onclick=()=>{pvSrc=b.dataset.pvsrc;repaint(d)});}
@@ -847,6 +951,15 @@ function wireSimple(d){const N=()=>PEND.niches[setNiche];wirePreview(d);
   document.querySelectorAll("[data-spreset]").forEach(b=>b.onclick=()=>{Object.entries(STYLE_PRESETS[b.dataset.spreset]).forEach(([k,v])=>setp(N(),"visual."+k,v));d.settings=PEND;page(d)});
   document.querySelectorAll("input[data-live]").forEach(i=>i.oninput=()=>{setp(N(),i.dataset.p,+i.value);i.previousElementSibling.lastElementChild.textContent=i.value+(i.dataset.unit||"");repaint(d)});
   document.querySelectorAll(".sc-card .opts button[data-p]").forEach(b=>b.onclick=()=>{setp(N(),b.dataset.p,b.dataset.v);b.parentElement.querySelectorAll("button").forEach(x=>x.classList.toggle("on",x===b));if(b.dataset.live)repaint(d)});}
+const HICO={0:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v10M8 9l4 4 4-4"/><path d="M4 16v3h16v-3"/></svg>`,
+ 1:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 10v4M8 6v12M12 8v8M16 5v14M20 10v4"/></svg>`,
+ 2:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/></svg>`,
+ 3:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="6" cy="6" r="2.4"/><circle cx="6" cy="18" r="2.4"/><path d="M8.1 7.5L20 18M8.1 16.5L20 6"/></svg>`,
+ 4:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5.5c0 4.3-2.9 8.1-7 9.5-4.1-1.4-7-5.2-7-9.5V6z"/><path d="M9 12l2 2 4-4.5"/></svg>`,
+ 5:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l2.5 2.5L15 9"/><rect x="3" y="4" width="18" height="16" rx="3"/></svg>`,
+ 6:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12l16-8-6 16-2.5-6.5z"/></svg>`,
+ 7:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M8 8l4-4 4 4"/><path d="M5 15v3a2 2 0 002 2h10a2 2 0 002-2v-3"/></svg>`,
+ 8:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V9M10 19V5M16 19v-7M22 19H2"/></svg>`};
 const HOW=[
  {t:"Quelle",who:"a",short:"Kampagne oder Video kommt rein",p:"Bezahlte Kampagnen erkennt der Scout über Vyro/Whop-Mails und lädt das Footage von Frame.io selbst. Fan-Videos lädst du über die Nischen-Seite hoch. Neue Videos deiner Kanäle kommen per RSS.",kv:[["Auslöser","Mail, RSS, Upload"],["Takt","alle 10 Minuten"],["Dein Anteil","Join tippen bei bezahlten Kampagnen"]],more:["Footage landet in R2 (Cloud-Speicher), nie auf deinem Rechner","Backlog-Liste sorgt für Nachschub, wenn nichts Neues kommt","Kampagnen-Regeln (Caption, Hashtags, Mindestlänge) werden aus dem Briefing übernommen"]},
  {t:"Transkript",who:"a",short:"Whisper schreibt mit, wortgenau",p:"Jedes Wort bekommt einen Zeitstempel. Daraus weiß der Schnitt später, wo Sätze anfangen und enden – deshalb schneidet er nie mitten im Wort.",kv:[["Dauer","~1 Minute pro 20 Minuten Video"],["Kosten","0 €"],["Läuft auf","GitHub Actions"]],more:["Modell: faster-whisper small, CPU","Wort-Zeitstempel = Grundlage für Cuts und Stille-Erkennung"]},
@@ -867,21 +980,16 @@ const SUBS={
  6:[["Slot-Plan","feste Uhrzeiten, Mindestabstand",[["Posts","3–5/Tag"],["Abstand","≥ 90 min"]],"#settings"],["Priorität","paid > fan-neu > backlog",[["Kampagne","ersetzt 2 Fan-Slots"]],"#settings"],["Blotato","offizielle TikTok-API",[["Branded Content","gesetzt"],["Sichtbarkeit","öffentlich"]],""],["Kill-Switch","Views −80 % oder Spam-Ablehnung",[["Aktion","Account pausiert + Meldung"]],"#tasks"]],
  7:[["Liste","Post-Links im Dashboard",[["Wo","Aufgaben"]],"#tasks"],["Einfügen","in der Vyro-App",[["Dauer","2 min/Tag"]],"#tasks"],["Abhaken","automatisch bei approved-Mail",[["Fallback","Erledigt-Knopf"]],"#tasks"]],
  8:[["Views","24 h · 72 h · 7 d",[["Quelle","Blotato-Analytics"]],"#pipeline"],["Geld","Auszahlungen ↔ Clips",[["Quelle","Vyro-Mails"]],"#home"],["A/B","eine Variable pro Woche",[["Signal ab","20 Clips/Variante"]],"#settings"],["Wochenbericht","3 Sätze, 3 Vorschläge",[["Wann","sonntags 9 Uhr"]],"#home"]]};
-function howView(d){const cols=3,W=760,cw=W/cols,rh=96,H=rh*3+40;
-  // LEVEL 0: overview with flowing dots
-  const svg=`<svg viewBox="0 0 ${W} ${H}" width="100%" style="display:block"><defs><marker id="ha" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1L8 5L2 9" fill="none" stroke="#6B6E7B" stroke-width="1.5"/></marker></defs>
-  ${HOW.map((h,i)=>{const r=Math.floor(i/cols),c=i%cols;const x=c*cw+10,y=30+r*rh,w=cw-20,hh=64;const col=h.who==="m"?"#FF5A1F":"#3DD68C";
-    let path="";if(i<HOW.length-1){path=c<cols-1?`M ${x+w} ${y+32} H ${x+w+18}`:`M ${x+w/2} ${y+hh} C ${x+w/2} ${y+hh+16}, ${10+(cw-20)/2} ${y+hh+16}, ${10+(cw-20)/2} ${y+rh-2}`}
-    const arrow=path?`<path d="${path}" fill="none" stroke="#6B6E7B" stroke-width="1.5" marker-end="url(#ha)"/><circle class="xdot ${h.who}" r="3"><animateMotion dur="${1.6+i*0.15}s" begin="${i*0.2}s" repeatCount="indefinite" path="${path}"/></circle>`:"";
-    return `<g class="xnode ${h.who}" data-how="${i}"><rect x="${x}" y="${y}" width="${w}" height="${hh}" rx="12" fill="#14161D" stroke="#262A35"/><circle cx="${x+18}" cy="${y+20}" r="5" fill="${col}"><animate attributeName="r" values="5;6.5;5" dur="2s" repeatCount="indefinite"/></circle><text x="${x+30}" y="${y+24}" font-size="13" font-weight="800" fill="#F2F1EC">${i+1}. ${h.t}</text><text x="${x+14}" y="${y+48}" font-size="11" fill="#8E909B">${h.short}</text>${arrow}</g>`}).join("")}
-  <path id="loop" d="M ${W-cw/2} ${30+2*rh+64} C ${W-cw/2} ${H-6}, ${cw/2} ${H-6}, ${cw/2} ${30+64+4}" fill="none" stroke="#6B6E7B" stroke-width="1.2" stroke-dasharray="4 4"/><circle r="2.5" fill="#8B5CF6" style="filter:drop-shadow(0 0 4px #8B5CF6)"><animateMotion dur="6s" repeatCount="indefinite"><mpath href="#loop"/></animateMotion></circle><text x="${W/2}" y="${H-10}" text-anchor="middle" font-size="10.5" fill="#8E909B">Learnings fließen zurück in Momentwahl, Schnitt und Slots</text>
-  <circle cx="14" cy="12" r="5" fill="#3DD68C"/><text x="24" y="16" font-size="11" fill="#8E909B">automatisch</text><circle cx="110" cy="12" r="5" fill="#FF5A1F"/><text x="120" y="16" font-size="11" fill="#8E909B">du – Minuten pro Tag</text></svg>
-  <p style="font-size:13px;color:var(--ink2);margin:10px 4px 0;line-height:1.5">Ein Video durchläuft neun Stufen. Grün passiert von allein, rund um die Uhr. Orange sind die zwei Stellen, an denen du gebraucht wirst. <b style="color:var(--ink)">Klick auf eine Stufe</b>, um hineinzuzoomen.</p>`;
+function howView(d){
+  const cards=HOW.map((h,i)=>`<div class="hcard ${h.who}" data-how="${i}"><div class="hic">${HICO[i]}</div><div class="hn">${i+1}</div><b>${h.t}</b><span>${h.short}</span><i class="harrow">›</i></div>`).join("");
+  const svg=`<div class="hgrid">${cards}</div>
+  <div class="hloop"><svg viewBox="0 0 600 26" preserveAspectRatio="none"><path id="lp" d="M580 4 C 580 22, 20 22, 20 4" fill="none" stroke="var(--line)" stroke-width="1.5" stroke-dasharray="5 5"/><circle r="3" fill="var(--violet)"><animateMotion dur="6s" repeatCount="indefinite"><mpath href="#lp"/></animateMotion></circle></svg><span>Learnings fließen zurück in Momentwahl, Schnitt und Slots</span></div>
+  <div class="hleg"><span><i class="d a"></i>automatisch · rund um die Uhr</span><span><i class="d m"></i>du · wenige Minuten am Tag</span></div>`;
   if(howSel<0) return `<div class="xr"><div class="lvl in">${svg}</div></div>`;
   // LEVEL 1/2: lens
   const h=HOW[howSel],subs=SUBS[howSel]||[];const sd=howSub>=0?subs[howSub]:null;
   const lens=`<div class="lens"><div class="crumb"><a href="#" data-xr="root">Ablauf</a> › ${howSel+1}. ${h.t}${sd?` › ${sd[0]}`:""}</div>
-    <div class="hd"><span class="who ${h.who}" style="margin:0">${h.who==="m"?"Dein Schritt":"Automatisch"}</span><h3>${howSel+1}. ${h.t}</h3><span style="margin-left:auto;display:flex;gap:6px"><button class="bk" data-hownav="-1">‹</button><button class="bk" data-hownav="1">›</button><button class="bk" data-xr="root">Zurück zum Ablauf</button></span></div>
+    <div class="hd"><span class="lensic">${HICO[howSel]}</span><div><span class="who ${h.who}" style="margin:0">${h.who==="m"?"Dein Schritt":"Automatisch"}</span><h3 style="margin-top:2px">${howSel+1}. ${h.t}</h3></div><span style="margin-left:auto;display:flex;gap:6px;align-self:flex-start"><button class="bk" data-hownav="-1">‹</button><button class="bk" data-hownav="1">›</button><button class="bk" data-xr="root">Zurück zum Ablauf</button></span></div>
     <p>${h.p}</p>
     <div class="facts">${h.kv.map(([k,v])=>`<div>${k}<b>${v}</b></div>`).join("")}</div>
     <div class="sub">${subs.map((sb,i)=>`<div class="sn ${i===howSub?"on":""}" data-sub="${i}" style="animation-delay:${i*0.06}s"><i></i><b>${sb[0]}</b><span>${sb[1]}</span></div>`).join("")}<div class="conn"></div></div>
@@ -896,25 +1004,80 @@ const SCEN={
 function fcCalc(P){const out=[];let followers=P.followers0||0;for(let m=1;m<=12;m++){const ramp=Math.min(1,(m-1)/4);const q=P.q0+(P.q1-P.q0)*ramp;const avg=(P.avg0||600)*Math.pow(1+P.growth,m-1);
   const posts=P.accounts*P.posts*P.platforms*30;const qualified=posts*q;const paidShare=P.camp;const views=qualified*avg*paidShare;const revenue=views/1000*P.cpm;
   const sponsor=m>=6?P.accounts*Math.min(600,avg/50):0;const rev=revenue+sponsor;out.push({m,posts,avg:Math.round(avg),q,revenue:Math.round(rev),profit:Math.round(rev-P.cost),sponsor:Math.round(sponsor)})}return out}
+const ICO={
+ posting:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M8 3v4M16 3v4M3 10h18"/></svg>`, moment:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3.5"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3" stroke-linecap="round"/></svg>`, cut:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="6" cy="6" r="2.6"/><circle cx="6" cy="18" r="2.6"/><path d="M8.2 7.6L20 18M8.2 16.4L20 6"/></svg>`, hook:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 7h14M9 7v12M15 7v6"/><path d="M13 19h4"/></svg>`, overlay:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M7 8.5h10M7 12h6"/></svg>`, cover:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M3 16l4.5-4.5 4 4L15 12l6 5.5"/><circle cx="9" cy="9" r="1.4"/></svg>`, motion:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 9V5h4M20 9V5h-4M4 15v4h4M20 15v4h-4"/><rect x="9" y="9" width="6" height="6" rx="1.5"/></svg>`, audio:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 10v4M8 7v10M12 4v16M16 8v8M20 11v2"/></svg>`, qa:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5.5c0 4.3-2.9 8.1-7 9.5-4.1-1.4-7-5.2-7-9.5V6l7-3z"/><path d="M9 12l2 2 4-4.5"/></svg>`};
+// Warnhinweise der Feinjustierung: eine Quelle für die Anzeige beim Rendern und für die Aktualisierung beim Schieben eines Reglers.
+// Dieselben Regeln prüft der Worker beim Speichern hart (worker/src/settings.ts → validateAgainstCampaigns).
+const SET_WARN={
+ posting:N=>N.posts_per_day>5?"Über 5 Posts pro Tag sinkt bei TikTok die Reichweite pro Post spürbar.":"",
+ moment:N=>get(N,"select.context_line")===false?"Ohne eigene Kontext-Zeile gilt der Clip bei TikTok schnell als unoriginal und wird kaum ausgespielt.":"",
+ cut:N=>get(N,"cut.min_s")<8?"Unter 8 Sekunden erfüllen viele Vyro-Kampagnen die Mindestlänge nicht.":"",
+ hook:N=>get(N,"visual.hook_y_pct")>72?"Über 72 % Höhe verdeckt TikToks Caption-Leiste den Text.":"",
+ overlay:N=>get(N,"visual.overlay.show")==="never"?"Bei bezahlten Kampagnen mit Pflichttext führt „Nie“ zur Ablehnung – das Speichern lehnt der Worker dann ab.":"",
+ cover:N=>get(N,"visual.cover.mode")==="none"&&get(N,"visual.cover.dim")>40?"Ohne Cover-Text bringt starkes Abdunkeln nichts – das Standbild wirkt nur flau.":"",
+};
+function repaintWarn(){const N=PEND?.niches?.[setNiche];if(!N)return;
+  document.querySelectorAll("details.grp[data-grp]").forEach(g=>{const t=(SET_WARN[g.dataset.grp]||(()=>""))(N),body=g.querySelector(".body");if(!body)return;
+    let w=body.querySelector(".warnbox");
+    if(!t){if(w)w.remove();return}
+    if(!w){w=document.createElement("div");w.className="warnbox";body.prepend(w)}
+    w.textContent=t});}
+const TIP={
+ "posts_per_day":"Mehr als 5 pro Tag senkt bei TikTok die Reichweite pro Post.",
+ "min_gap_min":"Zu dichte Posts wirken wie Spam. 90 Minuten sind ein sicherer Wert.",
+ "fan_ratio":"Fan-Clips bringen Reichweite, Kampagnen-Clips bringen Geld. Kampagnen ersetzen Fan-Slots automatisch.",
+ "select.candidates":"Mehr Kandidaten = bessere Auswahl, aber längere Rechenzeit.",
+ "select.min_score":"Momente unter diesem Wert werden gar nicht erst gerendert.",
+ "cut.min_s":"Vyro schreibt oft 8–20 s Mindestlänge vor – nie darunter stellen.",
+ "cut.pad_start_ms":"Puffer vor dem ersten Wort, damit der Satz nicht abgehackt beginnt.",
+ "cut.silence_trim_s":"Pausen ab dieser Länge werden herausgeschnitten.",
+ "visual.hook_y_pct":"Über 72 % verschwindet der Text hinter TikToks Caption-Leiste.",
+ "visual.zoom_pct":"Dezent wirkt hochwertiger. Über 10 % wirkt unruhig.",
+ "visual.safe_bottom_px":"Unterer Bereich, den TikTok mit Caption und Buttons überdeckt.",
+ "audio.lufs":"TikTok normalisiert auf etwa −14 LUFS. Abweichungen klingen leiser als andere Videos.",
+ "qa.threshold":"Clips unter diesem Wert werden verworfen und durch den nächsten Kandidaten ersetzt.",
+ "visual.overlay.duration":"0 = Text bleibt den ganzen Clip. Bei Pflichttexten prüfen, ob die Kampagne das erlaubt.",
+ "visual.cover.dim":"Dunkleres Bild = besser lesbarer Titel im Profil-Raster."};
+function actuals(d){const acc=d.accounts||[],posts=d.posts||[];
+  const days=30;const rev30=(d.totals?.revenue)||0;const cost30=(d.totals?.costs)||0;
+  const avg=acc.length?Math.round(acc.reduce((a,x)=>a+(x.avg_views||0),0)/acc.length):0;
+  const v7=acc.reduce((a,x)=>a+(x.views_7d||0),0), v30=acc.reduce((a,x)=>a+(x.views_30d||0),0);
+  const postsPerDay=acc.length?+(acc.reduce((a,x)=>a+(x.posts_7d||0),0)/7/acc.length).toFixed(1):0;
+  const q=posts.length?posts.filter(p=>(p.views||0)>=5000).length/posts.length:0;
+  const cpm=v30>0?+(rev30/(v30/1000)).toFixed(2):0;
+  const growth=v30>0&&v7>0?Math.max(0,+((v7*4.3/v30)-1).toFixed(2)):0;
+  const paid=posts.length?posts.filter(p=>p.type==="paid").length/posts.length:0;
+  const platforms=new Set();acc.forEach(a=>platforms.add(a.platform||"tiktok"));
+  return {accounts:acc.length,posts:postsPerDay,platforms:platforms.size,avg,q1:q,cpm,growth,camp:paid,cost:cost30,rev30,v7,v30,samples:posts.length};}
 function forecastView(d){if(!FC){const base=SCEN[fcScen];const real=d.accounts.length?d.accounts.reduce((a,x)=>a+(x.avg_views||0),0)/d.accounts.length:600;FC={...base,avg0:Math.max(600,Math.round(real||600))}}
   const rows=fcCalc(FC);const max=Math.max(1,...rows.map(r=>r.revenue));const m6=rows[5],m12=rows[11],sum=rows.reduce((a,r)=>a+r.profit,0);
-  const P=(key,label,min,max,step,fmtv,help)=>`<div class="fc-p"><label>${label}<b>${fmtv(FC[key])}</b></label><input type="range" min="${min}" max="${max}" step="${step}" value="${FC[key]}" data-fc="${key}"><small>${help}</small></div>`;
+  const A=actuals(d);
+  const P=(key,label,min,max,step,fmtv,help)=>{const has=A[key]!==undefined&&A[key]!==null&&!(key==="cpm"&&!A.cpm)&&!(key==="q1"&&!A.samples);
+    const diff=has?(FC[key]-A[key]):0;const cls=!has?"":Math.abs(diff)<1e-9?"eq":(diff>0?"up":"dn");
+    return `<div class="fc-p"><label>${label}<b>${fmtv(FC[key])}</b></label><input type="range" min="${min}" max="${max}" step="${step}" value="${FC[key]}" data-fc="${key}">
+    ${has?`<div class="ist ${cls}"><span>Ist: <b>${fmtv(A[key])}</b></span>${cls==="eq"?"":`<button data-useist="${key}">übernehmen</button>`}</div>`:`<div class="ist none">noch keine Ist-Daten</div>`}
+    <small>${help}</small></div>`};
   const chart=`<svg viewBox="0 0 620 240" width="100%" class="fc-chart"><g font-size="10" fill="#8E909B">${[0.25,0.5,0.75,1].map(f=>`<line x1="66" x2="610" y1="${200-f*180}" y2="${200-f*180}" stroke="#1B1D26"/><text x="60" y="${204-f*180}" text-anchor="end">${money(Math.round(max*f/100)*100)}</text>`).join("")}</g>
+    <rect x="66" y="${200-Math.max(2,Math.min(180,(A.rev30-A.cost)/max*180))}" width="6" height="${Math.max(2,Math.min(180,(A.rev30-A.cost)/max*180))}" rx="3" fill="#3DD68C"/><text x="69" y="215" text-anchor="middle" font-size="9" fill="#3DD68C">Ist</text>
     ${rows.map((r,i)=>{const x=76+i*45,h=Math.max(2,r.revenue/max*180);return `<rect x="${x}" y="${200-h}" width="30" height="${h}" rx="4" fill="${r.profit>=2000?"#8B5CF6":"#FF5A1F"}" opacity="${0.55+i*0.04}"/><text x="${x+15}" y="215" text-anchor="middle" font-size="10" fill="#C9CAD2">M${r.m}</text>`}).join("")}
     <line x1="66" x2="610" y1="${200-Math.min(1,2000/max)*180}" y2="${200-Math.min(1,2000/max)*180}" stroke="#3DD68C" stroke-dasharray="4 4"/><text x="610" y="${196-Math.min(1,2000/max)*180}" text-anchor="end" font-size="10" fill="#3DD68C">Ziel 2.000 $</text></svg>`;
   const first2k=rows.find(r=>r.profit>=2000);
   return `<div class="fc-wrap"><div><div class="scen">${Object.entries(SCEN).map(([k,v])=>`<button class="${fcScen===k?"on":""}" data-scen="${k}">${v.label}</button>`).join("")}</div>
-    <div class="fc-big"><div><b>${money(m6.profit)}</b><span>Gewinn Monat 6</span></div><div><b>${money(m12.profit)}</b><span>Gewinn Monat 12</span></div><div><b>${first2k?"Monat "+first2k.m:"> 12 Monate"}</b><span>2.000 $ erreicht</span></div></div>
+    <div class="fc-big"><div><b>${money(A.rev30-A.cost)}</b><span>Ist: Gewinn 30 Tage${A.samples?"":" · noch keine Daten"}</span></div><div><b>${money(m6.profit)}</b><span>Gewinn Monat 6</span></div><div><b>${money(m12.profit)}</b><span>Gewinn Monat 12</span></div><div><b>${first2k?"Monat "+first2k.m:"> 12 Monate"}</b><span>2.000 $ erreicht</span></div></div>
+    <div class="istbar"><b>Aktueller Stand</b> ${A.accounts} Accounts · ${A.posts} Posts/Tag/Account · Ø ${k(A.avg)} Views je Clip · ${k(A.v7)} Views 7 Tage${A.cpm?` · ${A.cpm} $/1k effektiv`:""}${A.samples?` · ${Math.round(A.q1*100)} % über 5.000 Views`:" · noch zu wenig Posts für eine Quote"}
+      <button class="b" id="useall" style="margin-left:auto">Alle Ist-Werte übernehmen</button></div>
     ${chart}
     <div style="font-size:12.5px;color:var(--ink2);line-height:1.5;margin-top:6px">Summe Gewinn 12 Monate: <b style="color:var(--ink)">${money(sum)}</b>. Startpunkt sind deine echten Ø Views (${fmt(FC.avg0)} pro Clip); Wachstum, Quote über Schwelle und Rate sind Annahmen bei täglicher Konsequenz – kein Worst Case, aber auch keine Ausreißer wie ein viraler Clip am 1.000-$-Deckel. Ab Monat 6 sind Sponsorings mit eingerechnet (${money(m12.sponsor)} in Monat 12).</div>
     <details class="hmore" style="margin-top:10px"><summary>Monatstabelle</summary><table style="margin-top:8px"><thead><tr><th>Monat</th><th class="r">Posts</th><th class="r">Ø Views</th><th class="r">über Schwelle</th><th class="r">Umsatz</th><th class="r">Gewinn</th></tr></thead><tbody>${rows.map(r=>`<tr><td>M${r.m}</td><td class="r">${fmt(r.posts)}</td><td class="r">${k(r.avg)}</td><td class="r">${Math.round(r.q*100)} %</td><td class="r">${money(r.revenue)}</td><td class="r"><b>${money(r.profit)}</b></td></tr>`).join("")}</tbody></table></details></div>
     <div>${P("accounts","Accounts",1,20,1,v=>v,"eigene Accounts über alle Nischen")}${P("posts","Posts pro Account/Tag",1,8,1,v=>v,"Kampagne + Fan zusammen")}${P("platforms","Plattformen",1,3,1,v=>v,"TikTok, Instagram, YouTube")}${P("q1","Quote über Schwelle (eingelaufen)",0.1,0.7,0.05,v=>Math.round(v*100)+" %","Anteil Clips ≥ 5.000 Views ab Monat 5")}${P("cpm","Rate pro 1.000 Views",0.8,3,0.1,v=>v.toFixed(1)+" $","Vyro/Whop Mischwert nach Proration")}${P("growth","Wachstum Ø Views/Monat",0.05,0.35,0.01,v=>Math.round(v*100)+" %","Kaltstart → eingelaufen")}${P("camp","Anteil bezahlter Clips",0.2,0.8,0.05,v=>Math.round(v*100)+" %","Rest ist Fan-Content (Reichweite, kein Geld)")}${P("cost","Fixkosten/Monat",30,1500,10,v=>v+" $","Blotato, API, Assistent")}</div></div>`}
-function wireHow(d){document.querySelectorAll(".xnode").forEach(g=>g.onclick=()=>{howSel=+g.dataset.how;howSub=-1;page(d)});
+function wireHow(d){document.querySelectorAll(".hcard,.xnode").forEach(g=>g.onclick=()=>{howSel=+g.dataset.how;howSub=-1;page(d)});
   document.querySelectorAll("[data-hownav]").forEach(b=>b.onclick=()=>{howSel=(howSel+(+b.dataset.hownav)+HOW.length)%HOW.length;howSub=-1;page(d)});
   document.querySelectorAll("[data-xr='root']").forEach(b=>b.onclick=e=>{e.preventDefault();howSel=-1;howSub=-1;page(d)});
   document.querySelectorAll("[data-sub]").forEach(b=>b.onclick=()=>{howSub=+b.dataset.sub;page(d)});
   document.querySelectorAll("[data-scen]").forEach(b=>b.onclick=()=>{fcScen=b.dataset.scen;FC=null;page(d)});
-  document.querySelectorAll("[data-fc]").forEach(i=>i.oninput=()=>{FC[i.dataset.fc]=+i.value;page(d);const j=document.querySelector(`[data-fc="${i.dataset.fc}"]`);if(j)j.focus()});}
+  document.querySelectorAll("[data-fc]").forEach(i=>i.oninput=()=>{FC[i.dataset.fc]=+i.value;page(d);const j=document.querySelector(`[data-fc="${i.dataset.fc}"]`);if(j)j.focus()});
+  document.querySelectorAll("[data-useist]").forEach(b=>b.onclick=()=>{const A=actuals(d);FC[b.dataset.useist]=A[b.dataset.useist];page(d)});
+  const ua=$("#useall");if(ua)ua.onclick=()=>{const A=actuals(d);["accounts","posts","platforms","q1","cpm","growth","camp","cost"].forEach(k2=>{if(A[k2])FC[k2]=A[k2]});FC.avg0=A.avg||FC.avg0;page(d)};}
 function wireStudio(d){
   const bulk=$("#bulk");if(bulk)bulk.onclick=async()=>{if(DEMO_MODE){document.querySelectorAll(".rv").forEach(c=>c.style.opacity=.35);return}await fetch(cfg.apiUrl+"/review/bulk",{method:"POST",headers:{"x-api-key":cfg.apiKey,"Content-Type":"application/json"},body:JSON.stringify({ids:(d.review||[]).map(c=>c.id),action:"approve"})});refresh()};
   document.querySelectorAll(".rv").forEach(card=>{const id=card.dataset.id;const tags=new Set();
@@ -922,7 +1085,7 @@ function wireStudio(d){
     card.querySelectorAll("[data-act]").forEach(b=>b.onclick=async()=>{const feedback=card.querySelector("input").value;
       if(DEMO_MODE){card.style.opacity=.35;return}
       await fetch(cfg.apiUrl+"/review/"+id,{method:"POST",headers:{"x-api-key":cfg.apiKey,"Content-Type":"application/json"},body:JSON.stringify({action:b.dataset.act,feedback,tags:[...tags]})});refresh()});});
-  const st=d.settings;if(!st||route()!=="settings")return;if(!PEND)PEND=JSON.parse(JSON.stringify(st));const N=()=>PEND.niches[setNiche];
+  const st=d.settings;if(!st||route()!=="settings")return;if(!PEND){PEND=JSON.parse(JSON.stringify(st));SAVED=JSON.parse(JSON.stringify(st))}const N=()=>PEND.niches[setNiche];
   if(!$("#versions")){const vs=d.settings_versions||[];const box=document.createElement("details");box.className="more";box.id="versions";
     box.innerHTML=`<summary>Versionen &amp; Zurücksetzen <span style="font-weight:500;color:var(--ink3);font-size:12px">letzte ${vs.length} Stände</span></summary><div>
       ${vs.length?vs.map((v,i)=>`<div class="ver"><div class="w"><b>Version ${v.id}</b> · ${tm(v.created_at)} · ${v.changes} Änderung${v.changes===1?"":"en"}<br><small>${(v.diff||[]).slice(0,4).map(x=>x.field.replace(/^niches\.|^accounts\./,"")).join(" · ")}${v.changes>4?" …":""}</small></div>${i===0?`<span class="pill ok">aktuell</span>`:`<button class="b" data-reset="${v.id}">Zurücksetzen</button>`}</div>`).join(""):`<div class="empty">Noch keine gespeicherten Stände.</div>`}
@@ -930,16 +1093,19 @@ function wireStudio(d){
     $("#main").appendChild(box)}
   document.querySelectorAll(".tab[data-niche]").forEach(b=>b.onclick=()=>{setNiche=b.dataset.niche;d.settings=PEND;page(d)});
   wireSimple(d);
-  document.querySelectorAll('.set input[type=range]').forEach(i=>i.oninput=()=>{setp(N(),i.dataset.p,+i.value);i.previousElementSibling.querySelector(".v").textContent=i.value+(i.dataset.unit||"")});
+  document.querySelectorAll('.set input[type=range]').forEach(i=>i.oninput=()=>{setp(N(),i.dataset.p,+i.value);i.previousElementSibling.querySelector(".v").textContent=i.value+(i.dataset.unit||"");repaintWarn()});
   if(expert)wirePreview(d);
   document.querySelectorAll('.set input[type=range],.set select[data-p],.set input[type=color][data-p]').forEach(i=>i.addEventListener("input",()=>repaint(d)));
-  document.querySelectorAll('.set select[data-p],.set input[type=color][data-p]').forEach(i=>i.onchange=()=>setp(N(),i.dataset.p,i.value));
+  document.querySelectorAll('.set select[data-p],.set input[type=color][data-p]').forEach(i=>i.onchange=()=>{setp(N(),i.dataset.p,i.value);repaintWarn()});
   document.querySelectorAll('.set input[type=text][data-p]').forEach(i=>i.onchange=()=>{const v=i.value;setp(N(),i.dataset.p,(i.dataset.p==="slots"||i.dataset.p==="caption.hashtags")?v.split(",").map(x=>x.trim()).filter(Boolean):v)});
   document.querySelectorAll('.set input[type=checkbox][data-pl]').forEach(i=>i.onchange=()=>{const set=new Set(N().platforms||[]);i.checked?set.add(i.dataset.pl):set.delete(i.dataset.pl);N().platforms=[...set]});
-  document.querySelectorAll('.seg button[data-p]').forEach(b=>b.onclick=()=>{const v=b.dataset.v==="true"?true:b.dataset.v==="false"?false:b.dataset.v;setp(N(),b.dataset.p,v);b.parentElement.querySelectorAll("button").forEach(x=>x.classList.toggle("on",x===b))});
+  document.querySelectorAll('.seg button[data-p]').forEach(b=>b.onclick=()=>{const v=b.dataset.v==="true"?true:b.dataset.v==="false"?false:b.dataset.v;setp(N(),b.dataset.p,v);b.parentElement.querySelectorAll("button").forEach(x=>x.classList.toggle("on",x===b));repaintWarn()});
   document.querySelectorAll('.seg button[data-g]').forEach(b=>b.onclick=()=>{PEND.global[b.dataset.g]=b.dataset.v==="true";b.parentElement.querySelectorAll("button").forEach(x=>x.classList.toggle("on",x===b))});
   document.querySelectorAll('[data-ovadd]').forEach(b=>b.onclick=()=>{const id=b.dataset.ovadd;const sel=document.querySelector(`[data-ov="${id}"]`).value;const val=document.querySelector(`[data-ovv="${id}"]`).value;if(!sel||val==="")return;PEND.accounts[id]=PEND.accounts[id]||{};setp(PEND.accounts[id],sel,num(val));d.settings=PEND;page(d)});
   document.querySelectorAll('[data-clr]').forEach(b=>b.onclick=()=>{const [id,path]=b.dataset.clr.split("|");const ks=path.split(".");let x=PEND.accounts[id];for(const k of ks.slice(0,-1)){if(!x)return;x=x[k]}if(x)delete x[ks.at(-1)];d.settings=PEND;page(d)});
+  document.querySelectorAll("details[data-grp]").forEach(g=>g.addEventListener("toggle",()=>{OPEN[g.dataset.grp]=g.open}));
+  const sb=$("#setsearch");if(sb)sb.oninput=()=>{const q=sb.value.trim().toLowerCase();
+    document.querySelectorAll(".grp").forEach(g=>{let any=false;g.querySelectorAll(".f[data-search]").forEach(f=>{const hit=!q||f.dataset.search.includes(q);f.classList.toggle("hidden",!hit);if(hit)any=true});g.style.display=any?"":"none";if(q)g.open=true})};
   const sv=$("#save");if(sv)sv.onclick=async()=>{if(DEMO_MODE){sv.textContent="Gespeichert ✓ (Demo)";setTimeout(()=>sv.textContent="Speichern",1500);return}
     const send=body=>fetch(cfg.apiUrl+"/settings",{method:"PUT",headers:{"x-api-key":cfg.apiKey,"Content-Type":"application/json"},body:JSON.stringify(body)}).then(r=>r.json());
     const pv=await send({...PEND,confirm:false});

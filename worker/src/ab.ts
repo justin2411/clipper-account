@@ -4,7 +4,7 @@
 // Signifikanz-Hinweis: mindestens 20 gepostete Clips je Variante und ≥ 20 % Unterschied im Ø-Views. „Gewinner übernehmen" schreibt den Wert
 // über putSettings in die Nische (Diff + Version wie beim Speichern) und beendet den Test.
 import { Env, db, nowIso, logEvent } from "./shared";
-import { getSettings, putSettings, diffSettings, validateSettings } from "./settings";
+import { getSettings, putSettings, diffSettings, validateAll } from "./settings";
 
 export interface Experiment { variable: string; variants: string[]; niche: string; started_at: string; note?: string }
 export interface VariantStats { value: string; clips: number; posts: number; views: number; avg_views: number; likes: number; engagement: number | null; watchtime: number | null; completion: number | null }
@@ -99,7 +99,7 @@ export async function applyWinner(env: Env, value: string, confirm: boolean, ws 
     let x: any = a; for (const k of path.slice(0, -1)) x = x?.[k];
     if (x && path.at(-1)! in x) { delete x[path.at(-1)!]; void id; }
   }
-  const errors = validateSettings(next);
+  const { errors } = await validateAll(env, next, ws, cur);
   if (errors.length) return { ok: false, errors };
   const diff = diffSettings(env, cur, next);
   if (!confirm) return { ok: false, preview: true, diff, target: `${ex.variable} = ${value}` };
