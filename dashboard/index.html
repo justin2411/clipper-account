@@ -220,10 +220,17 @@ td.r,th.r{text-align:right;font-variant-numeric:tabular-nums}
 .frame .ui{position:absolute;right:10px;bottom:22%;display:flex;flex-direction:column;gap:14px}.frame .ui i{width:22px;height:22px;border-radius:50%;background:rgba(255,255,255,.18);display:block}
 .frame .capbar{position:absolute;left:10px;right:56px;bottom:6%;height:22px;border-radius:6px;background:rgba(255,255,255,.12)}
 .frame .hook{position:absolute;font-weight:900;line-height:1.05;letter-spacing:-.01em;text-transform:uppercase}
+/* Textkästen sind nur so hoch wie ihr Inhalt: keine Streckung, keine Mindesthöhe, rechts und unten offen.
+   Die Breite kommt weiterhin vom Regler (w_pct als inline-Breite). */
+.frame .hook,.frame .ovl{height:auto;min-height:0;max-height:none;right:auto;bottom:auto;box-sizing:border-box;pointer-events:auto;display:block}
+.frame .ovl{z-index:2}.frame .hook{z-index:3}
+/* Alles Dekorative liegt darüber, nimmt aber keine Klicks an – nur Hook und Overlay sind anfassbar. */
+.frame video,.frame img.bg,.frame .face{z-index:0;pointer-events:none}
+.frame .sz,.frame .ui,.frame .capbar,.frame .guide,.frame .pos,.frame .zoomlbl{z-index:4;pointer-events:none}
 @keyframes hookpop{from{opacity:0;transform:translateX(-50%) scale(.7)}to{opacity:1;transform:translateX(-50%) scale(1)}}
 @keyframes hookslide{from{opacity:0;transform:translateX(-50%) translateY(14px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
 @keyframes hooktype{from{width:0}to{width:var(--w,84%)}}
-.frame .ovl{position:absolute;overflow:hidden}
+.frame .ovl{position:absolute}
 @keyframes ovfade{from{opacity:0}to{opacity:1}}
 @keyframes ovslide{from{opacity:0;transform:translateX(-50%) translateY(-10px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
 .frame .face{position:absolute;left:50%;top:38%;width:34%;aspect-ratio:1;border-radius:50%;transform:translateX(-50%);background:radial-gradient(circle at 40% 35%,#d9b08c,#8a6a52);opacity:.85}
@@ -405,7 +412,9 @@ button.b.on{background:var(--flame);color:#fff;border-color:var(--flame)}
 .sum{font-size:15px;line-height:1.55;margin:0 0 4px}.sum b{font-weight:800}
 .sg{display:flex;gap:12px;align-items:flex-start;padding:10px 0;border-top:1px solid var(--line)}.sg:first-of-type{border-top:0}.sg .n{width:24px;height:24px;border-radius:50%;background:var(--panel2);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;flex:none}.sg .t{flex:1}.sg a.go{font-size:12px;font-weight:700;color:var(--flame);white-space:nowrap}
 details.more{border:1px solid var(--line);border-radius:var(--r);background:var(--panel);margin-bottom:14px}details.more>summary{cursor:pointer;padding:12px 18px;font-weight:800;font-size:14px;list-style:none;display:flex;justify-content:space-between}details.more>summary::-webkit-details-marker{display:none}details.more>summary:after{content:"＋";color:var(--ink3)}details.more[open]>summary:after{content:"－"}details.more>div{padding:0 18px 14px}
-.ovl{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:50;padding:16px}
+/* Dialog (Diff, Clip-Vorschau). Hieß früher .ovl wie der Overlay-Text im Vorschaurahmen –
+   dadurch erbte der Text inset:0, den dunklen Hintergrund und z-index:50 und legte sich als Fläche über den Rahmen. */
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:50;padding:16px}
 .dlg{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);max-width:720px;width:100%;max-height:85vh;overflow:auto;padding:18px 20px}
 .dlg h3{margin:0 0 6px;font-size:16px}.dlg .sub{font-size:12px;color:var(--ink3);margin-bottom:12px}.dlg .act{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}
 .dlg table td{font-size:12px}.dlg td.old{color:var(--ink3);text-decoration:line-through}.dlg td.new{font-weight:700}.dlg .err{color:var(--bad);font-size:13px;margin:6px 0}
@@ -1273,11 +1282,11 @@ function wireCal(d){if(route()!=="calendar")return;const c=CAL||d.calendar;if(!c
     cell.ondrop=e=>{e.preventDefault();cell.classList.remove("drop");const id=e.dataTransfer.getData("text/plain");move(id,cell.dataset.cell,$("#calstat-"+cell.dataset.cell.split("|")[0]))};
     cell.onclick=()=>{if(!calSel)return;move(calSel,cell.dataset.cell,$("#calstat-"+cell.dataset.cell.split("|")[0]))}})}
 // Clip-Vorschau aus dem Kalender: Video, Hook, Caption, Scores, QA und die passenden Sprünge
-function showClip(i,d){const old=$("#ovl");if(old)old.remove();
+function showClip(i,d){const old=$("#modal");if(old)old.remove();
   const st={scheduled:"geplant",shadow:"Schatten",posted:"gepostet",submitted:"eingereicht"}[i.status]||i.status;
   const sc=i.scores&&typeof i.scores==="object"?Object.entries(i.scores).filter(([k2])=>k2!=="total"):[];
   const row=(l,v)=>v?`<div class="row2"><span>${l}</span><span>${v}</span></div>`:"";
-  const el=document.createElement("div");el.className="ovl";el.id="ovl";
+  const el=document.createElement("div");el.className="modal";el.id="modal";
   el.innerHTML=`<div class="dlg" style="max-width:860px"><h3>${esc(i.hook||i.campaign||"Clip")}</h3><div class="sub">${i.account} · ${st} · ${tm(i.at)}${i.duration_s?` · ${Math.round(i.duration_s)} s`:""}</div>
     <div class="pv">${i.media_url?`<video src="${i.media_url}" controls playsinline preload="metadata" ${i.cover?`poster="${i.cover}"`:""}></video>`:`<div class="empty">Keine Videodatei hinterlegt.</div>`}
       <div class="meta2">${row("Kampagne",i.campaign)}${row("Art",i.kind==="fan"?"Fan-Content":"Kampagne")}${row("Views",i.views!=null?k(i.views):"")}${row("Score",i.scores?.total!=null?i.scores.total:"")}
@@ -1389,8 +1398,8 @@ function wireAb(d){if(route()!=="settings"||!d.ab)return;const H={"x-api-key":cf
     if(pv.errors||pv.error){showDiff({title:"Übernehmen nicht möglich",errors:pv.errors||[pv.error]});return}
     showDiff({title:`Gewinner übernehmen: ${pv.target}`,sub:`${(pv.diff||[]).length} Änderung${(pv.diff||[]).length===1?"":"en"} in der Nische – der Test wird beendet`,diff:pv.diff,onConfirm:async()=>{const r=await post({value,confirm:true});if(r.ok){PEND=null;refresh()}else showDiff({title:"Fehler",errors:r.errors||[r.error||"unbekannt"]})}})})}
 // Diff-Dialog (Stufe 3): Feld · vorher · nachher · betroffene Accounts
-function showDiff({title,sub,diff,errors,onConfirm}){const old=$("#ovl");if(old)old.remove();const fv=v=>v==null?"–":typeof v==="object"?JSON.stringify(v):String(v);
-  const el=document.createElement("div");el.className="ovl";el.id="ovl";el.innerHTML=`<div class="dlg"><h3>${title}</h3>${sub?`<div class="sub">${sub}</div>`:""}${(errors||[]).map(e=>`<div class="err">⚠ ${e}</div>`).join("")}
+function showDiff({title,sub,diff,errors,onConfirm}){const old=$("#modal");if(old)old.remove();const fv=v=>v==null?"–":typeof v==="object"?JSON.stringify(v):String(v);
+  const el=document.createElement("div");el.className="modal";el.id="modal";el.innerHTML=`<div class="dlg"><h3>${title}</h3>${sub?`<div class="sub">${sub}</div>`:""}${(errors||[]).map(e=>`<div class="err">⚠ ${e}</div>`).join("")}
     ${diff&&diff.length?`<div style="overflow-x:auto"><table><thead><tr><th>Feld</th><th>vorher</th><th>nachher</th><th>Accounts</th></tr></thead><tbody>${diff.map(x=>`<tr><td>${x.field}</td><td class="old">${fv(x.old)}</td><td class="new">${fv(x.new)}</td><td>${(x.accounts||[]).join(", ")}</td></tr>`).join("")}</tbody></table></div>`:""}
     <div class="act"><button class="b" id="dlg-x">${onConfirm?"Abbrechen":"Schließen"}</button>${onConfirm?`<button class="save" id="dlg-ok">Bestätigen</button>`:""}</div></div>`;
   document.body.appendChild(el);$("#dlg-x").onclick=()=>el.remove();el.onclick=e=>{if(e.target===el)el.remove()};const ok=$("#dlg-ok");if(ok)ok.onclick=async()=>{ok.disabled=true;ok.textContent="…";try{await onConfirm()}finally{el.remove()}}}
