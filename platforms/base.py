@@ -37,9 +37,13 @@ class Platform:
                              max_per_post_usd=campaign.get("max_per_post_usd"),
                              min_seconds=campaign.get("min_seconds", 0))
 
-    def caption(self, campaign: dict) -> str:
+    def caption(self, campaign: dict, hook: str = "") -> str:
+        """Caption pro Clip: Hook-Satz (≤12 Wörter) + Pflichttext + Pflicht-Hashtags der Kampagne."""
         req = campaign["required"]
-        return req["caption"].rstrip() + "\n" + " ".join(req["hashtags"])
+        parts = [hook.strip()] if hook and hook.strip() else []
+        if (req.get("caption") or "").strip():
+            parts.append(req["caption"].rstrip())
+        return "\n".join(parts + [" ".join(req.get("hashtags") or [])]).strip()
 
     def submission_hint(self, campaign: dict, urls: list[str]) -> str:
         """Text der Telegram-Nachricht zum manuellen Einreichen."""

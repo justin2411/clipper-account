@@ -37,12 +37,58 @@ def is_vertical(p: Path) -> bool:
 
 
 def _patch_vendor():
-    """Static-Crop auch für 9:16 (idempotent, wird vor dem Import ausgeführt)."""
+    """Idempotente Mini-Patches am Vendor-Code (vor dem Import):
+    1) Static-Crop auch für 9:16.  2) Untertitel-Farben/Box aus cfg statt hart kodiert (Branding je Account)."""
     f = VENDOR / "clipping" / "studio" / "render_hybrid.py"
     s = f.read_text()
     old = 'and rasio in ["1:1", "3:4", "4:5"]'
     if old in s:
         f.write_text(s.replace(old, 'and rasio in ["1:1", "3:4", "4:5", "9:16"]  # clipforge: static crop auch 9:16'))
+    f = VENDOR / "clipping" / "studio" / "subtitles.py"
+    s = f.read_text()
+    KARAOKE, PRIMARY = r"\\c&H00FFFF&", r"\\c&HFFFFFF&"
+    K_NEW = r"\\c{getattr(cfg, 'ass_karaoke', '&H00FFFF&')}"
+    P_NEW = r"\\c{getattr(cfg, 'ass_primary_tag', '&HFFFFFF&')}"
+    out_lines, changed = [], False
+    for line in s.splitlines(keepends=True):
+        orig = line
+        if "&H00FFFFFF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,{outline_val}" in line:
+            line = line.replace("&H00FFFFFF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,{outline_val}",
+                                "{getattr(cfg, 'ass_primary', '&H00FFFFFF')},&H00000000,{getattr(cfg, 'ass_back', '&H80000000')},0,0,0,0,100,100,0,0,{getattr(cfg, 'ass_border_style', 1)},{outline_val}")
+        elif 'c_tag = "' + PRIMARY + '"' in line:
+            line = line.replace('c_tag = "' + PRIMARY + '"', 'c_tag = f"' + P_NEW + '"')
+        elif (KARAOKE in line or PRIMARY in line) and line.lstrip().startswith(("f\"", "anim_tag = f\"")):
+            line = line.replace(KARAOKE, K_NEW).replace(PRIMARY, P_NEW)
+        if line != orig:
+            changed = True
+        out_lines.append(line)
+    if changed:
+        f.write_text("".join(out_lines))
+
+
+COLD_OPEN_PROMPT = """
+
+CLIPFORGE – COLD OPEN & CAPTION (WAJIB, prioritas di atas aturan hook standar):
+- Setiap klip HARUS dimulai langsung di momen terkuat (cold open). Tidak ada teaser, tidak ada lompatan kembali.
+- Kalimat pertama yang terdengar harus memancing pertanyaan atau ketegangan dan tetap bisa dipahami TANPA konteks video penuh.
+- Geser start_time ke awal kalimat kuat tersebut; jangan mulai di tengah kalimat.
+- Tambahkan untuk setiap klip dua field tambahan (bahasa Inggris natural):
+  - "caption_hook": 1 kalimat hook untuk caption, MAKSIMAL 12 kata, tanpa hashtag, tanpa emoji, memancing rasa ingin tahu, tidak clickbait palsu.
+  - "pinned_comment": 1 pertanyaan (maksimal 15 kata) untuk komentar yang dipin, yang memancing penonton menjawab/berdebat.
+"""
+
+
+def _install_prompt_patch(engine):
+    """Cold-Open-Regeln + Zusatzfelder an den zentralen Analyse-Prompt anhängen (Monkeypatch, kein Vendor-Edit)."""
+    if getattr(engine, "_clipforge_prompt_patched", False):
+        return
+    orig = engine.get_analysis_prompt
+
+    def patched(*a, **k):
+        return orig(*a, **k) + COLD_OPEN_PROMPT
+
+    engine.get_analysis_prompt = patched
+    engine._clipforge_prompt_patched = True
 
 
 def _cap_clips(argv: list[str], max_clips: int) -> list[str]:
@@ -58,10 +104,15 @@ def _cap_clips(argv: list[str], max_clips: int) -> list[str]:
     return out
 
 
-def hooks_of(work_dir: Path) -> dict[str, str]:
-    """rank → Hook-Satz (englischer Titel aus dem Clipper-Manifest bzw. gemini_response.json)."""
-    out: dict[str, str] = {}
-    for f in ("render_manifest.json", "gemini_response.json"):
+def _words(s: str, n: int) -> str:
+    w = str(s or "").strip().split()
+    return " ".join(w[:n]).rstrip(",;:") if len(w) > n else " ".join(w)
+
+
+def hooks_of(work_dir: Path) -> dict[str, dict]:
+    """rank → {hook, caption_hook (≤12 Wörter), pinned_comment} aus gemini_response.json / Manifest."""
+    out: dict[str, dict] = {}
+    for f in ("gemini_response.json", "render_manifest.json"):
         fp = work_dir / "outputs" / f
         if not fp.is_file():
             continue
@@ -73,15 +124,20 @@ def hooks_of(work_dir: Path) -> dict[str, str]:
         for m in items:
             if not isinstance(m, dict) or "rank" not in m:
                 continue
-            hook = m.get("title_inggris") or m.get("youtube_title_final") or m.get("thumbnail_text") or m.get("title") or ""
-            if hook and str(m["rank"]) not in out:
-                out[str(m["rank"])] = str(hook).strip()
+            r = str(m["rank"])
+            cur = out.setdefault(r, {"hook": "", "caption_hook": "", "pinned_comment": ""})
+            cur["hook"] = cur["hook"] or str(m.get("title_inggris") or m.get("youtube_title_final") or m.get("thumbnail_text") or m.get("title") or "").strip()
+            cur["caption_hook"] = cur["caption_hook"] or _words(m.get("caption_hook") or m.get("description_hook") or m.get("title_inggris") or "", 12)
+            cur["pinned_comment"] = cur["pinned_comment"] or str(m.get("pinned_comment") or "").strip()
+            cur.setdefault("description", str(m.get("description_hook") or "") + " " + str(m.get("description_context") or ""))
+            cur.setdefault("transcript", str(m.get("transcript_text") or m.get("teks") or ""))
     return out
 
 
-def run(source: Path, flags: str, work_dir: Path, label_url: str = "", max_clips: int = DEFAULT_MAX_CLIPS) -> list[Path]:
+def run(source: Path, flags: str, work_dir: Path, label_url: str = "", max_clips: int = DEFAULT_MAX_CLIPS,
+        subtitle_style: dict | None = None) -> list[Path]:
     """Schneidet `source` mit den Account-Flags. Rückgabe: fertige Clips (outputs/highlight_rank_N_ready.mp4).
-    Hook-Sätze dazu: hooks_of(work_dir)[rank]."""
+    Hook-Sätze dazu: hooks_of(work_dir)[rank]. subtitle_style (config/accounts.yaml): ASS-Farben/Box für Karaoke-Untertitel."""
     source = source.resolve()                          # VOR dem chdir absolut machen
     work_dir = work_dir.resolve()
     work_dir.mkdir(parents=True, exist_ok=True)
@@ -90,6 +146,7 @@ def run(source: Path, flags: str, work_dir: Path, label_url: str = "", max_clips
         sys.path.insert(0, str(VENDOR))
     from clipping.config import build_config          # noqa: E402
     from clipping import engine, runner                # noqa: E402
+    _install_prompt_patch(engine)
 
     argv = _cap_clips(shlex.split(flags), max_clips)
     vertical = is_vertical(source)
@@ -103,6 +160,8 @@ def run(source: Path, flags: str, work_dir: Path, label_url: str = "", max_clips
     try:
         cfg = build_config(argv)
         cfg.file_video_asli = str(source)
+        for k, v in (subtitle_style or {}).items():      # ass_primary, ass_back, ass_border_style, ass_karaoke, ass_primary_tag
+            setattr(cfg, k, v)
         engine.download_video = lambda *a, **k: None   # Datei liegt schon lokal
         manifest = runner.run_pipeline(cfg) or []
     finally:

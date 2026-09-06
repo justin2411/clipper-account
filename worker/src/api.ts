@@ -204,10 +204,10 @@ export async function handleRequest(req: Request, env: Env, ctx: ExecutionContex
         const id = crypto.randomUUID().replace(/-/g, "");
         // seq = laufende Nummer je Kampagne (atomar im INSERT); Standardstatus 'ready' → Publisher postet zu den Slots
         await db.run(env,
-          `INSERT INTO clips (id, campaign_id, account, media_url, caption, hook_type, status, note, seq, duration_s, hook)
-           SELECT ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(MAX(seq), 0) + 1, ?, ? FROM clips WHERE campaign_id = ?`,
+          `INSERT INTO clips (id, campaign_id, account, media_url, caption, hook_type, status, note, seq, duration_s, hook, pinned_comment)
+           SELECT ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(MAX(seq), 0) + 1, ?, ?, ? FROM clips WHERE campaign_id = ?`,
           id, b.campaign_id, b.account, b.media_url, b.caption ?? null, b.hook_type ?? null, b.status ?? "ready", b.note ?? null,
-          b.duration_s ?? null, b.hook ?? null, b.campaign_id);
+          b.duration_s ?? null, b.hook ?? null, b.pinned_comment ?? null, b.campaign_id);
         const row = await db.first<{ seq: number }>(env, "SELECT seq FROM clips WHERE id = ?", id);
         return json({ id, seq: row?.seq ?? null }, 201);
       }
@@ -283,6 +283,20 @@ export async function handleRequest(req: Request, env: Env, ctx: ExecutionContex
       if (!env.BLOTATO_API_KEY) return json({ error: "BLOTATO_API_KEY nicht gesetzt" }, 503);
       const r = await fetch(`${BLOTATO}/users/me/accounts`, { headers: blotatoHeaders(env) });
       return json(await r.json().catch(() => ({ status: r.status })), r.status);
+    }
+
+    // telegram photo (multipart: photo=<file>, caption=<text>) → Bot API sendPhoto
+    if (rest[0] === "telegram" && rest[1] === "photo" && req.method === "POST") {
+      if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_CHAT_ID) return json({ sent: false, error: "telegram nicht konfiguriert" });
+      const form = await req.formData();
+      const photo = form.get("photo");
+      if (!(photo instanceof File)) return json({ error: "photo fehlt" }, 400);
+      const out = new FormData();
+      out.set("chat_id", env.TELEGRAM_CHAT_ID);
+      out.set("caption", String(form.get("caption") ?? "").slice(0, 1024));
+      out.set("photo", photo, photo.name || "frame.jpg");
+      const r = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendPhoto`, { method: "POST", body: out });
+      return json({ sent: r.ok, status: r.status });
     }
 
     // telegram info message

@@ -25,10 +25,21 @@ def upsert_campaign(body):
     return _req("POST", "/campaigns", json=body)
 
 
-def insert_clip(campaign_id, account, url, status, caption=None, note=None, hook_type=None, duration_s=None, hook=None):
+def insert_clip(campaign_id, account, url, status, caption=None, note=None, hook_type=None, duration_s=None, hook=None, pinned_comment=None):
     return _req("POST", "/clips", json={"campaign_id": campaign_id, "account": account, "media_url": url,
                                        "status": status, "caption": caption, "note": note, "hook_type": hook_type,
-                                       "duration_s": duration_s, "hook": hook})
+                                       "duration_s": duration_s, "hook": hook, "pinned_comment": pinned_comment})
+
+
+def notify_photo(path, caption):
+    """Standbild + Text per Telegram (schlägt nie hart fehl)."""
+    try:
+        with open(path, "rb") as f:
+            r = requests.post(f"{URL}/api/telegram/photo", headers={"Authorization": H["Authorization"]},
+                              files={"photo": (os.path.basename(str(path)), f, "image/jpeg")}, data={"caption": caption}, timeout=60)
+        return r.json() if r.content else None
+    except Exception as e:
+        print("notify_photo failed:", e); return None
 
 
 def notify(text):

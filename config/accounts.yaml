@@ -2,15 +2,26 @@
 accounts:
   - id: A
     handle: "@mrbeastfire0"
-    style: moments            # krasse Szenen, kurz, Textfrage-Hook, keine Untertitel
-    clipper_flags: "--clips 3 --hook-v2 --no-subs --no-broll --no-bgm --whisper-model small --whisper-device cpu --whisper-compute-type int8"
+    style: moments            # krasse Szenen, Cold Open, 2-s-Text-Hook oben, keine Untertitel
+    clipper_flags: "--clips 3 --no-hook --no-subs --no-broll --no-bgm --whisper-model small --whisper-device cpu --whisper-compute-type int8"
+    text_hook:                # Branding A: weiße Bold-Schrift, orangener Akzentbalken, 2 s, Safe-Zone oben (12 %)
+      enabled: true
+      seconds: 2
+      color: "white"
+      accent: "#FF5A1F"
     slots_utc: ["12:00", "15:00", "18:00", "22:30"]   # Berlin 14/17/20/00:30 (Sommer)
     blotato:
       tiktok: "58583"  # @mrbeastfire0 (Blotato accountId)
   - id: B
     handle: "@beastcrewclips"
-    style: reactions          # Reaktionen/Comedy, Untertitel, cinematic
-    clipper_flags: "--clips 3 --hook-v2 --font-style CINEMATIC --no-broll --no-bgm --whisper-model small --whisper-device cpu --whisper-compute-type int8"
+    style: reactions          # Reaktionen/Comedy, Cold Open, gelbe Karaoke-Untertitel auf lila Box, CINEMATIC
+    clipper_flags: "--clips 3 --no-hook --font-style CINEMATIC --no-broll --no-bgm --whisper-model small --whisper-device cpu --whisper-compute-type int8"
+    subtitle_style:           # Branding B (ASS-Farben &HAABBGGRR; Tags &HBBGGRR&). Position: Standard-Margin 450 px von unten = Safe-Zone
+      ass_primary: "&H0000FFFF"       # Grundfarbe gelb
+      ass_karaoke: "&HFFFFFF&"        # aktives Wort weiß
+      ass_primary_tag: "&H00FFFF&"    # gelb (Karaoke-Rücksetzfarbe)
+      ass_back: "&H30F65C8B"          # lila Box (#8B5CF6), leicht transparent
+      ass_border_style: 3             # 3 = Box hinter dem Text
     slots_utc: ["13:00", "16:00", "19:00", "22:30"]
     blotato:
       tiktok: "58594"  # @beastcrewclips (Blotato accountId)
