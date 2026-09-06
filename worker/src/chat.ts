@@ -85,10 +85,10 @@ async function runReadTool(env: Env, name: string, a: any, ws: string): Promise<
       for (const r of rows) { const c = await db.first<any>(env, "SELECT COUNT(*) AS n, SUM(status IN ('posted','submitted','archived')) AS posted FROM clips WHERE campaign_id = ?", r.id); r.clips = c?.n ?? 0; r.posted = c?.posted ?? 0; }
       return { data: rows, rows: rows.length };
     }
-    case "get_payouts": {
-      const days = lim(a?.days, 30, 365);
-      const rows = await db.all<any>(env, "SELECT p.id, p.campaign_id, ca.name AS campaign, p.amount_usd, p.source, p.at FROM payouts p LEFT JOIN campaigns ca ON ca.id = p.campaign_id WHERE p.workspace_id = ? AND p.at >= ? ORDER BY p.at DESC LIMIT 100", ws, new Date(Date.now() - days * 86400000).toISOString());
-      return { data: { total_usd: rows.reduce((x, r) => x + Number(r.amount_usd ?? 0), 0), items: rows }, rows: rows.length };
+    case "get_payouts": {                                        // Abgleich: erwartet vs. ausgezahlt, Kosten und Marge je Kampagne
+      const { buildPayouts } = await import("./payouts");
+      const p = await buildPayouts(env, lim(a?.days, 30, 365), ws);
+      return { data: { totals: p.totals, campaigns: p.campaigns.map(({ payouts, ...c }: any) => c), payouts: p.payouts.slice(0, 50), note: p.note }, rows: p.campaigns.length };
     }
     case "get_settings": {
       if (a?.account) return { data: await effectiveSettings(env, String(a.account).toUpperCase(), ws), rows: 1 };

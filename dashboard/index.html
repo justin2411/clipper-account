@@ -46,6 +46,11 @@
                 top_posts:[{url,account,views,likes,hook,kind,campaign,posted_at}], learned:{best_slot,best_hook_type,best_font,best_account}, suggestions:[{text,action?:{kind,label,href}}], summary:[3 Sätze] }
               -> GET /report?week=latest|current|<YYYY-Www> (Dashboard-Key), GET /report/weeks. Sonntags 09:00 Berlin: Bericht in kv + Telegram-Kurzfassung mit Link auf #report.
               WeeklyReport zusätzlich: ab:{variable,leader,lift_pct,hint,variants:[{value,posts,avg_views}]}|null, changes:[{at,text}] (was das System umgestellt hat)
+  payouts (Nachtrag 5): { days, since, totals:{expected_usd, paid_usd, open_usd, cost_usd, margin_usd, clips, posts, cost_per_clip_usd, month_paid_usd, unassigned_usd},
+              campaigns:[{id, name, platform, kind, status, rate_per_1k, min_views, posts, posts_with_views, submitted, views, clips, expected_usd, paid_usd, open_usd, proration_pct, cost_usd, cost_per_clip_usd, margin_usd, margin_pct, payouts:[{amount_usd, source, at}]}],
+              posts:[{id, at, account, campaign, kind, hook, views, expected_usd, submitted, url}], payouts:[…], unassigned:[…], note }
+              -> GET /payouts?days=90 · CSV: ?csv=1 (Kampagnen) und ?csv=posts. Erwartet = Views/1000 × Rate, gedeckelt durch max_per_post_usd, unter min_views zählt der Post nicht;
+              Kosten = gebuchte Kosten + 0,01 $ je Clip + Blotato (29 $/Monat) anteilig nach Clip-Anzahl.
   calendar (Nachtrag 4): { from, to, week_offset, days:[YYYY-MM-DD ×7], accounts:[{id, handle, niche, slots, posts_per_day, min_gap_min, paused, paused_until}],
               items:[{id, clip_id, account, at, status, mode, kind, hook, cover, duration_s, campaign, campaign_id, niche, url, views, movable}] }
               -> GET /calendar?week=0|-1|1 · POST /calendar/move {post_id, at} (Kollisionsschutz: Mindestabstand und Tageslimit des Accounts; Schatten-Post umdatieren, Live-Post über Blotato neu planen)
@@ -324,6 +329,7 @@ details.more{border:1px solid var(--line);border-radius:var(--r);background:var(
 .ev2 .t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px}
 .ev2 .h{font-size:10px;color:var(--ink3)}
 @media (max-width:900px){.cal{grid-template-columns:44px 1fr;overflow-x:auto}.cal .hd.d,.cal .cell{display:none}.cal .hd.d.on,.cal .cell.on{display:block}}
+.bar2{height:8px;border-radius:4px;background:var(--line);overflow:hidden;min-width:80px}.bar2 i{display:block;height:100%;background:var(--ok)}.bar2 i.warn{background:var(--warn)}
 main{min-width:0;overflow-x:hidden}section,.kpi,.tk,.card,.rv{min-width:0}
 .urls{white-space:pre-wrap;word-break:break-all}
 @media (max-width:480px){.g2,.g4,.flow,.cards{grid-template-columns:1fr}.steps{grid-template-columns:repeat(2,1fr)}table{display:block;overflow-x:auto}}
@@ -433,6 +439,7 @@ function nav(d){const r=route();
   <a class="nl ${r==="tasks"?"on":""}" href="#tasks">Aufgaben<small>${(d.tasks||[]).length}</small></a>
   <a class="nl ${r==="report"?"on":""}" href="#report">Wochenbericht<small>${d.report?.latest?.week?.replace(/^\d{4}-W/,"KW")||""}</small></a>
   ${d.onboarding&&!d.onboarding.complete?`<a class="nl ${r==="start"?"on":""}" href="#start">Erste Schritte<small>${d.onboarding.done}/${d.onboarding.total}</small></a>`:""}
+  <a class="nl ${r==="payouts"?"on":""}" href="#payouts">Auszahlungen<small>${d.payouts?.totals?.open_usd?`${Math.round(d.payouts.totals.open_usd)} $ offen`:""}</small></a>
   <a class="nl ${r==="calendar"?"on":""}" href="#calendar">Kalender<small>${(d.calendar?.items||[]).filter(i=>i.movable).length||""}</small></a>
   <a class="nl ${r.startsWith("chat")?"on":""}" href="#chat">Chat${d.chat&&!d.chat.enabled?`<small>aus</small>`:(d.chat?.budget?.exhausted?`<small>Budget</small>`:"")}</a>
   <a class="nl ${r==="inbox"?"on":""}" href="#inbox">Posteingang<small>${d.inbox?.counts?.unread?`${d.inbox.counts.unread} neu`:""}</small></a>
@@ -585,6 +592,27 @@ function page(d){const r=route(); nav(d);
     <section>${(ib.items||[]).length?ib.items.map(n=>`<div class="nt ${n.read?"":"unread"} ${n.done?"done":""}" data-nid="${n.id}"><span class="pill ${n.kind==="error"||n.kind==="killswitch"?"error":n.kind==="warning"?"reject":n.kind==="report"?"post":n.kind==="supply"||n.kind==="new_video"?"upload":""}">${kinds[n.kind]||n.kind}</span><div><div class="ti" data-inbopen="${n.id}">${n.title}${n.sent_telegram?"":" <small style=\"color:var(--ink3)\">· nur hier</small>"}</div><div class="tx">${n.text.replace(/</g,"&lt;")}${n.photo_url?`<div><a href="${n.photo_url}" target="_blank" rel="noopener">Bild öffnen ↗</a></div>`:""}</div><div class="act" style="margin-top:6px">${n.done?`<button data-inbmark="${n.id}|reopen">Wieder öffnen</button>`:`${n.read?"":`<button data-inbmark="${n.id}|read">Gelesen</button>`}<button data-inbmark="${n.id}|done">Erledigt</button>`}<a href="#chat:${encodeURIComponent(n.explain)}">Erklären →</a></div></div><time class="tm">${tm(n.created_at)}</time></div>`).join(""):`<div class="empty">Nichts ${inbFilter==="done"?"erledigt":"offen"}.</div>`}
     ${ib.next_before?`<div class="tools" style="margin-top:12px"><button class="b" id="inbmore" data-before="${ib.next_before}">Mehr laden</button></div>`:""}</section>
     <details class="more"><summary>Regeln je Ereignistyp <span style="font-weight:500;color:var(--ink3);font-size:12px">Telegram an/aus · Push kommt mit der App</span></summary><div><div class="rules">${Object.entries(kinds).map(([k,l])=>`<label><input type="checkbox" data-rule="${k}" ${(ib.rules||{})[k]?.telegram!==false?"checked":""}> ${l} → Telegram</label>`).join("")}</div><div class="up" style="margin-top:8px">Aus = Ereignis erscheint nur hier im Posteingang.</div></div></details>`;
+  } else if(r==="payouts"){
+    const p=d.payouts||{totals:{},campaigns:[],posts:[]},t=p.totals||{};
+    const kpi=(v,l,s)=>`<div class="kpi"><b>${v}</b><span>${l}</span>${s?`<small style="color:var(--ink3);font-weight:500">${s}</small>`:""}</div>`;
+    html=`<div class="top"><h1>Auszahlungen</h1><div class="meta">letzte ${p.days||90} Tage <button class="b" id="rf">Aktualisieren</button></div></div>${banner}
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));margin-bottom:14px">
+      ${kpi(money(t.paid_usd||0),"ausgezahlt",`${money(t.month_paid_usd||0)} diesen Monat`)}
+      ${kpi(money(t.open_usd||0),"offen (erwartet − ausgezahlt)",`erwartet ${money(t.expected_usd||0)}`)}
+      ${kpi(money(t.cost_usd||0),"Kosten",t.cost_per_clip_usd!=null?`${t.cost_per_clip_usd.toFixed(2)} $ je Clip`:"")}
+      ${kpi(money(t.margin_usd||0),"Marge",`${t.clips||0} Clips · ${t.posts||0} Posts`)}</div>
+    ${p.note?`<section style="padding:10px 18px"><div class="up">ℹ ${p.note}</div></section>`:""}
+    <section><h2>Kampagnen <span>erwartet vs. ausgezahlt · <a href="#" data-csv="1">CSV</a></span></h2>
+      <div style="overflow-x:auto"><table><thead><tr><th>Kampagne</th><th class="r">Posts</th><th class="r">Views</th><th class="r">erwartet</th><th class="r">ausgezahlt</th><th>Proration</th><th class="r">Kosten/Clip</th><th class="r">Marge</th></tr></thead><tbody>
+      ${(p.campaigns||[]).map(c=>`<tr><td><div class="h">${c.url?`<a href="${c.url}" target="_blank" rel="noopener">${c.name}</a>`:c.name}</div><div class="n">${c.kind==="fan"?`<span class="pill v">Fan</span>`:`<span class="pill f">${c.platform}</span>`} ${c.rate_per_1k?`· ${c.rate_per_1k} $/1k`:""} ${c.min_views?`· ab ${k(c.min_views)} Views`:""}</div></td>
+        <td class="r">${c.posts}${c.submitted?`<div class="n">${c.submitted} eingereicht</div>`:""}</td><td class="r">${k(c.views)}</td><td class="r">${money(c.expected_usd)}</td><td class="r"><b>${money(c.paid_usd)}</b></td>
+        <td>${c.proration_pct==null?"–":`<div class="bar2"><i class="${c.proration_pct<80?"warn":""}" style="width:${Math.min(100,c.proration_pct)}%"></i></div><div class="n">${c.proration_pct} %${c.open_usd?` · ${money(c.open_usd)} offen`:""}</div>`}</td>
+        <td class="r">${c.cost_per_clip_usd==null?"–":c.cost_per_clip_usd.toFixed(2)+" $"}</td><td class="r" style="color:${c.margin_usd>=0?"var(--ok)":"var(--bad)"}">${money(c.margin_usd)}${c.margin_pct!=null?`<div class="n">${c.margin_pct} %</div>`:""}</td></tr>`).join("")||`<tr><td colspan="8"><div class="empty">Noch keine Daten.</div></td></tr>`}</tbody></table></div></section>
+    <details class="more"><summary>Zahlungen &amp; Posts im Einzelnen</summary><div>
+      <table><thead><tr><th>Zeit</th><th>Kampagne</th><th>Quelle</th><th class="r">Betrag</th></tr></thead><tbody>${(p.payouts||[]).map(x=>`<tr><td>${tm(x.at)}</td><td>${(p.campaigns||[]).find(c=>c.id===x.campaign_id)?.name||x.campaign_id||"–"}</td><td>${x.source||""}</td><td class="r">${money(x.amount_usd)}</td></tr>`).join("")||`<tr><td colspan="4"><div class="empty">Noch keine Zahlungen erfasst.</div></td></tr>`}</tbody></table>
+      <div style="margin:12px 0 6px"><b style="font-size:13px">Posts</b> <a href="#" data-csv="posts" style="font-size:12px;color:var(--flame);font-weight:700">CSV</a></div>
+      <div style="overflow-x:auto"><table><thead><tr><th>Zeit</th><th>Account</th><th>Hook</th><th class="r">Views</th><th class="r">erwartet</th><th>eingereicht</th></tr></thead><tbody>
+      ${(p.posts||[]).slice(0,60).map(x=>`<tr><td>${tm(x.at)}</td><td>${x.account}</td><td>${x.url?`<a href="${x.url}" target="_blank" rel="noopener">${x.hook||x.campaign}</a>`:(x.hook||x.campaign)}</td><td class="r">${x.views==null?"–":k(x.views)}</td><td class="r">${money(x.expected_usd)}</td><td>${x.submitted?"✓":"–"}</td></tr>`).join("")}</tbody></table></div></div></details>`;
   } else if(r==="calendar"){
     const c=CAL||d.calendar;
     html=`<div class="top"><h1>Kalender</h1><div class="meta">${c?`${c.days[0].slice(8,10)}.${c.days[0].slice(5,7)}. – ${c.days[6].slice(8,10)}.${c.days[6].slice(5,7)}.`:""} <button class="b" data-calw="${(c?.week_offset??0)-1}">‹</button><button class="b" data-calw="0">Diese Woche</button><button class="b" data-calw="${(c?.week_offset??0)+1}">›</button><button class="b" id="rf">Aktualisieren</button></div></div>${banner}
@@ -607,7 +635,7 @@ function page(d){const r=route(); nav(d);
     html=`<div class="top"><h1>Aufgaben</h1><div class="meta">${(d.tasks||[]).length} offen <button class="b" id="rf">Aktualisieren</button></div></div>${banner}<section>${(d.tasks||[]).map(t=>taskCard(t,d)).join("")||`<div class="empty">Nichts offen – alles läuft.</div>`}</section>`;
   }
   $("#main").innerHTML=html; const rf=$("#rf"); if(rf) rf.onclick=refresh;
-  document.querySelectorAll("th[data-k]").forEach(th=>th.onclick=()=>{sortKey=th.dataset.k;page(d)}); wireUpload(d); wireTasks(d); wireStudio(d); wireHow(d); wireReport(d); wireAb(d); wireLog(d); wireOnb(d); wireSuggest(d); wireHealth(); wireInbox(d); wireChat(d); wireCal(d);}
+  document.querySelectorAll("th[data-k]").forEach(th=>th.onclick=()=>{sortKey=th.dataset.k;page(d)}); wireUpload(d); wireTasks(d); wireStudio(d); wireHow(d); wireReport(d); wireAb(d); wireLog(d); wireOnb(d); wireSuggest(d); wireHealth(); wireInbox(d); wireChat(d); wireCal(d); wirePayouts();}
 
 // Wochenbericht (Stufe 2) – Tiefe 1: Kennzahlen + 3 Sätze + Vorschläge; Tiefe 2: Accounts / Paid vs Fan (zu); Tiefe 3: Top-Posts, Gelernt, Produktion (zu)
 function reportBody(rep,d){const t=rep.totals,p=rep.prev||{};
@@ -841,6 +869,10 @@ function wireStudio(d){
     const pv=await post(body);if(pv.errors){showDiff({title:"Zurücksetzen nicht möglich",errors:pv.errors});return}
     if(!pv.diff||!pv.diff.length){showDiff({title:"Nichts zu tun",sub:"Dieser Stand ist bereits aktiv."});return}
     showDiff({title:`Zurücksetzen auf ${pv.target}`,sub:`${pv.diff.length} Änderung${pv.diff.length>1?"en":""} – der Zustand wird als neue Version gespeichert`,diff:pv.diff,onConfirm:async()=>{const r=await post({...body,confirm:true});if(r.ok){PEND=null;refresh()}else showDiff({title:"Fehler",errors:r.errors||[r.error||"unbekannt"]})}})});}
+// Auszahlungen (Nachtrag 5): CSV über den Lese-Key holen und lokal speichern
+function wirePayouts(){document.querySelectorAll("[data-csv]").forEach(a=>a.onclick=async e=>{e.preventDefault();if(DEMO_MODE||!cfg)return;
+  const r=await fetch(cfg.apiUrl+"/payouts?csv="+a.dataset.csv,{headers:{"x-api-key":cfg.apiKey}});const blob=await r.blob();
+  const u=URL.createObjectURL(blob),l=document.createElement("a");l.href=u;l.download=a.dataset.csv==="posts"?"auszahlungen-posts.csv":"auszahlungen-kampagnen.csv";l.click();URL.revokeObjectURL(u)})}
 // Kalender (Nachtrag 4) – Woche je Account, Drag verschiebt den Slot (mobil: antippen, dann Zielzelle)
 function calendarBlock(c,d){const hours=[...new Set([...(c.accounts.flatMap(a=>a.slots||[])),...c.items.map(i=>i.at.slice(11,16))])].map(h=>h.slice(0,2)+":00");
   const rows=[...new Set(hours)].sort();const dayNames=["Mo","Di","Mi","Do","Fr","Sa","So"];
