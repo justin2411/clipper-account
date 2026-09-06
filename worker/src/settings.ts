@@ -13,7 +13,8 @@ export interface NicheSettings {
             zoom_max_per_clip: number; zoom_ease_ms: number; safe_top_px: number; safe_bottom_px: number; safe_right_px: number; cover_text: boolean;
             // Feinjustierung Hook-Text (Dashboard v4): Größe in px bei 1080 Breite, Dicke nur bei variablen Fonts (Montserrat, Oswald)
             hook_size: number; hook_weight: number; hook_spacing: number; hook_line_h: number; hook_align: "left" | "center" | "right"; hook_x_pct: number; hook_w_pct: number;
-            hook_case: "upper" | "none"; box: "none" | "solid" | "blur"; box_color: string; box_opacity: number; box_pad: number; box_radius: number; shadow: number;
+            hook_case: "upper" | "none"; hook_sample: string;                 // hook_sample: nur Vorschautext im Dashboard, wird nie gerendert
+            box: "none" | "solid" | "blur"; box_color: string; box_opacity: number; box_pad: number; box_radius: number; shadow: number;
             anim: "none" | "pop" | "slide" | "typewriter"; accent_mode: "none" | "last2" | "first" | "keyword"; align?: string;
             // Overlay oben (Pflichttext der Kampagne) – eigener Layer, erbt nichts vom Hook
             overlay: OverlaySettings; cover: CoverSettings };
@@ -42,8 +43,8 @@ const BRAND: Record<string, Partial<NicheSettings["visual"]>> = {           // a
   A: { font: "Anton", color: "#FFFFFF", accent: "#FF6A00", hook_align: "center", box: "none", accent_mode: "keyword" },
   B: { font: "Bangers", color: "#FFD400", accent: "#7B2FF7", hook_align: "left", box: "solid", box_color: "#7B2FF7", box_opacity: 100, accent_mode: "none" },
 };
-export const HOOK_DEFAULTS: Pick<NicheSettings["visual"], "hook_size" | "hook_weight" | "hook_spacing" | "hook_line_h" | "hook_align" | "hook_x_pct" | "hook_w_pct" | "hook_case" | "box" | "box_color" | "box_opacity" | "box_pad" | "box_radius" | "shadow" | "anim" | "accent_mode"> = {
-  hook_size: 52, hook_weight: 800, hook_spacing: -1, hook_line_h: 1.05, hook_align: "center", hook_x_pct: 50, hook_w_pct: 84, hook_case: "upper",
+export const HOOK_DEFAULTS: Pick<NicheSettings["visual"], "hook_sample" | "hook_size" | "hook_weight" | "hook_spacing" | "hook_line_h" | "hook_align" | "hook_x_pct" | "hook_w_pct" | "hook_case" | "box" | "box_color" | "box_opacity" | "box_pad" | "box_radius" | "shadow" | "anim" | "accent_mode"> = {
+  hook_sample: "", hook_size: 52, hook_weight: 800, hook_spacing: -1, hook_line_h: 1.05, hook_align: "center", hook_x_pct: 50, hook_w_pct: 84, hook_case: "upper",
   box: "none", box_color: "#000000", box_opacity: 55, box_pad: 10, box_radius: 10, shadow: 2, anim: "pop", accent_mode: "last2",
 };
 export const OVERLAY_DEFAULTS: OverlaySettings = {
@@ -170,7 +171,15 @@ function checkBlock(b: any, where: string, ranges: Record<string, [number, numbe
   for (const [k, [lo, hi]] of Object.entries(ranges)) if (b[k] !== undefined) num(b[k], lo, hi, `${where}.${k}`, errs);
   for (const [k, ok] of Object.entries(enums)) if (b[k] !== undefined && !ok.includes(String(b[k]))) errs.push(`${where}.${k}: ${ok.join("|")}`);
   for (const c of colors) if (b[c] !== undefined && !/^#[0-9a-fA-F]{6}$/.test(String(b[c]))) errs.push(`${where}.${c}: Hex-Farbe`);
-  if (b.text !== undefined && String(b.text).length > 200) errs.push(`${where}.text: höchstens 200 Zeichen`);
+  // overlay.text darf farbige Teilstücke enthalten: <span style="color:#RRGGBB">…</span>. Alles andere an Auszeichnung wird abgelehnt,
+  // der Renderer entfernt übrig gebliebene Tags. Mit den Spans ist der Text länger als der reine Inhalt, daher 400 Zeichen.
+  if (b.text !== undefined) {
+    const t = String(b.text);
+    if (t.length > 400) errs.push(`${where}.text: höchstens 400 Zeichen`);
+    const bare = t.replace(/<span style="color:\s*#[0-9a-fA-F]{3,6}\s*(?:;[^"]*)?">/g, "").replace(/<\/span>/g, "");
+    if (/[<>]/.test(bare)) errs.push(`${where}.text: nur <span style="color:#RRGGBB"> für farbige Wörter erlaubt`);
+    if (bare.length > 200) errs.push(`${where}.text: höchstens 200 Zeichen Text`);
+  }
 }
 
 /** Validierung: bekannte Felder, Wertebereiche, Slots HH:MM. Rückgabe: Fehlerliste. */
@@ -201,6 +210,7 @@ export function validateSettings(s: Settings): string[] {
         font: ["Anton", "Bangers", "Bebas Neue", "Luckiest Guy", "Montserrat", "Oswald", "Archivo Black"] };
       for (const [k, ok] of Object.entries(enums)) if (v[k] !== undefined && !ok.includes(String(v[k]))) errs.push(`${where}.visual.${k}: ${ok.join("|")}`);
       for (const c of ["color", "accent", "box_color"]) if (v[c] !== undefined && !/^#[0-9a-fA-F]{6}$/.test(String(v[c]))) errs.push(`${where}.visual.${c}: Hex-Farbe`);
+      if (v.hook_sample !== undefined && String(v.hook_sample).length > 200) errs.push(`${where}.visual.hook_sample: höchstens 200 Zeichen`);
       checkBlock(v.overlay, `${where}.visual.overlay`, OVERLAY_RANGES, OVERLAY_ENUMS, ["color", "box_color"], errs);
       checkBlock(v.cover, `${where}.visual.cover`, COVER_RANGES, COVER_ENUMS, ["color", "accent", "box_color"], errs); }
     if (n.audio) { if (n.audio.lufs !== undefined) num(n.audio.lufs, -24, -8, `${where}.audio.lufs`, errs); if (n.audio.true_peak !== undefined) num(n.audio.true_peak, -6, 0, `${where}.audio.true_peak`, errs); }

@@ -125,6 +125,25 @@ OVERLAY_STYLE_DEFAULTS = {"show": "auto", "text": "", "font": "Montserrat", "siz
                           "safe_top": SAFE_TOP, "safe_right": SAFE_RIGHT}
 
 
+SPAN_RE = re.compile(r'<span[^>]*color\s*:\s*(#[0-9a-fA-F]{3,6})[^>]*>(.*?)</span>', re.S | re.I)
+
+
+def parse_colored(text: str) -> tuple[str, dict[int, str]]:
+    """Overlay-Text mit farbigen Teilstücken: <span style="color:#RRGGBB">Wort</span> → (reiner Text, {Wort-Index: Farbe}).
+    Alles andere an Auszeichnung wird entfernt, damit nie ein Tag im Bild landet."""
+    out, colors, idx, pos = [], {}, 0, 0
+    for m in SPAN_RE.finditer(text or ""):
+        for part, col in ((text[pos:m.start()], None), (m.group(2), m.group(1))):
+            for w in re.sub(r"<[^>]+>", "", part).split():
+                out.append(w)
+                if col: colors[idx] = col if len(col) == 7 else "#" + "".join(c * 2 for c in col.lstrip("#"))
+                idx += 1
+        pos = m.end()
+    for w in re.sub(r"<[^>]+>", "", (text or "")[pos:]).split():
+        out.append(w); idx += 1
+    return " ".join(out), colors
+
+
 def overlay_style_from_visual(vis: dict) -> dict:
     """settings.visual.overlay (Dashboard → Feinjustierung) → Tokens für apply(). Erbt nichts vom Hook."""
     o = dict((vis or {}).get("overlay") or {})
@@ -137,8 +156,10 @@ def overlay_style_from_visual(vis: dict) -> dict:
 
 def overlay_png(text: str, st: dict, width: int, height: int, out: Path) -> tuple[Path, int, int, int]:
     """Overlay oben als PNG (eigener Layer, unabhängig vom Hook). Rückgabe (png, x, y, Höhe).
-    Der Block sitzt mit seiner Oberkante bei y_pct, bleibt aber immer unter der oberen Safe-Zone."""
+    Der Block sitzt mit seiner Oberkante bei y_pct, bleibt aber immer unter der oberen Safe-Zone.
+    Farbige Teilstücke (<span style="color:…">) werden als Wortfarben gezeichnet, übrige Tags entfernt."""
     from pipeline import text as T
+    text, colors = parse_colored(text)
     scale = width / 1080
     box_w = max(200, int(width * float(st.get("w_pct", 84)) / 100))
     margin = 60
@@ -148,7 +169,7 @@ def overlay_png(text: str, st: dict, width: int, height: int, out: Path) -> tupl
                    font=str(st.get("font") or "Montserrat").lower().replace(" ", "-"),
                    size_max=int(round(float(st.get("size", 34)) * scale)), size_min=max(14, int(round(float(st.get("size", 34)) * scale * 0.6))),
                    color=str(st.get("color", "#FFFFFF")), outline_px=int(st.get("outline_px", 2)), outline_color="#000000",
-                   accent_color=None, accent_idx=set(), box=str(st.get("box", "solid")), box_color=str(st.get("box_color", "#000000")),
+                   accent_color=None, accent_idx=set(), color_map=colors, box=str(st.get("box", "solid")), box_color=str(st.get("box_color", "#000000")),
                    box_opacity=float(st.get("box_opacity", 55)), box_pad=int(round(float(st.get("box_pad", 10)) * scale)),
                    box_radius=int(round(float(st.get("box_radius", 10)) * scale)), align=str(st.get("align", "center")),
                    max_lines=int(st.get("lines", 2)), weight=st.get("weight"), case=str(st.get("case", "none")),
