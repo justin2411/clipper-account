@@ -56,7 +56,7 @@ export function defaultNiche(env: Env, key: string): NicheSettings {
   };
 }
 
-const deepMerge = (a: any, b: any): any => {
+export const deepMerge = (a: any, b: any): any => {
   if (Array.isArray(a) || Array.isArray(b) || typeof a !== "object" || typeof b !== "object" || !a || !b) return b === undefined ? a : b;
   const out: any = { ...a };
   for (const k of Object.keys(b)) out[k] = deepMerge(a[k], b[k]);
@@ -77,6 +77,30 @@ export async function getSettings(env: Env, ws = "default"): Promise<Settings> {
   }
   const g = val("global") ?? {};
   return { global: { shadow: g.shadow ?? ((env.PUBLISH_MODE_FAN ?? "").toLowerCase() === "shadow"), workspace: ws }, niches, accounts };
+}
+
+/** Standardwerte (ohne D1-Stände): Nischen-Defaults + Marken-Overrides A/B – Ziel von „Auf Standard zurücksetzen". */
+export function defaultSettings(env: Env, ws = "default"): Settings {
+  const niches: Record<string, NicheSettings> = {};
+  for (const n of nichesOf(env)) niches[n.key] = defaultNiche(env, n.key);
+  const accounts: Record<string, any> = {};
+  for (const [id, a] of Object.entries(accountsOf(env))) accounts[id] = BRAND[id] ? { visual: { ...BRAND[id] }, slots: a.slots } : { slots: a.slots };
+  return { global: { shadow: (env.PUBLISH_MODE_FAN ?? "").toLowerCase() === "shadow", workspace: ws }, niches, accounts };
+}
+
+/** Letzte 10 Stände (Stufe 3): id, Zeit, Anzahl Änderungen, Diff. */
+export async function listVersions(env: Env, ws = "default"): Promise<{ id: number; created_at: string; changes: number; diff: unknown[] }[]> {
+  const rows = await db.all<{ id: number; created_at: string; diff: string | null }>(env, "SELECT id, created_at, diff FROM settings_versions WHERE workspace_id = ? ORDER BY id DESC LIMIT 10", ws);
+  return rows.map((r) => { const d = r.diff ? JSON.parse(r.diff) : []; return { id: r.id, created_at: r.created_at, changes: Array.isArray(d) ? d.length : 0, diff: Array.isArray(d) ? d.slice(0, 12) : [] }; });
+}
+
+export async function getVersion(env: Env, id: number, ws = "default"): Promise<Settings | null> {
+  const r = await db.first<{ snapshot: string }>(env, "SELECT snapshot FROM settings_versions WHERE workspace_id = ? AND id = ?", ws, id);
+  if (!r) return null;
+  const s = JSON.parse(r.snapshot) as Settings;                         // ältere Stände: box:true/false, align → v4-Felder
+  for (const n of Object.values(s.niches ?? {})) if ((n as any).visual) (n as any).visual = normalizeVisual((n as any).visual);
+  for (const a of Object.values(s.accounts ?? {})) if ((a as any).visual) (a as any).visual = normalizeVisual((a as any).visual);
+  return s;
 }
 
 /** Wirksame Einstellungen für einen Account: Nische + Override. */

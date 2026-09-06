@@ -33,7 +33,9 @@
                 audio:{ lufs, true_peak, normalize:true },
                 caption:{ template:"{hook} · Credit @mrbeast #mrbeast", hashtags:[...], pinned_comment:true, tone:"knapp|locker" },
                 qa:{ threshold, checks:{hook_legible,no_overlap,face_in_frame,not_blurry,safe_zone} } }
-              -> GET /settings, PUT /settings (validiert, schreibt config/niches/<key>.yaml + Overrides, lädt Worker-Config neu)
+              -> GET /settings, PUT /settings (validiert; ohne confirm:true nur Diff {preview:true, diff:[{field,old,new,accounts}]}; mit confirm:true schreiben → {version, diff})
+              Stufe 3: settings_versions:[{id, created_at, changes, diff}] (letzte 10) · GET /settings/versions · POST /settings/reset {version?|defaults, confirm} (ohne confirm nur Diff)
+              Upload läuft in 25-MB-Teilen über PUT {upload_url}?part=N (Header x-api-key), dann POST /sources/complete
   POST /review/{id} approve  -> Clip wird sofort in den nächsten freien Slot des Accounts geplant und automatisch gepostet
   POST /review/bulk { ids:[...], action:"approve" }
   POST /tasks/{id}/done  -> markiert erledigt.   POST /accounts/{id}/resume -> Kill-Switch aufheben.
@@ -253,6 +255,11 @@ button.b.on{background:var(--flame);color:#fff;border-color:var(--flame)}
 .sum{font-size:15px;line-height:1.55;margin:0 0 4px}.sum b{font-weight:800}
 .sg{display:flex;gap:12px;align-items:flex-start;padding:10px 0;border-top:1px solid var(--line)}.sg:first-of-type{border-top:0}.sg .n{width:24px;height:24px;border-radius:50%;background:var(--panel2);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;flex:none}.sg .t{flex:1}.sg a.go{font-size:12px;font-weight:700;color:var(--flame);white-space:nowrap}
 details.more{border:1px solid var(--line);border-radius:var(--r);background:var(--panel);margin-bottom:14px}details.more>summary{cursor:pointer;padding:12px 18px;font-weight:800;font-size:14px;list-style:none;display:flex;justify-content:space-between}details.more>summary::-webkit-details-marker{display:none}details.more>summary:after{content:"＋";color:var(--ink3)}details.more[open]>summary:after{content:"－"}details.more>div{padding:0 18px 14px}
+.ovl{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:50;padding:16px}
+.dlg{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);max-width:720px;width:100%;max-height:85vh;overflow:auto;padding:18px 20px}
+.dlg h3{margin:0 0 6px;font-size:16px}.dlg .sub{font-size:12px;color:var(--ink3);margin-bottom:12px}.dlg .act{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}
+.dlg table td{font-size:12px}.dlg td.old{color:var(--ink3);text-decoration:line-through}.dlg td.new{font-weight:700}.dlg .err{color:var(--bad);font-size:13px;margin:6px 0}
+.ver{display:flex;align-items:center;gap:12px;padding:8px 0;border-top:1px solid var(--line);font-size:13px}.ver:first-child{border-top:0}.ver .w{flex:1}.ver small{color:var(--ink3)}
 main{min-width:0;overflow-x:hidden}section,.kpi,.tk,.card,.rv{min-width:0}
 .urls{white-space:pre-wrap;word-break:break-all}
 @media (max-width:480px){.g2,.g4,.flow,.cards{grid-template-columns:1fr}.steps{grid-template-columns:repeat(2,1fr)}table{display:block;overflow-x:auto}}
@@ -261,6 +268,11 @@ main{min-width:0;overflow-x:hidden}section,.kpi,.tk,.card,.rv{min-width:0}
 <body><div class="app"><nav id="nav"></nav><main id="main"></main></div>
 <script>
 const CONFIG={apiUrl:"https://clipforge.clipforge-xy.workers.dev",apiKey:"__DASHBOARD_READ_KEY__"}; // Lese-Key wird von scripts/deploy_dashboard.sh beim Deploy eingesetzt → kein Login
+async function putChunked(pre,f,onProgress){const PART=pre.part_size||25*1024*1024,total=Math.ceil(f.size/PART);let done=0;
+  for(let i=0;i<total;i++){const blob=f.slice(i*PART,Math.min(f.size,(i+1)*PART));let ok=false;
+    for(let tries=0;tries<3&&!ok;tries++){try{await new Promise((res,rej)=>{const x=new XMLHttpRequest();x.open("PUT",`${pre.upload_url}?part=${i+1}`);x.setRequestHeader("x-api-key",cfg.apiKey);x.setRequestHeader("Content-Type","application/octet-stream");
+      x.upload.onprogress=e=>{if(e.lengthComputable)onProgress(Math.round((done+e.loaded)/f.size*100),i+1,total)};x.onload=()=>x.status<300?res():rej(new Error("HTTP "+x.status));x.onerror=()=>rej(new Error("Upload fehlgeschlagen"));x.send(blob)});ok=true}catch(e){if(tries===2)throw e}}
+    done+=blob.size}}
 const STAGES=["Upload","Transkript","Momentwahl","Schnitt","QA","Geplant","Gepostet","Eingereicht"];
 const now=Date.now(), iso=(m)=>new Date(now-m*60000).toISOString();
 const DEMO={month:"2026-09",currency:"USD",eur_rate:0.92,goal_monthly:2000,
@@ -530,7 +542,7 @@ function wireTasks(d){
     drop.ondrop=e=>{e.preventDefault();drop.classList.remove("over");up([...e.dataTransfer.files])};file.onchange=()=>up([...file.files]);
     async function up(files){if(DEMO_MODE||!cfg){stat.textContent="Beispielmodus – Upload erst mit verbundenem Worker.";return}
       for(const f of files){try{stat.textContent=`${f.name}: vorbereiten…`;const pre=await (await fetch(cfg.apiUrl+"/sources/presign",{method:"POST",headers:{"x-api-key":cfg.apiKey,"Content-Type":"application/json"},body:JSON.stringify({niche:drop.dataset.niche,name:f.name,size:f.size,type:"fan",task_id:drop.dataset.task})})).json();
-        await new Promise((res,rej)=>{const x=new XMLHttpRequest();x.open("PUT",pre.upload_url);x.upload.onprogress=e=>{if(e.lengthComputable)stat.textContent=`${f.name}: ${Math.round(e.loaded/e.total*100)} %`};x.onload=()=>x.status<300?res():rej(new Error("HTTP "+x.status));x.onerror=()=>rej(new Error("Upload fehlgeschlagen"));x.setRequestHeader("Content-Type",f.type||"video/mp4");x.send(f)});
+        if(pre.error)throw new Error(pre.error);await putChunked(pre,f,(pct,i,n)=>{stat.textContent=`${f.name}: ${pct} % (Teil ${i}/${n})`});
         await fetch(cfg.apiUrl+"/sources/complete",{method:"POST",headers:{"x-api-key":cfg.apiKey,"Content-Type":"application/json"},body:JSON.stringify({source_id:pre.source_id,task_id:drop.dataset.task})});
         stat.textContent=`${f.name}: fertig.`}catch(err){stat.textContent=`${f.name}: ${err.message}`}}
       refresh()}});}
@@ -690,6 +702,11 @@ function wireStudio(d){
       if(DEMO_MODE){card.style.opacity=.35;return}
       await fetch(cfg.apiUrl+"/review/"+id,{method:"POST",headers:{"x-api-key":cfg.apiKey,"Content-Type":"application/json"},body:JSON.stringify({action:b.dataset.act,feedback,tags:[...tags]})});refresh()});});
   const st=d.settings;if(!st||route()!=="settings")return;if(!PEND)PEND=JSON.parse(JSON.stringify(st));const N=()=>PEND.niches[setNiche];
+  if(!$("#versions")){const vs=d.settings_versions||[];const box=document.createElement("details");box.className="more";box.id="versions";
+    box.innerHTML=`<summary>Versionen &amp; Zurücksetzen <span style="font-weight:500;color:var(--ink3);font-size:12px">letzte ${vs.length} Stände</span></summary><div>
+      ${vs.length?vs.map((v,i)=>`<div class="ver"><div class="w"><b>Version ${v.id}</b> · ${tm(v.created_at)} · ${v.changes} Änderung${v.changes===1?"":"en"}<br><small>${(v.diff||[]).slice(0,4).map(x=>x.field.replace(/^niches\.|^accounts\./,"")).join(" · ")}${v.changes>4?" …":""}</small></div>${i===0?`<span class="pill ok">aktuell</span>`:`<button class="b" data-reset="${v.id}">Zurücksetzen</button>`}</div>`).join(""):`<div class="empty">Noch keine gespeicherten Stände.</div>`}
+      <div class="ver" style="border-top:1px solid var(--line);margin-top:6px"><div class="w"><b>Standardwerte</b><br><small>Nischen-Defaults + Marken-Look A/B, wie beim ersten Start</small></div><button class="b" data-reset="default">Auf Standard zurücksetzen</button></div></div>`;
+    $("#main").appendChild(box)}
   document.querySelectorAll(".tab[data-niche]").forEach(b=>b.onclick=()=>{setNiche=b.dataset.niche;d.settings=PEND;page(d)});
   wireSimple(d);
   document.querySelectorAll('.set input[type=range]').forEach(i=>i.oninput=()=>{setp(N(),i.dataset.p,+i.value);i.previousElementSibling.querySelector(".v").textContent=i.value+(i.dataset.unit||"")});
@@ -702,14 +719,30 @@ function wireStudio(d){
   document.querySelectorAll('.seg button[data-g]').forEach(b=>b.onclick=()=>{PEND.global[b.dataset.g]=b.dataset.v==="true";b.parentElement.querySelectorAll("button").forEach(x=>x.classList.toggle("on",x===b))});
   document.querySelectorAll('[data-ovadd]').forEach(b=>b.onclick=()=>{const id=b.dataset.ovadd;const sel=document.querySelector(`[data-ov="${id}"]`).value;const val=document.querySelector(`[data-ovv="${id}"]`).value;if(!sel||val==="")return;PEND.accounts[id]=PEND.accounts[id]||{};setp(PEND.accounts[id],sel,num(val));d.settings=PEND;page(d)});
   document.querySelectorAll('[data-clr]').forEach(b=>b.onclick=()=>{const [id,path]=b.dataset.clr.split("|");const ks=path.split(".");let x=PEND.accounts[id];for(const k of ks.slice(0,-1)){if(!x)return;x=x[k]}if(x)delete x[ks.at(-1)];d.settings=PEND;page(d)});
-  const sv=$("#save");if(sv)sv.onclick=async()=>{if(DEMO_MODE){sv.textContent="Gespeichert ✓ (Demo)";setTimeout(()=>sv.textContent="Speichern",1500);return}const r=await fetch(cfg.apiUrl+"/settings",{method:"PUT",headers:{"x-api-key":cfg.apiKey,"Content-Type":"application/json"},body:JSON.stringify(PEND)});sv.textContent=r.ok?"Gespeichert ✓":"Fehler";setTimeout(()=>sv.textContent="Speichern",1500);PEND=null;refresh()};}
+  const sv=$("#save");if(sv)sv.onclick=async()=>{if(DEMO_MODE){sv.textContent="Gespeichert ✓ (Demo)";setTimeout(()=>sv.textContent="Speichern",1500);return}
+    const send=body=>fetch(cfg.apiUrl+"/settings",{method:"PUT",headers:{"x-api-key":cfg.apiKey,"Content-Type":"application/json"},body:JSON.stringify(body)}).then(r=>r.json());
+    const pv=await send({...PEND,confirm:false});
+    if(pv.errors){showDiff({title:"Speichern nicht möglich",errors:pv.errors});return}
+    if(!pv.diff||!pv.diff.length){sv.textContent="Keine Änderungen";setTimeout(()=>sv.textContent="Speichern",1500);return}
+    showDiff({title:"Änderungen bestätigen",sub:`${pv.diff.length} Änderung${pv.diff.length>1?"en":""} – gilt ab dem nächsten Clip-Job`,diff:pv.diff,onConfirm:async()=>{const r=await send({...PEND,confirm:true});if(r.ok){sv.textContent=`Gespeichert ✓ (Version ${r.version})`;PEND=null;setTimeout(()=>sv.textContent="Speichern",2000);refresh()}else showDiff({title:"Fehler",errors:r.errors||[r.error||"unbekannt"]})}})};
+  document.querySelectorAll("[data-reset]").forEach(b=>b.onclick=async()=>{if(DEMO_MODE)return;const body=b.dataset.reset==="default"?{}:{version:Number(b.dataset.reset)};
+    const post=x=>fetch(cfg.apiUrl+"/settings/reset",{method:"POST",headers:{"x-api-key":cfg.apiKey,"Content-Type":"application/json"},body:JSON.stringify(x)}).then(r=>r.json());
+    const pv=await post(body);if(pv.errors){showDiff({title:"Zurücksetzen nicht möglich",errors:pv.errors});return}
+    if(!pv.diff||!pv.diff.length){showDiff({title:"Nichts zu tun",sub:"Dieser Stand ist bereits aktiv."});return}
+    showDiff({title:`Zurücksetzen auf ${pv.target}`,sub:`${pv.diff.length} Änderung${pv.diff.length>1?"en":""} – der Zustand wird als neue Version gespeichert`,diff:pv.diff,onConfirm:async()=>{const r=await post({...body,confirm:true});if(r.ok){PEND=null;refresh()}else showDiff({title:"Fehler",errors:r.errors||[r.error||"unbekannt"]})}})});}
+// Diff-Dialog (Stufe 3): Feld · vorher · nachher · betroffene Accounts
+function showDiff({title,sub,diff,errors,onConfirm}){const old=$("#ovl");if(old)old.remove();const fv=v=>v==null?"–":typeof v==="object"?JSON.stringify(v):String(v);
+  const el=document.createElement("div");el.className="ovl";el.id="ovl";el.innerHTML=`<div class="dlg"><h3>${title}</h3>${sub?`<div class="sub">${sub}</div>`:""}${(errors||[]).map(e=>`<div class="err">⚠ ${e}</div>`).join("")}
+    ${diff&&diff.length?`<div style="overflow-x:auto"><table><thead><tr><th>Feld</th><th>vorher</th><th>nachher</th><th>Accounts</th></tr></thead><tbody>${diff.map(x=>`<tr><td>${x.field}</td><td class="old">${fv(x.old)}</td><td class="new">${fv(x.new)}</td><td>${(x.accounts||[]).join(", ")}</td></tr>`).join("")}</tbody></table></div>`:""}
+    <div class="act"><button class="b" id="dlg-x">${onConfirm?"Abbrechen":"Schließen"}</button>${onConfirm?`<button class="save" id="dlg-ok">Bestätigen</button>`:""}</div></div>`;
+  document.body.appendChild(el);$("#dlg-x").onclick=()=>el.remove();el.onclick=e=>{if(e.target===el)el.remove()};const ok=$("#dlg-ok");if(ok)ok.onclick=async()=>{ok.disabled=true;ok.textContent="…";try{await onConfirm()}finally{el.remove()}}}
 function wireUpload(d){const drop=$("#drop"),file=$("#file"),stat=$("#upstat");if(!drop)return;const n=nicheOf(d,route().slice(2));
   drop.onclick=()=>file.click();drop.ondragover=e=>{e.preventDefault();drop.classList.add("over")};drop.ondragleave=()=>drop.classList.remove("over");
   drop.ondrop=e=>{e.preventDefault();drop.classList.remove("over");upload([...e.dataTransfer.files])};file.onchange=()=>upload([...file.files]);
   async function upload(files){if(DEMO_MODE||!cfg){stat.textContent="Beispielmodus – Upload erst mit verbundenem Worker.";return}
     for(const f of files){try{stat.textContent=`${f.name}: vorbereiten…`;
       const pre=await (await fetch(cfg.apiUrl+"/sources/presign",{method:"POST",headers:{"x-api-key":cfg.apiKey,"Content-Type":"application/json"},body:JSON.stringify({niche:n.key,name:f.name,size:f.size,type:"fan"})})).json();
-      await new Promise((res,rej)=>{const x=new XMLHttpRequest();x.open("PUT",pre.upload_url);x.upload.onprogress=e=>{if(e.lengthComputable)stat.textContent=`${f.name}: ${Math.round(e.loaded/e.total*100)} % hochgeladen`};x.onload=()=>x.status<300?res():rej(new Error("HTTP "+x.status));x.onerror=()=>rej(new Error("Upload fehlgeschlagen"));x.setRequestHeader("Content-Type",f.type||"video/mp4");x.send(f)});
+      if(pre.error)throw new Error(pre.error);await putChunked(pre,f,(pct,i,n)=>{stat.textContent=`${f.name}: ${pct} % hochgeladen (Teil ${i}/${n})`});
       await fetch(cfg.apiUrl+"/sources/complete",{method:"POST",headers:{"x-api-key":cfg.apiKey,"Content-Type":"application/json"},body:JSON.stringify({source_id:pre.source_id})});
       stat.textContent=`${f.name}: fertig – Clip-Jobs gestartet.`;}catch(err){stat.textContent=`${f.name}: ${err.message}`}}
     refresh();}}
