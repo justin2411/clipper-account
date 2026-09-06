@@ -10,6 +10,7 @@ import { getReport, listReports } from "./report";
 import { abStats, AB_VARIABLES } from "./ab";
 import { listLog, LOG_CATS } from "./log";
 import { onboardingStatus } from "./onboarding";
+import { listSuggestions } from "./suggest";
 
 const BLOTATO_FIXED_USD = 29, LLM_PER_CLIP_USD = 0.01, EUR_RATE = 0.92, GOAL_MONTHLY = 2000;
 const NICHE: Record<string, string> = { moments: "Momente", reactions: "Reaktionen" };
@@ -139,8 +140,10 @@ export async function buildDashboard(env: Env, ws = "default") {
   const ab = { ...(await abStats(env, ws)), variables: AB_VARIABLES };                                // Stufe 4: A/B-Test
   const log = { ...(await listLog(env, { cat: "all", limit: 60 }, ws)), cats: LOG_CATS };            // Stufe 5: Ereignis-Log (erste Seite)
   const onboarding = await onboardingStatus(env, ws);                                                  // Stufe 6: Checkliste beim ersten Start
+  const suggestions: Record<string, any[]> = {};
+  for (const n of nichesCfg) { try { suggestions[n.key] = await listSuggestions(env, n.key, ws, 8); } catch { suggestions[n.key] = []; } }   // Vorschläge je Nische
   return {
-    pipeline, niches, sources, posts: postList, review, settings, settings_versions, report, ab, log, onboarding,
+    pipeline, niches, sources, posts: postList, review, settings, settings_versions, report, ab, log, onboarding, suggestions,
     month, currency: "USD", eur_rate: EUR_RATE,
     totals: { revenue: Math.round(rev?.s ?? 0), costs, pending, week_delta: Math.round(revWeek?.s ?? 0) },
     history, campaigns, accounts, insights, tasks, goal_monthly: GOAL_MONTHLY,
@@ -324,6 +327,12 @@ export async function buildSources(env: Env, camps: any[], cfg: Record<string, a
     out.push({ id: c.id, niche: c.niche_id ?? "mrbeast", name: c.name, size_mb: null, type: "paid", ...st, added: c.created_at, campaign_id: c.id, footage_type: foot.type ?? null });
   }
   for (const u of uploads) {
+    if (u.status === "cancelled") continue;
+    if (u.status === "needs_download") {                              // Vorschlag gewählt, wartet auf Upload (abbrechbar)
+      out.push({ id: u.id, niche: u.niche_id, name: u.title || u.video_id, size_mb: 0, type: "fan", stage: 0, progress: 0, error: null, clips: 0, added: u.created_at, campaign_id: null,
+                 pending: true, auto: /automatisch/.test(u.note ?? ""), video_id: u.video_id ?? null, url: u.video_id ? `https://www.youtube.com/watch?v=${u.video_id}` : null });
+      continue;
+    }
     const cid = u.campaign_id ?? `fan-${u.id}`;
     const st = stageOf(cid, "fan", u);
     if (u.status === "error" && !st.error) st.error = u.note ?? "Fehler";
