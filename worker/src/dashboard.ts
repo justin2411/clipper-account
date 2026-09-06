@@ -167,10 +167,13 @@ export async function buildPipeline(env: Env) {
 
   // Clip-Jobs: dispatch → footage_ok → clipper_done → pipeline_done / clipper_error / footage_missing
   const jobs = await githubJobs(env);
-  const dispatches = ev.filter((x) => /^clip_jobs?_dispatched/.test(x.event)).slice(0, 4);
-  for (const j of jobs) {                                   // Label mit Kampagne/Account aus den letzten Dispatch-Events anreichern
-    const d = dispatches.find((x) => Math.abs(new Date(x.at).getTime() - new Date(j.started).getTime()) < 10 * 60000 && !dispatches.some((y) => (y as any)._used === j.id));
-    if (d) { (d as any)._used = j.id; const acc = parseEv(d.event).account; j.label = `Clip-Job · ${nameOf(d.campaign_id)}${acc ? ` · Account ${acc}` : ""}`; }
+  const dispatches = ev.filter((x) => /^clip_jobs?_dispatched/.test(x.event)).slice(0, 8);
+  const used = new Set<number>();
+  for (const j of jobs) {                                   // Label mit Kampagne/Account: zeitlich nächstes, noch nicht zugeordnetes Dispatch-Event
+    const t = new Date(j.started).getTime();
+    const d = dispatches.filter((x) => !used.has(x.id) && Math.abs(new Date(x.at).getTime() - t) < 10 * 60000)
+                        .sort((a, b) => Math.abs(new Date(a.at).getTime() - t) - Math.abs(new Date(b.at).getTime() - t))[0];
+    if (d) { used.add(d.id); const acc = parseEv(d.event).account; j.label = `Clip-Job · ${nameOf(d.campaign_id)}${acc ? ` · Account ${acc}` : ""}`; }
     const acc = (j.label.match(/Account (\w)/) ?? [])[1];
     const prog = ev.find((x) => new Date(x.at).getTime() >= new Date(j.started).getTime() - 60000 && /^(footage_ok|clipper_done|clipper_error)/.test(x.event) && (!acc || x.event.includes(`account=${acc}`)));
     if (prog && j.progress < 0.9) {
@@ -180,7 +183,8 @@ export async function buildPipeline(env: Env) {
   }
   const lastPipe = last((e) => /^(pipeline_done|clipper_error|footage_missing)/.test(e));
   const clipStage: Stage = jobs.length
-    ? { key: "clip", label: "Clip-Job", status: "running", info: jobs.map((j) => j.label.replace("Clip-Job · ", "")).join(" · ") }
+    ? { key: "clip", label: "Clip-Job", status: "running",
+        info: `${jobs.length} Job${jobs.length > 1 ? "s" : ""} (Account ${[...new Set(jobs.map((j) => (j.label.match(/Account (\w)/) ?? [])[1] ?? "?"))].sort().join(", ")}) · ${nameOf(dispatches[0]?.campaign_id ?? null)}` }
     : lastPipe
       ? { key: "clip", label: "Clip-Job", status: lastPipe.event.startsWith("pipeline_done") ? "ok" : "error", last_run: lastPipe.at,
           info: lastPipe.event.startsWith("pipeline_done")
