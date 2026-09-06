@@ -38,6 +38,11 @@
   POST /review/bulk { ids:[...], action:"approve" }
   POST /tasks/{id}/done  -> markiert erledigt.   POST /accounts/{id}/resume -> Kill-Switch aufheben.
   Upload: POST /sources/presign {niche,name,size,type} -> {upload_url,source_id}; PUT upload_url (Browser→R2); POST /sources/complete {source_id}
+  report (Stufe 2): { latest: WeeklyReport|null, weeks:[{week, generated_at, posts, views, payouts_usd}] }
+              WeeklyReport = { week:"2026-W36", from, to, partial, totals:{posts,live,shadow,views,avg_views,likes,followers_delta,payouts_usd,costs_usd,clips,clips_rejected,submitted,qualified_rate},
+                prev:{posts,views,avg_views,payouts_usd,followers_delta}|null, by_kind:[{kind,posts,views,avg_views,clips,rejected}], accounts:[{id,handle,niche,posts,live,shadow,views,avg_views,likes,followers,followers_delta,best:{url,views,hook}|null,under_200,paused}],
+                top_posts:[{url,account,views,likes,hook,kind,campaign,posted_at}], learned:{best_slot,best_hook_type,best_font,best_account}, suggestions:[{text,action?:{kind,label,href}}], summary:[3 Sätze] }
+              -> GET /report?week=latest|current|<YYYY-Www> (Dashboard-Key), GET /report/weeks. Sonntags 09:00 Berlin: Bericht in kv + Telegram-Kurzfassung mit Link auf #report.
 -->
 <style>
 :root{--bg:#0C0D12;--panel:#14161D;--panel2:#1A1D26;--line:#262A35;--ink:#F2F1EC;--ink2:#A9ABB6;--ink3:#6B6E7B;
@@ -243,6 +248,11 @@ td.r,th.r{text-align:right;font-variant-numeric:tabular-nums}
 .banner{font-size:12px;color:var(--ink3);margin:-8px 0 12px}
 @media (max-width:860px){.app{grid-template-columns:1fr}nav{position:static;height:auto;border-right:0;border-bottom:1px solid var(--line);display:flex;gap:6px;flex-wrap:wrap;padding:12px}.nh,.brand{display:none}.nl small{display:none}main{padding:14px}.g2,.g4{grid-template-columns:1fr 1fr}.flow{grid-template-columns:1fr 1fr}.stage:after{content:""}.steps{grid-template-columns:repeat(4,1fr)}}
 /* mobil: keine horizontale Scrollleiste – Grid-Kinder dürfen schrumpfen, lange Links umbrechen */
+button.b.on{background:var(--flame);color:#fff;border-color:var(--flame)}
+.kpi .dl{font-size:12px;font-weight:700;margin-top:2px}.kpi .dl.up{color:var(--ok)}.kpi .dl.dn{color:var(--bad)}.kpi .dl.eq{color:var(--ink3)}
+.sum{font-size:15px;line-height:1.55;margin:0 0 4px}.sum b{font-weight:800}
+.sg{display:flex;gap:12px;align-items:flex-start;padding:10px 0;border-top:1px solid var(--line)}.sg:first-of-type{border-top:0}.sg .n{width:24px;height:24px;border-radius:50%;background:var(--panel2);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:12px;flex:none}.sg .t{flex:1}.sg a.go{font-size:12px;font-weight:700;color:var(--flame);white-space:nowrap}
+details.more{border:1px solid var(--line);border-radius:var(--r);background:var(--panel);margin-bottom:14px}details.more>summary{cursor:pointer;padding:12px 18px;font-weight:800;font-size:14px;list-style:none;display:flex;justify-content:space-between}details.more>summary::-webkit-details-marker{display:none}details.more>summary:after{content:"＋";color:var(--ink3)}details.more[open]>summary:after{content:"－"}details.more>div{padding:0 18px 14px}
 main{min-width:0;overflow-x:hidden}section,.kpi,.tk,.card,.rv{min-width:0}
 .urls{white-space:pre-wrap;word-break:break-all}
 @media (max-width:480px){.g2,.g4,.flow,.cards{grid-template-columns:1fr}.steps{grid-template-columns:repeat(2,1fr)}table{display:block;overflow-x:auto}}
@@ -322,6 +332,7 @@ const fmt=n=>Math.round(n||0).toLocaleString("de-DE"), k=n=>n>=1e6?(n/1e6).toFix
 const ago=i=>{const m=Math.max(0,Math.round((Date.now()-new Date(i))/60000));return m<60?`vor ${m} min`:m<1440?`vor ${Math.floor(m/60)} h`:`vor ${Math.floor(m/1440)} d`};
 const tm=i=>new Date(i).toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"});
 const monthLabel=m=>{const [y,mo]=(m||"").split("-");const n=["Januar","Februar","März","April","Mai","Juni","Juli","August","September","Oktober","November","Dezember"];return mo?`${n[+mo-1]} ${y}`:""};
+let REP=null;
 let cfg=(CONFIG.apiUrl&&CONFIG.apiKey)?{...CONFIG}:null, DATA=null, DEMO_MODE=false, sortKey="earnings_30d", setNiche=null, PEND=null, expert=false, pvAcc="", pvUI=true, pvZoom=true, pvSrc="clip", howSel=-1, howSub=-1, fcScen="konsequent", FC=null;
 const get=(o,p)=>p.split(".").reduce((x,k)=>x?.[k],o);
 const setp=(o,p,v)=>{const ks=p.split(".");let x=o;ks.slice(0,-1).forEach(k=>{x[k]=x[k]||{};x=x[k]});x[ks.at(-1)]=v};
@@ -343,6 +354,7 @@ function nav(d){const r=route();
   <a class="nl ${r==="settings"?"on":""}" href="#settings">Feinjustierung</a>
   <div class="nh">Sonstiges</div>
   <a class="nl ${r==="tasks"?"on":""}" href="#tasks">Aufgaben<small>${(d.tasks||[]).length}</small></a>
+  <a class="nl ${r==="report"?"on":""}" href="#report">Wochenbericht<small>${d.report?.latest?.week?.replace(/^\d{4}-W/,"KW")||""}</small></a>
   <a class="nl ${r==="how"?"on":""}" href="#how">So funktioniert es</a>
   <a class="nl ${r==="forecast"?"on":""}" href="#forecast">Hochrechnung</a>`;}
 
@@ -467,11 +479,40 @@ function page(d){const r=route(); nav(d);
     html=`<div class="top"><h1>So funktioniert es</h1><div class="meta">${howSel<0?"Stufe anklicken zum Hineinzoomen":"Teilschritt anklicken für Details"}</div></div>${banner}<section>${howView(d)}</section>`;
   } else if(r==="forecast"){
     html=`<div class="top"><h1>Hochrechnung</h1><div class="meta">Annahme: konsequent durchgearbeitet – Regler rechts anpassen</div></div>${banner}<section>${forecastView(d)}</section>`;
+  } else if(r==="report"){
+    const rep=REP||d.report?.latest, weeks=d.report?.weeks||[];
+    html=`<div class="top"><h1>Wochenbericht</h1><div class="meta">${rep?`${rep.week.replace(/^\d{4}-W/,"KW ")}${rep.partial?" · bisher":""}`:""}<button class="b" id="rf">Aktualisieren</button></div></div>${banner}
+    <section style="padding:10px 18px"><div class="tools" style="margin:0;flex-wrap:wrap">${weeks.map(w=>`<button class="b ${rep&&rep.week===w.week&&!rep.partial?"on":""}" data-week="${w.week}">${w.week.replace(/^\d{4}-W/,"KW ")}</button>`).join("")}<button class="b ${rep&&rep.partial?"on":""}" data-week="current">Diese Woche bisher</button><span id="repstat" style="font-size:12px;color:var(--ink3)"></span></div></section>
+    ${rep?reportBody(rep,d):`<section><div class="empty">Noch kein Bericht – der erste kommt Sonntag 09:00 (Berlin). Oder jetzt: <button class="b" data-week="current">für diese Woche berechnen</button></div></section>`}`;
   } else if(r==="tasks"){
     html=`<div class="top"><h1>Aufgaben</h1><div class="meta">${(d.tasks||[]).length} offen <button class="b" id="rf">Aktualisieren</button></div></div>${banner}<section>${(d.tasks||[]).map(t=>taskCard(t,d)).join("")||`<div class="empty">Nichts offen – alles läuft.</div>`}</section>`;
   }
   $("#main").innerHTML=html; const rf=$("#rf"); if(rf) rf.onclick=refresh;
-  document.querySelectorAll("th[data-k]").forEach(th=>th.onclick=()=>{sortKey=th.dataset.k;page(d)}); wireUpload(d); wireTasks(d); wireStudio(d); wireHow(d);}
+  document.querySelectorAll("th[data-k]").forEach(th=>th.onclick=()=>{sortKey=th.dataset.k;page(d)}); wireUpload(d); wireTasks(d); wireStudio(d); wireHow(d); wireReport(d);}
+
+// Wochenbericht (Stufe 2) – Tiefe 1: Kennzahlen + 3 Sätze + Vorschläge; Tiefe 2: Accounts / Paid vs Fan (zu); Tiefe 3: Top-Posts, Gelernt, Produktion (zu)
+function reportBody(rep,d){const t=rep.totals,p=rep.prev||{};
+  const dl=(a,b,fmt=v=>k(v))=>b==null?"":`<div class="dl ${a>b?"up":a<b?"dn":"eq"}">${a>b?"▲":a<b?"▼":"="} ${fmt(Math.abs(a-b))} zur Vorwoche</div>`;
+  const kpi=(v,l,delta)=>`<div class="kpi"><b>${v}</b><span>${l}</span>${delta||""}</div>`;
+  return `<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));margin-bottom:14px">
+    ${kpi(t.live,"Posts live"+(t.shadow?` · ${t.shadow} Schatten`:""),dl(t.posts,p.posts,v=>v))}
+    ${kpi(k(t.views),"Views",dl(t.views,p.views))}
+    ${kpi(k(t.avg_views),"Ø Views pro Post",dl(t.avg_views,p.avg_views))}
+    ${kpi((t.followers_delta>=0?"+":"")+k(t.followers_delta),"Follower",dl(t.followers_delta,p.followers_delta))}
+    ${kpi(money(t.payouts_usd),"Ausgezahlt",dl(t.payouts_usd,p.payouts_usd,v=>money(v)))}</div>
+  <section><h2>Kurz gesagt<span>${rep.partial?"Woche läuft noch":"abgeschlossen"} · ${tm(rep.generated_at)}</span></h2>${rep.summary.map(s=>`<p class="sum">${s}</p>`).join("")}</section>
+  <section><h2>Vorschläge<span>${rep.suggestions.length} · zum Bestätigen anklicken</span></h2>${rep.suggestions.map((s,i)=>`<div class="sg"><div class="n">${i+1}</div><div class="t">${s.text}</div>${s.action?`<a class="go" href="${s.action.href||"#"}">${s.action.label} →</a>`:""}</div>`).join("")}</section>
+  <details class="more"><summary>Accounts &amp; Paid vs. Fan</summary><div>
+    <table><thead><tr><th>Account</th><th class="r">Posts</th><th class="r">Views</th><th class="r">Ø/Post</th><th class="r">&lt;200</th><th class="r">Follower</th><th class="r">Δ 7d</th><th>Status</th></tr></thead><tbody>
+    ${rep.accounts.map(a=>`<tr><td><div class="acct">${av(a,d)}<div><div class="h">@${a.handle}</div><div class="n">${nicheOf(d,a.niche)?.label||a.niche}</div></div></div></td><td class="r">${a.live}${a.shadow?` <span class="pill">+${a.shadow} S</span>`:""}</td><td class="r">${k(a.views)}</td><td class="r">${k(a.avg_views)}</td><td class="r">${a.under_200}</td><td class="r">${a.followers==null?"–":k(a.followers)}</td><td class="r" style="color:${(a.followers_delta||0)>=0?"var(--ok)":"var(--bad)"}">${a.followers_delta==null?"–":(a.followers_delta>=0?"+":"")+a.followers_delta}</td><td>${a.paused?`<span class="pill warn">pausiert</span>`:`<span class="pill ok">aktiv</span>`}</td></tr>`).join("")}</tbody></table>
+    <table style="margin-top:14px"><thead><tr><th>Art</th><th class="r">Posts</th><th class="r">Views</th><th class="r">Ø/Post</th><th class="r">Clips produziert</th><th class="r">verworfen</th></tr></thead><tbody>
+    ${rep.by_kind.map(x=>`<tr><td>${x.kind==="paid"?`<span class="pill f">Kampagne</span>`:`<span class="pill v">Fan</span>`}</td><td class="r">${x.posts}</td><td class="r">${k(x.views)}</td><td class="r">${k(x.avg_views)}</td><td class="r">${x.clips}</td><td class="r">${x.rejected}</td></tr>`).join("")}</tbody></table></div></details>
+  <details class="more"><summary>Top-Posts, Gelernt &amp; Produktion</summary><div>
+    ${rep.top_posts.length?`<table><thead><tr><th>#</th><th>Hook</th><th>Account</th><th class="r">Views</th><th class="r">Likes</th><th>Kampagne</th></tr></thead><tbody>${rep.top_posts.map((x,i)=>`<tr><td>${i+1}</td><td><a href="${x.url}" target="_blank" rel="noopener">${x.hook||"(ohne Hook)"} ↗</a></td><td>${x.account}</td><td class="r">${k(x.views)}</td><td class="r">${k(x.likes)}</td><td>${x.campaign||(x.kind==="fan"?"Fan":"")}</td></tr>`).join("")}</tbody></table>`:`<div class="empty">Noch keine Posts mit Views-Daten.</div>`}
+    <div class="grid g4" style="margin-top:14px">${kpi(rep.learned.best_slot,"Bester Slot")}${kpi(rep.learned.best_hook_type,"Bester Hook-Typ")}${kpi(rep.learned.best_account,"Bester Account")}${kpi(Math.round((t.qualified_rate||0)*100)+" %","über Schwelle")}</div>
+    <div class="grid g4" style="margin-top:14px">${kpi(t.clips,"Clips produziert")}${kpi(t.clips_rejected,"verworfen")}${kpi(t.submitted,"bei Vyro eingereicht")}${kpi(money(t.costs_usd),"Kosten (gebucht)")}</div></div></details>`}
+function wireReport(d){document.querySelectorAll("[data-week]").forEach(b=>b.onclick=async()=>{if(DEMO_MODE||!cfg)return;const st=$("#repstat");if(st)st.textContent="lädt …";
+  try{const r=await fetch(cfg.apiUrl+"/report?week="+encodeURIComponent(b.dataset.week),{headers:{"x-api-key":cfg.apiKey}});REP=await r.json();page(d)}catch(e){if(st)st.textContent="Fehler: "+e.message}})}
 
 function taskCard(t,d){const n=nicheOf(d,t.niche);const icon={submit:"↥",join:"+",footage:"▲",review:"!",calibrate:"⚙"}[t.kind]||"•";
   let tools="";
@@ -676,7 +717,7 @@ async function refresh(){if(DEMO_MODE||!cfg){gate();return}try{DATA=await load(c
 function gate(msg=""){$("#nav").innerHTML="";$("#main").innerHTML=`<div class="gate"><h1 style="font-size:20px;margin:0 0 6px">ClipForge</h1><p style="color:var(--ink2);font-size:14px;margin:0 0 12px">Mit dem Worker verbinden (Werte aus SECRETS.local.md).</p><input id="u" placeholder="Worker-URL" value="${cfg?.apiUrl||""}"><input id="p" type="password" placeholder="Dashboard-Lese-Key"><div style="color:var(--bad);font-size:13px;min-height:18px;margin-bottom:8px">${msg}</div><button id="go">Öffnen</button><div class="banner" style="margin-top:12px;text-align:center"><a href="#" id="demo">Mit Beispieldaten ansehen</a></div></div>`;
   $("#go").onclick=async()=>{const c={apiUrl:$("#u").value.trim().replace(/\/$/,""),apiKey:$("#p").value.trim()};try{DATA=await load(c);cfg=c;localStorage.setItem("clipforge.cfg",JSON.stringify(c));DEMO_MODE=false;page(DATA)}catch(e){gate("Keine Verbindung: "+e.message)}};
   $("#demo").onclick=e=>{e.preventDefault();DEMO_MODE=true;DATA=DEMO;page(DATA)}}
-window.addEventListener("hashchange",()=>{if(route()!=="settings")PEND=null;if(DATA)page(DATA)});
+window.addEventListener("hashchange",()=>{if(route()!=="settings")PEND=null;if(route()!=="report")REP=null;if(DATA)page(DATA)});
 (async()=>{ if(!cfg){try{cfg=JSON.parse(localStorage.getItem("clipforge.cfg")||"null")}catch(e){}}
   if(cfg){try{DATA=await load(cfg);page(DATA);return}catch(e){}} gate(); })();
 setInterval(async()=>{if(cfg&&!DEMO_MODE){try{DATA=await load(cfg);page(DATA)}catch(e){}}},30000);

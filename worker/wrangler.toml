@@ -13,7 +13,8 @@ crons = [
   "*/10 * * * *",   # scout
   "*/30 * * * *",   # publisher
   "0 */6 * * *",    # tracker
-  "0 18 * * *",     # notify – 20:00 Berlin (Sommer): Einreich-Liste, Tagesübersicht, montags Wochenreport
+  "0 18 * * *",     # notify – 20:00 Berlin (Sommer): Einreich-Liste, Tagesübersicht
+  "0 7 * * SUN",    # report – sonntags 09:00 Berlin (Sommerzeit; Winter 08:00): Wochenbericht #report + Telegram-Kurzfassung
 ]
 
 [[d1_databases]]
@@ -29,6 +30,7 @@ bucket_name = "clips"
 # Nicht-geheime Konfiguration. Geheimnisse (BLOTATO_API_KEY, TELEGRAM_*, GMAIL_*, GITHUB_TOKEN, ACCOUNTS_JSON,
 # CLIPFORGE_API_KEY) kommen per `wrangler secret put` bzw. scripts/cf_bootstrap.sh aus .env.
 [vars]
+DASHBOARD_URL = "https://clipforge-dashboard-bh8.pages.dev"   # Links in Telegram-Berichten (#report)
 PUBLISH_MODE = "live"                   # paid-Kampagnen: live (Blotato-Schedule) | shadow | draft
 PUBLISH_MODE_FAN = "shadow"             # Fan-Content: shadow bis zur Freigabe (Publisher schreibt nur in D1, Tagesübersicht 20:00)
 MAX_CLIPS_PER_DAY = "5"                 # Posts je Account/Tag im Dauerbetrieb (5 Slots alle 3–4 h, config/accounts.yaml)

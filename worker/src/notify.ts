@@ -98,6 +98,5 @@ export async function runNotify(env: Env) {
   const out: Record<string, unknown> = {};
   out.submissions = await submissionList(env);
   out.overview = await dailyOverview(env, publishMode(env, "fan") === "shadow" || publishMode(env, "paid") === "shadow");
-  if (new Date().getUTCDay() === 1) out.weekly = await weeklyReport(env);
   return out;
 }
