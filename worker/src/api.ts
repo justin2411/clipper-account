@@ -257,6 +257,18 @@ export async function handleRequest(req: Request, env: Env, ctx: ExecutionContex
       return json({ released: r.meta.changes, draft_mode_now: (env.BLOTATO_DRAFT ?? "true") === "true" });
     }
 
+    // Account-Regeln: PATCH /api/accounts/:id {paused, paused_until, reason, max_per_day, min_gap_min, rules_until}; GET /api/accounts
+    if (rest[0] === "accounts" && rest[1] && req.method === "PATCH") {
+      const b = await body();
+      const fields = ["paused", "paused_until", "reason", "max_per_day", "min_gap_min", "rules_until"].filter((k) => k in b);
+      if (!fields.length) return json({ error: "keine Felder" }, 400);
+      await db.run(env, `UPDATE account_state SET ${fields.map((k) => `${k} = ?`).join(", ")}, updated_at = ? WHERE account = ?`,
+        ...fields.map((k) => (k === "paused" ? (b[k] ? 1 : 0) : b[k] ?? null)), nowIso(), rest[1]);
+      await logEvent(env, `account_rules ${rest[1]}: ${fields.map((k) => `${k}=${b[k]}`).join(" ")}`);
+      return json(await db.first(env, "SELECT * FROM account_state WHERE account = ?", rest[1]));
+    }
+    if (rest[0] === "accounts" && !rest[1] && req.method === "GET") return json(await db.all(env, "SELECT * FROM account_state"));
+
     // manual clip job dispatch for one account
     if (rest[0] === "dispatch" && rest[1] && rest[2] && req.method === "POST") {
       const camp = await db.first(env, "SELECT id FROM campaigns WHERE id = ?", rest[1]);
