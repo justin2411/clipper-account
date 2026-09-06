@@ -19,6 +19,7 @@ export interface Env {
   GITHUB_REF?: string;
   PUBLIC_ORIGIN?: string;            // öffentliche Worker-URL (Media-Links in Cron-Läufen)
   DASHBOARD_URL?: string;            // Pages-URL (Links in Telegram-Berichten)
+  WS?: string;                       // Workspace der laufenden Anfrage (workspace.ts envFor); fehlt = 'default'
   // secrets
   CLIPFORGE_API_KEY?: string;
   DASHBOARD_READ_KEY?: string;
@@ -75,7 +76,7 @@ export const db = {
 };
 
 export const logEvent = (env: Env, event: string, campaignId: string | null = null) =>
-  db.run(env, "INSERT INTO events (campaign_id, event) VALUES (?, ?)", campaignId, event);
+  db.run(env, "INSERT INTO events (campaign_id, event, workspace_id) VALUES (?, ?, ?)", campaignId, event, env.WS ?? "default");   // Stufe 7: Ereignis im Workspace der Anfrage
 
 /** Telegram-Foto per URL (z.B. Standbild aus R2) mit Bildunterschrift. */
 export async function telegramPhoto(env: Env, photoUrl: string, caption: string): Promise<boolean> {

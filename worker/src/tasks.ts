@@ -35,7 +35,7 @@ export async function syncTasks(env: Env, ws = "default") {
   const niches = nichesOf(env), accounts = accountsOf(env);
   const nicheOfCampaign = (c: any) => c.niche_id ?? niches[0]?.key ?? "";
   // submit: gepostete, nicht eingereichte Posts je paid-Kampagne
-  const camps = await db.all<any>(env, "SELECT * FROM campaigns WHERE kind = 'paid'");
+  const camps = await db.all<any>(env, "SELECT * FROM campaigns WHERE workspace_id = ? AND kind = 'paid'", ws);
   for (const c of camps) {
     const open = await db.all<any>(env,
       `SELECT p.post_url, cl.account FROM posts p JOIN clips cl ON cl.id = p.clip_id
@@ -62,7 +62,7 @@ export async function syncTasks(env: Env, ws = "default") {
     } else if (daysLeft >= 2) await completeByRef(env, "footage", n.key, ws);
   }
   // review: pausierte Accounts (Kill-Switch / Ablehnung), nicht die geplanten Pausen
-  const paused = await db.all<any>(env, "SELECT * FROM account_state WHERE paused = 1");
+  const paused = await db.all<any>(env, "SELECT * FROM account_state WHERE workspace_id = ? AND paused = 1", ws);
   for (const [id] of Object.entries(accounts)) {
     const st = paused.find((p) => p.account === id);
     if (st && ["rejection", "views_drop"].includes(String(st.reason))) {
@@ -80,9 +80,9 @@ export async function listTasks(env: Env, ws = "default") {
 }
 
 /** Kill-Switch aufheben (Dashboard-Knopf). */
-export async function resumeAccount(env: Env, account: string) {
-  await db.run(env, "UPDATE account_state SET paused = 0, reason = NULL, paused_until = NULL, updated_at = ? WHERE account = ?", nowIso(), account);
-  await completeByRef(env, "review", account);
+export async function resumeAccount(env: Env, account: string, ws = "default") {
+  await db.run(env, "UPDATE account_state SET paused = 0, reason = NULL, paused_until = NULL, updated_at = ? WHERE account = ? AND workspace_id = ?", nowIso(), account, ws);
+  await completeByRef(env, "review", account, ws);
   await logEvent(env, `account_resumed ${account} (dashboard)`);
   await telegram(env, `▶️ Account ${account} wieder freigegeben (Dashboard).`);
   return { account, paused: 0 };
