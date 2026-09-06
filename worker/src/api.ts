@@ -37,6 +37,7 @@ import { listInbox, markNotification, getRules, putRules, recordNotification } f
 import { handleChat, confirmAction, listConversations, getConversation, chatBudget } from "./chat";
 import { buildCalendar, moveCalendarPost } from "./calendar";
 import { buildPayouts, payoutsCsv } from "./payouts";
+import { listLibrary, reuseClip } from "./library";
 import { resolveWorkspace, listWorkspaces, createWorkspace, patchWorkspace } from "./workspace";
 import { runFan, startUploadJob } from "./fan";
 import { getSettings, effectiveSettings, validateSettings, diffSettings, putSettings, listVersions, getVersion, defaultSettings, deepMerge } from "./settings";
@@ -144,7 +145,7 @@ export async function handleRequest(req: Request, env: Env, ctx: ExecutionContex
     return json({ error: "method not allowed" }, 405);
   }
   // Dashboard-Aktionen (Header x-api-key = DASHBOARD_READ_KEY oder CLIPFORGE_API_KEY, CORS): Review, Settings, Aufgaben, Resume
-  if (["review", "settings", "tasks", "report", "ab", "log", "onboarding", "suggest", "inbox", "chat", "calendar", "payouts"].includes(seg[0]) || (seg[0] === "accounts" && seg[2] === "resume")) {
+  if (["review", "settings", "tasks", "report", "ab", "log", "onboarding", "suggest", "inbox", "chat", "calendar", "payouts", "library"].includes(seg[0]) || (seg[0] === "accounts" && seg[2] === "resume")) {
     const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "x-api-key, content-type", "Access-Control-Allow-Methods": "GET, POST, PUT, OPTIONS" };
     const J = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status, headers: { "Content-Type": "application/json", ...cors } });
     if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
@@ -166,6 +167,12 @@ export async function handleRequest(req: Request, env: Env, ctx: ExecutionContex
       if (seg[0] === "settings" && !seg[1] && req.method === "GET") return J(await getSettings(env, ws));
       if (seg[0] === "settings" && seg[1] === "effective" && req.method === "GET") return J({ ...(await effectiveSettings(env, url.searchParams.get("account") ?? "A", ws)), ab: await getExperiment(env, ws) });
       if (seg[0] === "onboarding" && !seg[1] && req.method === "GET") return J(await onboardingStatus(env, ws));   // Stufe 6
+      // Clip-Bibliothek (Nachtrag 6): GET /library?q=&status=&account=&source=&min_score=&min_views=&sort=&limit=&offset= · POST /library/:id/reuse {platform}
+      if (seg[0] === "library" && !seg[1] && req.method === "GET") return J(await listLibrary(env, {
+        q: url.searchParams.get("q") ?? "", status: url.searchParams.get("status") ?? "all", account: url.searchParams.get("account") ?? "all", source: url.searchParams.get("source") ?? "all",
+        min_score: Number(url.searchParams.get("min_score") || 0), min_views: Number(url.searchParams.get("min_views") || 0),
+        sort: url.searchParams.get("sort") ?? "new", limit: Number(url.searchParams.get("limit") || 40), offset: Number(url.searchParams.get("offset") || 0) }, ws));
+      if (seg[0] === "library" && seg[1] && seg[2] === "reuse" && req.method === "POST") { const body = (await b()) as any; const r = await reuseClip(env, seg[1], String(body.platform ?? ""), ws); return J(r, r.ok ? 200 : 400); }
       // Auszahlungen & Abgleich (Nachtrag 5): GET /payouts?days=90 · ?csv=1 (Kampagnen) · ?csv=posts
       if (seg[0] === "payouts" && !seg[1] && req.method === "GET") {
         const data = await buildPayouts(env, Number(url.searchParams.get("days") || 90), ws);

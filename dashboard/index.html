@@ -46,6 +46,10 @@
                 top_posts:[{url,account,views,likes,hook,kind,campaign,posted_at}], learned:{best_slot,best_hook_type,best_font,best_account}, suggestions:[{text,action?:{kind,label,href}}], summary:[3 Sätze] }
               -> GET /report?week=latest|current|<YYYY-Www> (Dashboard-Key), GET /report/weeks. Sonntags 09:00 Berlin: Bericht in kv + Telegram-Kurzfassung mit Link auf #report.
               WeeklyReport zusätzlich: ab:{variable,leader,lift_pct,hint,variants:[{value,posts,avg_views}]}|null, changes:[{at,text}] (was das System umgestellt hat)
+  library (Nachtrag 6): { total, limit, offset, items:[{id, account, status, created_at, hook, caption, duration_s, media_url, cover, score, scores, qa, variant, campaign, kind, niche, views, post_url, platforms:[..], reusable}],
+              filters:{statuses:{status:n}, sources:[{id,name,kind,n}], accounts:[..]} }
+              -> GET /library?q=&status=&account=&source=&min_score=&min_views=&sort=new|views|score|oldest&limit=&offset=
+              POST /library/{clip}/reuse {platform:"instagram|youtube|tiktok"} legt einen neuen Clip (Status ready) mit derselben Datei an; der Publisher plant ihn im nächsten freien Slot.
   payouts (Nachtrag 5): { days, since, totals:{expected_usd, paid_usd, open_usd, cost_usd, margin_usd, clips, posts, cost_per_clip_usd, month_paid_usd, unassigned_usd},
               campaigns:[{id, name, platform, kind, status, rate_per_1k, min_views, posts, posts_with_views, submitted, views, clips, expected_usd, paid_usd, open_usd, proration_pct, cost_usd, cost_per_clip_usd, margin_usd, margin_pct, payouts:[{amount_usd, source, at}]}],
               posts:[{id, at, account, campaign, kind, hook, views, expected_usd, submitted, url}], payouts:[…], unassigned:[…], note }
@@ -330,6 +334,13 @@ details.more{border:1px solid var(--line);border-radius:var(--r);background:var(
 .ev2 .h{font-size:10px;color:var(--ink3)}
 @media (max-width:900px){.cal{grid-template-columns:44px 1fr;overflow-x:auto}.cal .hd.d,.cal .cell{display:none}.cal .hd.d.on,.cal .cell.on{display:block}}
 .bar2{height:8px;border-radius:4px;background:var(--line);overflow:hidden;min-width:80px}.bar2 i{display:block;height:100%;background:var(--ok)}.bar2 i.warn{background:var(--warn)}
+.lib{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:12px}
+.lc{border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--panel)}
+.lc .th2{position:relative;aspect-ratio:9/16;background:var(--panel2) center/cover no-repeat}
+.lc .th2 .b{position:absolute;left:6px;top:6px;display:flex;gap:4px;flex-wrap:wrap}
+.lc .th2 .v{position:absolute;right:6px;bottom:6px;background:rgba(0,0,0,.6);color:#fff;font-size:11px;font-weight:700;padding:2px 6px;border-radius:999px}
+.lc .m2{padding:8px 10px}.lc .hk2{font-size:12px;font-weight:700;line-height:1.35;max-height:3.2em;overflow:hidden}.lc .n2{font-size:11px;color:var(--ink3);margin-top:3px}
+.lc .re{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}.lc .re button{font:inherit;font-size:11px;font-weight:700;padding:3px 8px;border-radius:999px;border:1px solid var(--line);background:transparent;color:var(--ink2);cursor:pointer}
 main{min-width:0;overflow-x:hidden}section,.kpi,.tk,.card,.rv{min-width:0}
 .urls{white-space:pre-wrap;word-break:break-all}
 @media (max-width:480px){.g2,.g4,.flow,.cards{grid-template-columns:1fr}.steps{grid-template-columns:repeat(2,1fr)}table{display:block;overflow-x:auto}}
@@ -414,6 +425,7 @@ const fmt=n=>Math.round(n||0).toLocaleString("de-DE"), k=n=>n>=1e6?(n/1e6).toFix
 const ago=i=>{const m=Math.max(0,Math.round((Date.now()-new Date(i))/60000));return m<60?`vor ${m} min`:m<1440?`vor ${Math.floor(m/60)} h`:`vor ${Math.floor(m/1440)} d`};
 const tm=i=>new Date(i).toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"});
 const monthLabel=m=>{const [y,mo]=(m||"").split("-");const n=["Januar","Februar","März","April","Mai","Juni","Juli","August","September","Oktober","November","Dezember"];return mo?`${n[+mo-1]} ${y}`:""};
+let LIB=null, libQ="", libStatus="all", libSort="new", libAcc="all", libSrc="all", libScore=0;
 let CAL=null, calWeek=0, calDay=new Date().toISOString().slice(0,10), calSel=null;
 let REP=null, LOG=null, logCat="all", logQ="", INB=null, inbFilter="open", inbKind="all", CHAT={id:null,msgs:[],busy:false,budget:null};
 let cfg=(CONFIG.apiUrl&&CONFIG.apiKey)?{...CONFIG}:null, DATA=null, DEMO_MODE=false, sortKey="earnings_30d", setNiche=null, PEND=null, expert=false, pvAcc="", pvUI=true, pvZoom=true, pvSrc="clip", howSel=-1, howSub=-1, fcScen="konsequent", FC=null;
@@ -439,6 +451,7 @@ function nav(d){const r=route();
   <a class="nl ${r==="tasks"?"on":""}" href="#tasks">Aufgaben<small>${(d.tasks||[]).length}</small></a>
   <a class="nl ${r==="report"?"on":""}" href="#report">Wochenbericht<small>${d.report?.latest?.week?.replace(/^\d{4}-W/,"KW")||""}</small></a>
   ${d.onboarding&&!d.onboarding.complete?`<a class="nl ${r==="start"?"on":""}" href="#start">Erste Schritte<small>${d.onboarding.done}/${d.onboarding.total}</small></a>`:""}
+  <a class="nl ${r==="library"?"on":""}" href="#library">Clip-Bibliothek<small>${d.library?.total||""}</small></a>
   <a class="nl ${r==="payouts"?"on":""}" href="#payouts">Auszahlungen<small>${d.payouts?.totals?.open_usd?`${Math.round(d.payouts.totals.open_usd)} $ offen`:""}</small></a>
   <a class="nl ${r==="calendar"?"on":""}" href="#calendar">Kalender<small>${(d.calendar?.items||[]).filter(i=>i.movable).length||""}</small></a>
   <a class="nl ${r.startsWith("chat")?"on":""}" href="#chat">Chat${d.chat&&!d.chat.enabled?`<small>aus</small>`:(d.chat?.budget?.exhausted?`<small>Budget</small>`:"")}</a>
@@ -592,6 +605,16 @@ function page(d){const r=route(); nav(d);
     <section>${(ib.items||[]).length?ib.items.map(n=>`<div class="nt ${n.read?"":"unread"} ${n.done?"done":""}" data-nid="${n.id}"><span class="pill ${n.kind==="error"||n.kind==="killswitch"?"error":n.kind==="warning"?"reject":n.kind==="report"?"post":n.kind==="supply"||n.kind==="new_video"?"upload":""}">${kinds[n.kind]||n.kind}</span><div><div class="ti" data-inbopen="${n.id}">${n.title}${n.sent_telegram?"":" <small style=\"color:var(--ink3)\">· nur hier</small>"}</div><div class="tx">${n.text.replace(/</g,"&lt;")}${n.photo_url?`<div><a href="${n.photo_url}" target="_blank" rel="noopener">Bild öffnen ↗</a></div>`:""}</div><div class="act" style="margin-top:6px">${n.done?`<button data-inbmark="${n.id}|reopen">Wieder öffnen</button>`:`${n.read?"":`<button data-inbmark="${n.id}|read">Gelesen</button>`}<button data-inbmark="${n.id}|done">Erledigt</button>`}<a href="#chat:${encodeURIComponent(n.explain)}">Erklären →</a></div></div><time class="tm">${tm(n.created_at)}</time></div>`).join(""):`<div class="empty">Nichts ${inbFilter==="done"?"erledigt":"offen"}.</div>`}
     ${ib.next_before?`<div class="tools" style="margin-top:12px"><button class="b" id="inbmore" data-before="${ib.next_before}">Mehr laden</button></div>`:""}</section>
     <details class="more"><summary>Regeln je Ereignistyp <span style="font-weight:500;color:var(--ink3);font-size:12px">Telegram an/aus · Push kommt mit der App</span></summary><div><div class="rules">${Object.entries(kinds).map(([k,l])=>`<label><input type="checkbox" data-rule="${k}" ${(ib.rules||{})[k]?.telegram!==false?"checked":""}> ${l} → Telegram</label>`).join("")}</div><div class="up" style="margin-top:8px">Aus = Ereignis erscheint nur hier im Posteingang.</div></div></details>`;
+  } else if(r==="library"){
+    const L=LIB||d.library||{items:[],filters:{},total:0};const f=L.filters||{};
+    html=`<div class="top"><h1>Clip-Bibliothek</h1><div class="meta">${L.total||0} Clips <button class="b" id="rf">Aktualisieren</button></div></div>${banner}
+    <section style="padding:10px 18px"><div class="chips"><input id="libq" placeholder="Suche (Hook, Caption, Kampagne)" value="${libQ.replace(/"/g,"&quot;")}">
+      ${[["all","Alle"],["ready","bereit"],["scheduled","geplant"],["shadow","Schatten"],["posted","gepostet"],["archived","archiviert"],["review","Vorschau"]].filter(([k])=>k==="all"||f.statuses?.[k]).map(([k,l])=>`<button class="b ${libStatus===k?"on":""}" data-libs="${k}">${l}${f.statuses?.[k]?` <span style="opacity:.7">${f.statuses[k]}</span>`:""}</button>`).join("")}
+      ${(f.accounts||[]).map(a=>`<button class="b ${libAcc===a?"on":""}" data-liba="${a}">${a}</button>`).join("")}${libAcc!=="all"?`<button class="b" data-liba="all">×</button>`:""}
+      <select id="libsrc" style="font:inherit;font-size:13px;padding:6px 10px;border:1px solid var(--line);border-radius:999px;background:var(--panel);color:var(--ink)"><option value="all">Quelle: alle</option><option value="paid" ${libSrc==="paid"?"selected":""}>nur Kampagnen</option><option value="fan" ${libSrc==="fan"?"selected":""}>nur Fan</option>${(f.sources||[]).map(s=>`<option value="${s.id}" ${libSrc===s.id?"selected":""}>${s.name}</option>`).join("")}</select>
+      <select id="libsort" style="font:inherit;font-size:13px;padding:6px 10px;border:1px solid var(--line);border-radius:999px;background:var(--panel);color:var(--ink)"><option value="new" ${libSort==="new"?"selected":""}>neueste</option><option value="views" ${libSort==="views"?"selected":""}>meiste Views</option><option value="score" ${libSort==="score"?"selected":""}>bester Score</option><option value="oldest" ${libSort==="oldest"?"selected":""}>älteste</option></select>
+      <label style="font-size:12px;color:var(--ink3);display:flex;align-items:center;gap:6px">Score ≥ <input id="libscore" type="number" min="0" max="12" step="1" value="${libScore}" style="width:56px;font:inherit;font-size:13px;padding:4px 6px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink)"></label></div></section>
+    <section>${(L.items||[]).length?`<div class="lib">${L.items.map(libCard).join("")}</div>${L.total>(L.offset+L.items.length)?`<div class="tools" style="margin-top:12px"><button class="b" id="libmore" data-off="${L.offset+L.items.length}">Mehr laden (${L.total-(L.offset+L.items.length)})</button></div>`:""}`:`<div class="empty">Keine Clips für diesen Filter.</div>`}</section>`;
   } else if(r==="payouts"){
     const p=d.payouts||{totals:{},campaigns:[],posts:[]},t=p.totals||{};
     const kpi=(v,l,s)=>`<div class="kpi"><b>${v}</b><span>${l}</span>${s?`<small style="color:var(--ink3);font-weight:500">${s}</small>`:""}</div>`;
@@ -635,7 +658,7 @@ function page(d){const r=route(); nav(d);
     html=`<div class="top"><h1>Aufgaben</h1><div class="meta">${(d.tasks||[]).length} offen <button class="b" id="rf">Aktualisieren</button></div></div>${banner}<section>${(d.tasks||[]).map(t=>taskCard(t,d)).join("")||`<div class="empty">Nichts offen – alles läuft.</div>`}</section>`;
   }
   $("#main").innerHTML=html; const rf=$("#rf"); if(rf) rf.onclick=refresh;
-  document.querySelectorAll("th[data-k]").forEach(th=>th.onclick=()=>{sortKey=th.dataset.k;page(d)}); wireUpload(d); wireTasks(d); wireStudio(d); wireHow(d); wireReport(d); wireAb(d); wireLog(d); wireOnb(d); wireSuggest(d); wireHealth(); wireInbox(d); wireChat(d); wireCal(d); wirePayouts();}
+  document.querySelectorAll("th[data-k]").forEach(th=>th.onclick=()=>{sortKey=th.dataset.k;page(d)}); wireUpload(d); wireTasks(d); wireStudio(d); wireHow(d); wireReport(d); wireAb(d); wireLog(d); wireOnb(d); wireSuggest(d); wireHealth(); wireInbox(d); wireChat(d); wireCal(d); wirePayouts(); wireLib(d);}
 
 // Wochenbericht (Stufe 2) – Tiefe 1: Kennzahlen + 3 Sätze + Vorschläge; Tiefe 2: Accounts / Paid vs Fan (zu); Tiefe 3: Top-Posts, Gelernt, Produktion (zu)
 function reportBody(rep,d){const t=rep.totals,p=rep.prev||{};
@@ -869,6 +892,30 @@ function wireStudio(d){
     const pv=await post(body);if(pv.errors){showDiff({title:"Zurücksetzen nicht möglich",errors:pv.errors});return}
     if(!pv.diff||!pv.diff.length){showDiff({title:"Nichts zu tun",sub:"Dieser Stand ist bereits aktiv."});return}
     showDiff({title:`Zurücksetzen auf ${pv.target}`,sub:`${pv.diff.length} Änderung${pv.diff.length>1?"en":""} – der Zustand wird als neue Version gespeichert`,diff:pv.diff,onConfirm:async()=>{const r=await post({...body,confirm:true});if(r.ok){PEND=null;refresh()}else showDiff({title:"Fehler",errors:r.errors||[r.error||"unbekannt"]})}})});}
+// Clip-Bibliothek (Nachtrag 6) – Karte mit Cover, Hook, Score/Views; „erneut verwenden" legt einen Clip für die Zielplattform an
+function libCard(c){const st={ready:"bereit",scheduled:"geplant",shadow:"Schatten",posted:"gepostet",submitted:"eingereicht",archived:"archiviert",review:"Vorschau",rejected_review:"abgelehnt"}[c.status]||c.status;
+  return `<div class="lc" data-lc="${c.id}"><div class="th2" style="${c.cover?`background-image:url('${c.cover}')`:""}">
+    <div class="b"><span class="pill ${c.kind==="fan"?"v":"f"}">${c.account}</span><span class="pill">${st}</span></div>${c.views!=null?`<span class="v">${k(c.views)} ▶</span>`:""}</div>
+  <div class="m2"><div class="hk2">${c.post_url?`<a href="${c.post_url}" target="_blank" rel="noopener">${c.hook||c.caption||"(ohne Hook)"}</a>`:(c.hook||c.caption||"(ohne Hook)")}</div>
+    <div class="n2">${c.campaign||""}${c.score!=null?` · Score ${c.score}`:""}${c.duration_s?` · ${Math.round(c.duration_s)}s`:""} · ${ago(c.created_at)}</div>
+    ${c.platforms?.length?`<div class="n2">bereits: ${c.platforms.join(", ")}</div>`:""}
+    ${c.reusable?`<div class="re"><span style="font-size:11px;color:var(--ink3)">erneut auf</span>${["instagram","youtube"].filter(p=>!(c.platforms||[]).includes(p)).map(p=>`<button data-reuse="${c.id}|${p}">${p==="instagram"?"Instagram":"YouTube"}</button>`).join("")||`<span style="font-size:11px;color:var(--ink3)">überall geplant</span>`}</div>`:""}
+    <div class="n2" data-libstat="${c.id}"></div></div></div>`}
+async function loadLib(d,offset){if(DEMO_MODE||!cfg)return;const q=new URLSearchParams({q:libQ,status:libStatus,account:libAcc,source:libSrc,sort:libSort,min_score:String(libScore||0),limit:"24",offset:String(offset||0)});
+  try{const r=await (await fetch(cfg.apiUrl+"/library?"+q,{headers:{"x-api-key":cfg.apiKey}})).json();LIB=offset&&LIB?{...r,items:[...LIB.items,...r.items],offset:LIB.offset}:r;page(d)}catch(e){console.log(e)}}
+function wireLib(d){if(route()!=="library")return;
+  document.querySelectorAll("[data-libs]").forEach(b=>b.onclick=()=>{libStatus=b.dataset.libs;loadLib(d)});
+  document.querySelectorAll("[data-liba]").forEach(b=>b.onclick=()=>{libAcc=b.dataset.liba;loadLib(d)});
+  const q=$("#libq");if(q){let t;q.oninput=()=>{clearTimeout(t);t=setTimeout(()=>{libQ=q.value.trim();loadLib(d)},350)}}
+  const src=$("#libsrc");if(src)src.onchange=()=>{libSrc=src.value;loadLib(d)};
+  const so=$("#libsort");if(so)so.onchange=()=>{libSort=so.value;loadLib(d)};
+  const sc=$("#libscore");if(sc)sc.onchange=()=>{libScore=Number(sc.value)||0;loadLib(d)};
+  const m=$("#libmore");if(m)m.onclick=()=>loadLib(d,Number(m.dataset.off));
+  document.querySelectorAll("[data-reuse]").forEach(b=>b.onclick=async()=>{const [id,pf]=b.dataset.reuse.split("|");const stat=document.querySelector(`[data-libstat="${id}"]`);
+    b.disabled=true;b.textContent="…";
+    const r=await (await fetch(cfg.apiUrl+"/library/"+id+"/reuse",{method:"POST",headers:{"x-api-key":cfg.apiKey,"Content-Type":"application/json"},body:JSON.stringify({platform:pf})})).json();
+    if(stat)stat.textContent=r.ok?`✓ für ${pf} eingeplant – der Publisher nimmt den nächsten freien Slot`:`⚠ ${r.error}`;
+    b.textContent=pf==="instagram"?"Instagram":"YouTube";b.disabled=false})}
 // Auszahlungen (Nachtrag 5): CSV über den Lese-Key holen und lokal speichern
 function wirePayouts(){document.querySelectorAll("[data-csv]").forEach(a=>a.onclick=async e=>{e.preventDefault();if(DEMO_MODE||!cfg)return;
   const r=await fetch(cfg.apiUrl+"/payouts?csv="+a.dataset.csv,{headers:{"x-api-key":cfg.apiKey}});const blob=await r.blob();
@@ -1009,7 +1056,7 @@ async function refresh(){if(DEMO_MODE||!cfg){gate();return}try{DATA=await load(c
 function gate(msg=""){$("#nav").innerHTML="";$("#main").innerHTML=`<div class="gate"><h1 style="font-size:20px;margin:0 0 6px">ClipForge</h1><p style="color:var(--ink2);font-size:14px;margin:0 0 12px">Mit dem Worker verbinden (Werte aus SECRETS.local.md).</p><input id="u" placeholder="Worker-URL" value="${cfg?.apiUrl||""}"><input id="p" type="password" placeholder="Dashboard-Lese-Key"><div style="color:var(--bad);font-size:13px;min-height:18px;margin-bottom:8px">${msg}</div><button id="go">Öffnen</button><div class="banner" style="margin-top:12px;text-align:center"><a href="#" id="demo">Mit Beispieldaten ansehen</a></div></div>`;
   $("#go").onclick=async()=>{const c={apiUrl:$("#u").value.trim().replace(/\/$/,""),apiKey:$("#p").value.trim()};try{DATA=await load(c);cfg=c;localStorage.setItem("clipforge.cfg",JSON.stringify(c));DEMO_MODE=false;page(DATA)}catch(e){gate("Keine Verbindung: "+e.message)}};
   $("#demo").onclick=e=>{e.preventDefault();DEMO_MODE=true;DATA=DEMO;page(DATA)}}
-window.addEventListener("hashchange",()=>{if(route()!=="settings")PEND=null;if(route()!=="report")REP=null;if(route()!=="log"){LOG=null;logCat="all";logQ=""}if(route()!=="inbox"){INB=null;inbFilter="open";inbKind="all"}if(route()!=="calendar"){CAL=null;calWeek=0;calSel=null}if(DATA)page(DATA)});
+window.addEventListener("hashchange",()=>{if(route()!=="settings")PEND=null;if(route()!=="report")REP=null;if(route()!=="log"){LOG=null;logCat="all";logQ=""}if(route()!=="inbox"){INB=null;inbFilter="open";inbKind="all"}if(route()!=="calendar"){CAL=null;calWeek=0;calSel=null}if(route()!=="library"){LIB=null;libQ="";libStatus="all";libAcc="all";libSrc="all";libSort="new";libScore=0}if(DATA)page(DATA)});
 (async()=>{ if(!cfg){try{cfg=JSON.parse(localStorage.getItem("clipforge.cfg")||"null")}catch(e){}}
   if(cfg){try{DATA=await load(cfg);page(DATA);return}catch(e){}} gate(); })();
 setInterval(async()=>{if(cfg&&!DEMO_MODE){try{DATA=await load(cfg);page(DATA)}catch(e){}}},30000);
