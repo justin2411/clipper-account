@@ -20,6 +20,9 @@ export interface Env {
   PUBLIC_ORIGIN?: string;            // öffentliche Worker-URL (Media-Links in Cron-Läufen)
   DASHBOARD_URL?: string;            // Pages-URL (Links in Telegram-Berichten)
   WS?: string;                       // Workspace der laufenden Anfrage (workspace.ts envFor); fehlt = 'default'
+  ANTHROPIC_API_KEY?: string;        // Chat (Nachtrag 3) – nur im Worker
+  CHAT_MODEL_FAST?: string;          // Standard claude-haiku-4-5-20251001
+  CHAT_MODEL_STRONG?: string;        // Standard claude-sonnet-5
   // secrets
   CLIPFORGE_API_KEY?: string;
   DASHBOARD_READ_KEY?: string;

@@ -46,6 +46,10 @@
                 top_posts:[{url,account,views,likes,hook,kind,campaign,posted_at}], learned:{best_slot,best_hook_type,best_font,best_account}, suggestions:[{text,action?:{kind,label,href}}], summary:[3 Sätze] }
               -> GET /report?week=latest|current|<YYYY-Www> (Dashboard-Key), GET /report/weeks. Sonntags 09:00 Berlin: Bericht in kv + Telegram-Kurzfassung mit Link auf #report.
               WeeklyReport zusätzlich: ab:{variable,leader,lift_pct,hint,variants:[{value,posts,avg_views}]}|null, changes:[{at,text}] (was das System umgestellt hat)
+  chat (Nachtrag 3): { enabled, budget:{day, used_usd, calls, limit_usd, exhausted} }
+              -> POST /chat {conversation_id?, message, context:{page,niche,account}, force?:"analysis"} → { conversation_id, reply:{text, more, sources:[{tool,rows}], tier:"data|analysis|action", how, model, usd, action?:{id,tool,args,label,confirm_token}}, budget }
+              GET /chat (Konversationen) · GET /chat/:id (Verlauf) · POST /chat/confirm {action_id, confirm_token} bzw. {action_id, cancel:true}
+              Handelnde Tools werden nur vorgeschlagen; Ausführung erst nach Bestätigung im UI. Deep-Link: #chat:<Frage> stellt die Frage direkt.
   inbox (Nachtrag 2): { items:[{id, kind, title, text, photo_url, sent_telegram, read, done, created_at, explain}], counts:{unread, open, total, <kind>…}, kinds:{key:label}, rules:{<kind>:{telegram, push}}, next_before }
               -> GET /inbox?filter=unread|open|done|all&kind=&before= · POST /inbox/{id|all}/{read|done|unread|reopen} · GET/PUT /inbox/rules. Jede Telegram-Nachricht (Text/Foto) wird gespiegelt;
               Regel telegram=false unterdrückt den Versand (Eintrag bleibt). „Erklären" → #chat:<Erkläre: Titel>. Push folgt mit der PWA (Nachtrag 8).
@@ -293,6 +297,19 @@ details.more{border:1px solid var(--line);border-radius:var(--r);background:var(
 .nt{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:start;padding:10px 0;border-top:1px solid var(--line)}.nt:first-child{border-top:0}.nt.unread .ti{font-weight:800}.nt .ti{font-size:13px;cursor:pointer}.nt .tm{font-size:11px;color:var(--ink3);white-space:nowrap;padding-top:2px}.nt .tx{display:none;white-space:pre-wrap;font-size:12px;color:var(--ink2);margin-top:6px}.nt.open .tx{display:block}.nt .act{display:flex;gap:6px;flex-wrap:wrap}.nt .act button,.nt .act a{font:inherit;font-size:11px;font-weight:700;padding:4px 8px;border-radius:999px;border:1px solid var(--line);background:transparent;color:var(--ink2);cursor:pointer}.nt .act a{color:var(--flame)}
 .rules{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:6px 14px;font-size:13px}.rules label{display:flex;align-items:center;gap:8px}
 @media (max-width:600px){.nt{grid-template-columns:1fr}.nt .tm{order:-1}}
+.chat{display:flex;flex-direction:column;gap:12px;min-height:60vh}
+.msg{max-width:min(760px,92%);padding:10px 14px;border-radius:14px;font-size:14px;line-height:1.5;white-space:pre-wrap}
+.msg.user{align-self:flex-end;background:var(--flame);color:#fff;border-bottom-right-radius:4px}
+.msg.bot{align-self:flex-start;background:var(--panel);border:1px solid var(--line);border-bottom-left-radius:4px}
+.msg .src{margin-top:8px;font-size:11px;color:var(--ink3)}.msg .more{display:none;margin-top:8px;padding-top:8px;border-top:1px solid var(--line);font-size:13px;color:var(--ink2)}.msg.open .more{display:block}
+.msg .mb{margin-top:6px;font-size:12px;font-weight:700;color:var(--flame);background:none;border:0;padding:0;cursor:pointer;font-family:inherit}
+.msg .prop{margin-top:10px;padding:10px;border:1px solid var(--flame);border-radius:10px;background:color-mix(in srgb,var(--flame) 8%,transparent)}
+.msg .prop b{display:block;font-size:13px;margin-bottom:6px}.msg .prop .tools{margin:0}
+.cbar{position:sticky;bottom:0;background:var(--bg);padding:10px 0;display:flex;gap:8px}
+.cbar textarea{flex:1;font:inherit;font-size:14px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--panel);color:var(--ink);resize:none;min-height:44px;max-height:140px}
+.cbar button{font:inherit;font-weight:700;font-size:14px;padding:0 16px;border-radius:12px;border:0;background:var(--flame);color:#fff;cursor:pointer}
+.cbar button.ghost{background:transparent;color:var(--ink2);border:1px solid var(--line)}
+.tier{font-size:11px;color:var(--ink3)}
 main{min-width:0;overflow-x:hidden}section,.kpi,.tk,.card,.rv{min-width:0}
 .urls{white-space:pre-wrap;word-break:break-all}
 @media (max-width:480px){.g2,.g4,.flow,.cards{grid-template-columns:1fr}.steps{grid-template-columns:repeat(2,1fr)}table{display:block;overflow-x:auto}}
@@ -377,7 +394,7 @@ const fmt=n=>Math.round(n||0).toLocaleString("de-DE"), k=n=>n>=1e6?(n/1e6).toFix
 const ago=i=>{const m=Math.max(0,Math.round((Date.now()-new Date(i))/60000));return m<60?`vor ${m} min`:m<1440?`vor ${Math.floor(m/60)} h`:`vor ${Math.floor(m/1440)} d`};
 const tm=i=>new Date(i).toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"});
 const monthLabel=m=>{const [y,mo]=(m||"").split("-");const n=["Januar","Februar","März","April","Mai","Juni","Juli","August","September","Oktober","November","Dezember"];return mo?`${n[+mo-1]} ${y}`:""};
-let REP=null, LOG=null, logCat="all", logQ="", INB=null, inbFilter="open", inbKind="all";
+let REP=null, LOG=null, logCat="all", logQ="", INB=null, inbFilter="open", inbKind="all", CHAT={id:null,msgs:[],busy:false,budget:null};
 let cfg=(CONFIG.apiUrl&&CONFIG.apiKey)?{...CONFIG}:null, DATA=null, DEMO_MODE=false, sortKey="earnings_30d", setNiche=null, PEND=null, expert=false, pvAcc="", pvUI=true, pvZoom=true, pvSrc="clip", howSel=-1, howSub=-1, fcScen="konsequent", FC=null;
 const get=(o,p)=>p.split(".").reduce((x,k)=>x?.[k],o);
 const setp=(o,p,v)=>{const ks=p.split(".");let x=o;ks.slice(0,-1).forEach(k=>{x[k]=x[k]||{};x=x[k]});x[ks.at(-1)]=v};
@@ -401,6 +418,7 @@ function nav(d){const r=route();
   <a class="nl ${r==="tasks"?"on":""}" href="#tasks">Aufgaben<small>${(d.tasks||[]).length}</small></a>
   <a class="nl ${r==="report"?"on":""}" href="#report">Wochenbericht<small>${d.report?.latest?.week?.replace(/^\d{4}-W/,"KW")||""}</small></a>
   ${d.onboarding&&!d.onboarding.complete?`<a class="nl ${r==="start"?"on":""}" href="#start">Erste Schritte<small>${d.onboarding.done}/${d.onboarding.total}</small></a>`:""}
+  <a class="nl ${r.startsWith("chat")?"on":""}" href="#chat">Chat${d.chat&&!d.chat.enabled?`<small>aus</small>`:(d.chat?.budget?.exhausted?`<small>Budget</small>`:"")}</a>
   <a class="nl ${r==="inbox"?"on":""}" href="#inbox">Posteingang<small>${d.inbox?.counts?.unread?`${d.inbox.counts.unread} neu`:""}</small></a>
   <a class="nl ${r==="log"?"on":""}" href="#log">Ereignis-Log<small>${d.log?.counts?.error?`${d.log.counts.error} Fehler`:""}</small></a>
   <a class="nl ${r==="how"?"on":""}" href="#how">So funktioniert es</a>
@@ -551,8 +569,12 @@ function page(d){const r=route(); nav(d);
     <section>${(ib.items||[]).length?ib.items.map(n=>`<div class="nt ${n.read?"":"unread"} ${n.done?"done":""}" data-nid="${n.id}"><span class="pill ${n.kind==="error"||n.kind==="killswitch"?"error":n.kind==="warning"?"reject":n.kind==="report"?"post":n.kind==="supply"||n.kind==="new_video"?"upload":""}">${kinds[n.kind]||n.kind}</span><div><div class="ti" data-inbopen="${n.id}">${n.title}${n.sent_telegram?"":" <small style=\"color:var(--ink3)\">· nur hier</small>"}</div><div class="tx">${n.text.replace(/</g,"&lt;")}${n.photo_url?`<div><a href="${n.photo_url}" target="_blank" rel="noopener">Bild öffnen ↗</a></div>`:""}</div><div class="act" style="margin-top:6px">${n.done?`<button data-inbmark="${n.id}|reopen">Wieder öffnen</button>`:`${n.read?"":`<button data-inbmark="${n.id}|read">Gelesen</button>`}<button data-inbmark="${n.id}|done">Erledigt</button>`}<a href="#chat:${encodeURIComponent(n.explain)}">Erklären →</a></div></div><time class="tm">${tm(n.created_at)}</time></div>`).join(""):`<div class="empty">Nichts ${inbFilter==="done"?"erledigt":"offen"}.</div>`}
     ${ib.next_before?`<div class="tools" style="margin-top:12px"><button class="b" id="inbmore" data-before="${ib.next_before}">Mehr laden</button></div>`:""}</section>
     <details class="more"><summary>Regeln je Ereignistyp <span style="font-weight:500;color:var(--ink3);font-size:12px">Telegram an/aus · Push kommt mit der App</span></summary><div><div class="rules">${Object.entries(kinds).map(([k,l])=>`<label><input type="checkbox" data-rule="${k}" ${(ib.rules||{})[k]?.telegram!==false?"checked":""}> ${l} → Telegram</label>`).join("")}</div><div class="up" style="margin-top:8px">Aus = Ereignis erscheint nur hier im Posteingang.</div></div></details>`;
-  } else if(r.startsWith("chat")){const q=decodeURIComponent(r.replace(/^chat:?/,""));
-    html=`<div class="top"><h1>Chat</h1><div class="meta"><button class="b" id="rf">Aktualisieren</button></div></div>${banner}<section><div class="empty">Der Chat kommt im nächsten Schritt (Nachtrag 3).${q?` Vorgemerkte Frage: <b>${q}</b>`:""}</div></section>`;
+  } else if(r.startsWith("chat")){
+    const b=CHAT.budget||d.chat?.budget||{};
+    html=`<div class="top"><h1>Chat</h1><div class="meta"><span class="tier">${d.chat&&!d.chat.enabled?"kein API-Schlüssel im Worker":`Budget heute ${(b.used_usd||0).toFixed(2)} / ${(b.limit_usd||1).toFixed(2)} $${b.exhausted?" – nur noch schnelles Modell":""}`}</span><button class="b" id="chat-new">Neu</button></div></div>${banner}
+    <div class="chat" id="chatbox">${CHAT.msgs.length?CHAT.msgs.map(chatMsg).join(""):`<div class="empty">Frag nach Zahlen („Wie viele Posts sind geplant?"), nach Gründen („Warum ist B rot?") oder sag, was geändert werden soll („Pausiere B bis morgen") – Änderungen führe ich erst nach deiner Bestätigung aus.</div>`}
+      ${CHAT.busy?`<div class="msg bot">…</div>`:""}</div>
+    <div class="cbar"><textarea id="chat-in" rows="1" placeholder="Frage oder Anweisung…"></textarea><button class="ghost" id="chat-deep" title="Analyse mit dem starken Modell">tiefer</button><button id="chat-send">Senden</button></div>`;
   } else if(r==="start"){
     html=`<div class="top"><h1>Erste Schritte</h1><div class="meta">${d.onboarding?`${d.onboarding.done} von ${d.onboarding.total} erledigt`:""} <button class="b" id="rf">Aktualisieren</button></div></div>${banner}${d.onboarding?onboardingBlock(d.onboarding,false):`<section><div class="empty">Keine Daten.</div></section>`}`;
   } else if(r==="log"){
@@ -565,7 +587,7 @@ function page(d){const r=route(); nav(d);
     html=`<div class="top"><h1>Aufgaben</h1><div class="meta">${(d.tasks||[]).length} offen <button class="b" id="rf">Aktualisieren</button></div></div>${banner}<section>${(d.tasks||[]).map(t=>taskCard(t,d)).join("")||`<div class="empty">Nichts offen – alles läuft.</div>`}</section>`;
   }
   $("#main").innerHTML=html; const rf=$("#rf"); if(rf) rf.onclick=refresh;
-  document.querySelectorAll("th[data-k]").forEach(th=>th.onclick=()=>{sortKey=th.dataset.k;page(d)}); wireUpload(d); wireTasks(d); wireStudio(d); wireHow(d); wireReport(d); wireAb(d); wireLog(d); wireOnb(d); wireSuggest(d); wireHealth(); wireInbox(d);}
+  document.querySelectorAll("th[data-k]").forEach(th=>th.onclick=()=>{sortKey=th.dataset.k;page(d)}); wireUpload(d); wireTasks(d); wireStudio(d); wireHow(d); wireReport(d); wireAb(d); wireLog(d); wireOnb(d); wireSuggest(d); wireHealth(); wireInbox(d); wireChat(d);}
 
 // Wochenbericht (Stufe 2) – Tiefe 1: Kennzahlen + 3 Sätze + Vorschläge; Tiefe 2: Accounts / Paid vs Fan (zu); Tiefe 3: Top-Posts, Gelernt, Produktion (zu)
 function reportBody(rep,d){const t=rep.totals,p=rep.prev||{};
@@ -799,6 +821,41 @@ function wireStudio(d){
     const pv=await post(body);if(pv.errors){showDiff({title:"Zurücksetzen nicht möglich",errors:pv.errors});return}
     if(!pv.diff||!pv.diff.length){showDiff({title:"Nichts zu tun",sub:"Dieser Stand ist bereits aktiv."});return}
     showDiff({title:`Zurücksetzen auf ${pv.target}`,sub:`${pv.diff.length} Änderung${pv.diff.length>1?"en":""} – der Zustand wird als neue Version gespeichert`,diff:pv.diff,onConfirm:async()=>{const r=await post({...body,confirm:true});if(r.ok){PEND=null;refresh()}else showDiff({title:"Fehler",errors:r.errors||[r.error||"unbekannt"]})}})});}
+// Chat (Nachtrag 3) – kurze Antwort zuerst, „mehr" holt die Begründung; Aktionen erst nach Bestätigung
+function chatMsg(m){if(m.role==="user")return `<div class="msg user">${esc(m.text)}</div>`;
+  const a=m.action,src=(m.sources||[]).map(s=>`${s.tool} (${s.rows})`).join(" · ");
+  return `<div class="msg bot" data-mid="${m.mid||""}">${esc(m.text)}
+    ${a?`<div class="prop"><b>Vorschlag: ${esc(a.label)}</b><div class="tools">${a.status&&a.status!=="proposed"?`<span class="pill ${a.status==="confirmed"?"ok":"warn"}">${a.status==="confirmed"?"ausgeführt":a.status==="cancelled"?"abgebrochen":a.status}</span>`:`<button class="go" data-confirm="${a.id}|${a.confirm_token||""}">Ausführen</button><button class="b" data-cancelact="${a.id}">Verwerfen</button>`}</div></div>`:""}
+    ${m.more?`<button class="mb" data-more="1">mehr ▾</button><div class="more">${esc(m.more)}</div>`:""}
+    ${src||m.tier?`<div class="src">${m.tier?`${m.tier==="analysis"?"Analyse":m.tier==="action"?"Aktion":"Daten"}${m.model?` · ${m.model.replace(/^claude-/,"")}`:""}${m.usd?` · ${m.usd.toFixed(3)} $`:""}`:""}${src?` · Quellen: ${src}`:""}</div>`:""}</div>`}
+const esc=t=>String(t==null?"":t).replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]))
+  .replace(/\*\*([^*\n]+)\*\*/g,"<b>$1</b>").replace(/`([^`\n]+)`/g,"<code>$1</code>")   // einfache Auszeichnung des Modells rendern
+  .replace(/^- /gm,"• ");
+async function chatSend(d,text,force){if(!text||CHAT.busy)return;if(DEMO_MODE||!cfg)return;
+  CHAT.msgs.push({role:"user",text});CHAT.busy=true;page(d);
+  const ctx={page:route(),niche:setNiche||undefined,account:pvAcc||undefined};
+  try{const r=await (await fetch(cfg.apiUrl+"/chat",{method:"POST",headers:{"x-api-key":cfg.apiKey,"Content-Type":"application/json"},body:JSON.stringify({conversation_id:CHAT.id,message:text,context:ctx,force})})).json();
+    CHAT.busy=false;
+    if(!r.ok){CHAT.msgs.push({role:"assistant",text:"Fehler: "+(r.error||"unbekannt")});page(d);return}
+    CHAT.id=r.conversation_id;CHAT.budget=r.budget;
+    const q=r.reply;CHAT.msgs.push({role:"assistant",text:q.text,more:q.more,sources:q.sources,tier:q.tier,model:q.model,usd:q.usd,action:q.action});page(d);
+  }catch(e){CHAT.busy=false;CHAT.msgs.push({role:"assistant",text:"Fehler: "+e.message});page(d)}}
+function wireChat(d){if(!route().startsWith("chat"))return;const box=$("#chatbox");if(box)box.scrollIntoView({block:"end"});
+  const inp=$("#chat-in");if(inp){inp.focus();inp.oninput=()=>{inp.style.height="auto";inp.style.height=Math.min(140,inp.scrollHeight)+"px"};
+    inp.onkeydown=e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();const t=inp.value.trim();inp.value="";chatSend(d,t)}}}
+  const snd=$("#chat-send");if(snd)snd.onclick=()=>{const t=inp.value.trim();inp.value="";chatSend(d,t)};
+  const deep=$("#chat-deep");if(deep)deep.onclick=()=>{const t=inp.value.trim()||[...CHAT.msgs].reverse().find(m=>m.role==="user")?.text;if(t){inp.value="";chatSend(d,t,"analysis")}};
+  const nw=$("#chat-new");if(nw)nw.onclick=()=>{CHAT={id:null,msgs:[],busy:false,budget:CHAT.budget};page(d)};
+  document.querySelectorAll("[data-more]").forEach(b=>b.onclick=()=>{const m=b.closest(".msg");m.classList.toggle("open");b.textContent=m.classList.contains("open")?"weniger ▴":"mehr ▾"});
+  document.querySelectorAll("[data-confirm]").forEach(b=>b.onclick=async()=>{const [id,token]=b.dataset.confirm.split("|");b.disabled=true;b.textContent="…";
+    const r=await (await fetch(cfg.apiUrl+"/chat/confirm",{method:"POST",headers:{"x-api-key":cfg.apiKey,"Content-Type":"application/json"},body:JSON.stringify({action_id:id,confirm_token:token})})).json();
+    const m=CHAT.msgs.find(x=>x.action&&x.action.id===id);if(m)m.action.status=r.ok?"confirmed":"failed";
+    CHAT.msgs.push({role:"assistant",text:(r.ok?"✓ Ausgeführt: ":"✗ Fehlgeschlagen: ")+(r.label||"")+(r.ok?"":" – "+(r.error||JSON.stringify(r.result||{}).slice(0,150)))});
+    if(r.ok)refresh();else page(d)});
+  document.querySelectorAll("[data-cancelact]").forEach(b=>b.onclick=async()=>{const id=b.dataset.cancelact;await fetch(cfg.apiUrl+"/chat/confirm",{method:"POST",headers:{"x-api-key":cfg.apiKey,"Content-Type":"application/json"},body:JSON.stringify({action_id:id,cancel:true})});
+    const m=CHAT.msgs.find(x=>x.action&&x.action.id===id);if(m)m.action.status="cancelled";page(d)});
+  const q=decodeURIComponent(route().replace(/^chat:?/,""));                 // Deep-Link #chat:<Frage>
+  if(q&&!CHAT.msgs.length&&!CHAT.busy){history.replaceState(null,"","#chat");chatSend(d,q)}}
 // Posteingang (Nachtrag 2)
 async function loadInbox(d,more){if(DEMO_MODE||!cfg)return;const q=new URLSearchParams({filter:inbFilter,kind:inbKind,limit:"40"});if(more)q.set("before",more);
   try{const r=await (await fetch(cfg.apiUrl+"/inbox?"+q,{headers:{"x-api-key":cfg.apiKey}})).json();r.rules=(INB||d.inbox||{}).rules;INB=more&&INB?{...r,items:[...INB.items,...r.items]}:r;page(d)}catch(e){console.log(e)}}
