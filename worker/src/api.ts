@@ -33,6 +33,7 @@ import { abStats, startExperiment, stopExperiment, applyWinner, getExperiment, A
 import { listLog, LOG_CATS } from "./log";
 import { onboardingStatus } from "./onboarding";
 import { listSuggestions, pickSuggestion, cancelPick } from "./suggest";
+import { listInbox, markNotification, getRules, putRules, recordNotification } from "./inbox";
 import { resolveWorkspace, listWorkspaces, createWorkspace, patchWorkspace } from "./workspace";
 import { runFan, startUploadJob } from "./fan";
 import { getSettings, effectiveSettings, validateSettings, diffSettings, putSettings, listVersions, getVersion, defaultSettings, deepMerge } from "./settings";
@@ -140,7 +141,7 @@ export async function handleRequest(req: Request, env: Env, ctx: ExecutionContex
     return json({ error: "method not allowed" }, 405);
   }
   // Dashboard-Aktionen (Header x-api-key = DASHBOARD_READ_KEY oder CLIPFORGE_API_KEY, CORS): Review, Settings, Aufgaben, Resume
-  if (["review", "settings", "tasks", "report", "ab", "log", "onboarding", "suggest"].includes(seg[0]) || (seg[0] === "accounts" && seg[2] === "resume")) {
+  if (["review", "settings", "tasks", "report", "ab", "log", "onboarding", "suggest", "inbox"].includes(seg[0]) || (seg[0] === "accounts" && seg[2] === "resume")) {
     const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "x-api-key, content-type", "Access-Control-Allow-Methods": "GET, POST, PUT, OPTIONS" };
     const J = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status, headers: { "Content-Type": "application/json", ...cors } });
     if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
@@ -162,6 +163,11 @@ export async function handleRequest(req: Request, env: Env, ctx: ExecutionContex
       if (seg[0] === "settings" && !seg[1] && req.method === "GET") return J(await getSettings(env, ws));
       if (seg[0] === "settings" && seg[1] === "effective" && req.method === "GET") return J({ ...(await effectiveSettings(env, url.searchParams.get("account") ?? "A", ws)), ab: await getExperiment(env, ws) });
       if (seg[0] === "onboarding" && !seg[1] && req.method === "GET") return J(await onboardingStatus(env, ws));   // Stufe 6
+      // Benachrichtigungszentrale (Nachtrag 2): GET /inbox?filter=unread|open|done|all&kind=&before= · POST /inbox/{id|all}/{read|done|unread|reopen} · GET/PUT /inbox/rules
+      if (seg[0] === "inbox" && !seg[1] && req.method === "GET") return J(await listInbox(env, { filter: url.searchParams.get("filter") ?? "open", kind: url.searchParams.get("kind") ?? "all", limit: Number(url.searchParams.get("limit") || 40), before: Number(url.searchParams.get("before") || 0) }, ws));
+      if (seg[0] === "inbox" && seg[1] === "rules" && req.method === "GET") return J(await getRules(env, ws));
+      if (seg[0] === "inbox" && seg[1] === "rules" && req.method === "PUT") return J(await putRules(env, (await b()) as any, ws));
+      if (seg[0] === "inbox" && seg[1] && ["read", "done", "unread", "reopen"].includes(seg[2] ?? "") && req.method === "POST") return J(await markNotification(env, seg[1] === "all" ? "all" : Number(seg[1]), seg[2] as any, ws));
       // Vorschläge (Nischen-Seite): GET /suggest?niche= · POST /suggest/pick {video_id} · POST /suggest/cancel {upload_id}
       if (seg[0] === "suggest" && !seg[1] && req.method === "GET") return J(await listSuggestions(env, url.searchParams.get("niche") ?? nichesOf(env)[0]?.key ?? "", ws, Number(url.searchParams.get("limit") || 8)));
       if (seg[0] === "suggest" && seg[1] === "pick" && req.method === "POST") { const body = (await b()) as any; const r = await pickSuggestion(env, String(body.video_id ?? ""), ws, false); return J(r, r.ok ? 200 : 400); }
@@ -521,6 +527,8 @@ export async function handleRequest(req: Request, env: Env, ctx: ExecutionContex
       const form = await req.formData();
       const photo = form.get("photo");
       if (!(photo instanceof File)) return json({ error: "photo fehlt" }, 400);
+      const rec = await recordNotification(env, String(form.get("caption") ?? ""), null, "preview");   // Nachtrag 2: Standbilder der Pipeline im Posteingang
+      if (!rec.telegram) return json({ sent: false, muted: true });
       const out = new FormData();
       out.set("chat_id", env.TELEGRAM_CHAT_ID);
       out.set("caption", String(form.get("caption") ?? "").slice(0, 1024));
