@@ -53,7 +53,7 @@ def main():
         caption = platform.caption(campaign, hook=caption_hook)
         staged = overlay.apply(clip, overlay_text, WORK / "stage", name=f"s{i}_{clip.name}")     # Pflicht-Overlay (falls Kampagne)
         if th.get("enabled"):                                                                # Branding: 2-s-Hook-Text unten (65–72 %)
-            final = overlay.apply_text_hook(staged, caption_hook or hook, WORK / "final", name=f"s{i}_{clip.name}",
+            final = overlay.apply_text_hook(staged, gen.get("overlay_hook") or caption_hook or hook, WORK / "final", name=f"s{i}_{clip.name}",
                                             seconds=float(th.get("seconds", 2)), color=str(th.get("color", "white")),
                                             accent=str(th.get("accent", "#FF5A1F")), style=str(th.get("style", "bar")))
         else:
