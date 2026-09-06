@@ -8,7 +8,7 @@ Env: CLIPFORGE_API_URL, CLIPFORGE_API_KEY, GOOGLE_API_KEY (Gemini), PREVIEW=true
 """
 import copy, argparse, os, re, subprocess, sys, yaml
 from pathlib import Path
-from pipeline import download, overlay, checks, storage, db, clipper, ai
+from pipeline import download, overlay, checks, storage, db, clipper, ai, progress as PG
 from platforms import REGISTRY
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -26,16 +26,18 @@ def montage_jobs(a, campaign, sources, targets, eff, by_id, brand_of, review_mod
     from pipeline import montage, transcribe, subtitles as SUB
     src = sources[0]
     db.log(a.campaign, f"stage=transcript account={''.join(targets)} montage")
-    tr = transcribe.transcribe(src, WORK / "tr")
+    PG.stage("transcript")
+    tr = transcribe.transcribe(src, WORK / "tr", campaign=a.campaign)
     words = tr.get("words") or []
     if not words:
-        db.log(a.campaign, "montage_abbruch kein Transkript"); return {}
+        db.log(a.campaign, "montage_abbruch kein Transkript"); PG.failed("kein Transkript"); return {}
     _, _, dur = montage.probe(src)
     n = max(2, int(((eff.get(targets[0]) or {}).get("settings") or {}).get("select", {}).get("render_top", 6)))
     db.log(a.campaign, f"stage=moments account={''.join(targets)} montage kandidaten={n}")
+    PG.stage("moments", detail=f"{n} Kandidaten")
     kandidaten = montage.select(tr.get("text") or "", dur, n)
     if not kandidaten:
-        db.log(a.campaign, "montage_abbruch keine gültige Auswahl"); return {}
+        db.log(a.campaign, "montage_abbruch keine gültige Auswahl"); PG.failed("keine gültige Auswahl"); return {}
     kept = {t: 0 for t in targets}
     for i, clip in enumerate(kandidaten):
         acc = targets[i % len(targets)]
@@ -43,6 +45,7 @@ def montage_jobs(a, campaign, sources, targets, eff, by_id, brand_of, review_mod
         hook_style = {**(brand_of(acc) if isinstance(brand_of(acc), dict) else {}), **{k: v for k, v in vis.items() if not isinstance(v, dict)}}
         sub_style = {k: v for k, v in {"font": vis.get("font"), "color": vis.get("color"), "accent": vis.get("accent")}.items() if v}
         name = f"{acc}_montage{i + 1}.mp4"
+        PG.stage("cut", detail=f"Clip {i + 1} von {len(kandidaten)} · Account {acc}")
         try:
             r = montage.render_clip(src, clip, words, WORK / "final" / name, WORK / "mont" / f"{acc}{i + 1}",
                                     account=acc, hook_style=hook_style, sub_style=sub_style)
@@ -118,7 +121,11 @@ def main():
     label = a.account.upper()
 
     os.environ["CLIPFORGE_CAMPAIGN"] = a.campaign                     # Stufen-Events aus dem Clipper (Transkript, Momentwahl)
+    if os.environ.get("RESUME"):                                      # „Stufe wiederholen": Transkript kommt aus dem Zwischenspeicher
+        db.log(a.campaign, f"stage_wiederholung ab={os.environ['RESUME']} skip_ranks={os.environ.get('SKIP_RANKS') or '-'}")
     db.log(a.campaign, f"stage=download account={label}")
+    PG.start(a.campaign, account=label, upload_id=(campaign.get("footage") or {}).get("upload_id"))
+    PG.stage("download", detail=(campaign.get("footage") or {}).get("type"))
     try:
         sources = download.fetch(campaign["footage"], WORK / "src")
     except Exception as e:                            # z.B. YouTube-Bot-Check → Video als Fehler markieren, Job sauber beenden
@@ -127,11 +134,13 @@ def main():
         m = re.search(r"ERROR: \[youtube\] [\w-]+: ([^\n]{0,140})", str(e))
         err = (m.group(1) if m else full[-160:])
         db.log(a.campaign, f"footage_error account={label} err={err[:120]}")
+        PG.failed(err[:160])
         if video_id: db.patch_video(video_id, status="error", note=("bot check" if bot else "download: " + err[:100]))
         db.notify(f"⚠️ Footage-Download fehlgeschlagen: {campaign['name']}\n{err[:200]}")
         sys.exit(0)
     if not sources:
         db.log(a.campaign, f"footage_missing account={label}")
+        PG.failed("keine Quelldatei")
         if video_id: db.patch_video(video_id, status="error", note="download failed")
         sys.exit(0)
     db.log(a.campaign, f"footage_ok account={label} files={len(sources)} bytes={sum(s.stat().st_size for s in sources)}")
@@ -177,6 +186,7 @@ def main():
         kept_m = montage_jobs(a, campaign, sources, targets, eff, by_id, brand_of, review_mode, video_id, WORK, kind)
         if sum(kept_m.values()):
             db.log(a.campaign, f"pipeline_done montage clips={sum(kept_m.values())} " + " ".join(f"{k}={v}" for k, v in kept_m.items()))
+            PG.done(f"{sum(kept_m.values())} Clips")
             if video_id: db.patch_video(video_id, status="clipped")
             up = (campaign.get("footage") or {}).get("upload_id")
             if up: db.patch_upload(up, status="clipped")
@@ -199,6 +209,7 @@ def main():
                 db.log(a.campaign, f"clipper_error account={label} src={src.name} err={str(e)[:120]}"); continue
             db.log(a.campaign, f"clipper_done account={label} src={src.name} raw={len(clips)}")
             db.log(a.campaign, f"stage=render account={label} raw={len(clips)}")
+            PG.stage("render", detail=f"{len(clips)} Rohclips")
             hooks = clipper.hooks_of(WORK / "AB" / f"src{i}")
             for c in sorted(clips, key=rank_of):
                 r = rank_of(c)
@@ -312,6 +323,10 @@ def main():
                 print("preview failed:", e)
     total = sum(kept.values())
     db.log(a.campaign, f"pipeline_done account={label} kept={total}/{len(jobs)} " + " ".join(f"{k}={v}" for k, v in kept.items()))
+    if total:
+        PG.done(f"{total} von {len(jobs)} Clips")
+    else:
+        PG.failed(f"0 von {len(jobs)} Clips behalten")
     if video_id:
         db.patch_video(video_id, status="clipped" if total else "error", note=None if total else f"0 of {len(jobs)} kept")
     upload_id = (campaign.get("footage") or {}).get("upload_id")
@@ -323,4 +338,12 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except SystemExit:
+        raise
+    except Exception as e:                     # ein abgestürzter Lauf meldet sich ab, statt still als „läuft" stehen zu bleiben
+        PG.failed(str(e)[:200])
+        raise
+    finally:
+        PG.stop()

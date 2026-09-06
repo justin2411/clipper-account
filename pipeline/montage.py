@@ -17,6 +17,7 @@ Kein Spiegeln, keine Geschwindigkeitsänderung, kein Rand-Beschnitt – nur Schn
 """
 import json, os, re, subprocess
 from pathlib import Path
+from pipeline import progress as PG
 
 MODEL = os.environ.get("CLIPFORGE_GEMINI_MODEL", "gemini-2.5-flash")
 
@@ -247,9 +248,10 @@ def build_cuts(src: Path, plan_: dict, out: Path) -> Path:
             lbl = "[ac]" if i == len(parts) - 1 else f"[ax{i}]"
             fc.append(f"{cur}[a{i}]acrossfade=d={SEAM_S}:c1=tri:c2=tri{lbl}")
             cur = lbl
-    subprocess.run(["ffmpeg", "-y", *inputs, "-filter_complex", ";".join(fc), "-map", "[vc]", "-map", "[ac]",
-                    "-c:v", "libx264", "-crf", "18", "-preset", "veryfast", "-pix_fmt", "yuv420p",
-                    "-c:a", "aac", "-b:a", "192k", "-ar", "48000", str(out)], check=True, capture_output=True)
+    ziel = sum(float(p["end"]) - float(p["start"]) for p in parts)      # Zielspieldauer → Prozent aus ffmpeg -progress
+    PG.run_ffmpeg(["ffmpeg", "-y", *inputs, "-filter_complex", ";".join(fc), "-map", "[vc]", "-map", "[ac]",
+                   "-c:v", "libx264", "-crf", "18", "-preset", "veryfast", "-pix_fmt", "yuv420p",
+                   "-c:a", "aac", "-b:a", "192k", "-ar", "48000", str(out)], ziel)
     return out
 
 
@@ -294,11 +296,12 @@ def finish(cut: Path, out: Path, ass: Path | None, hook_png: Path | None, hook_x
         fc.append(f"{cur}{f}[vs]")
         cur = "[vs]"
     fc.append(f"{cur}format=yuv420p[vout]")
-    subprocess.run(["ffmpeg", "-y", *inputs, "-filter_complex", ";".join(fc), "-map", "[vout]", "-map", "0:a",
-                    "-af", loudnorm_filter(measured), "-c:v", "libx264", "-crf", str(OUT["crf"]), "-preset", "medium",
-                    "-pix_fmt", "yuv420p", "-r", str(OUT["fps"]), "-g", str(OUT["gop"]), "-keyint_min", str(OUT["gop"]),
-                    "-sc_threshold", "0", "-c:a", "aac", "-b:a", OUT["abr"], "-ar", "48000",
-                    "-movflags", "+faststart", str(out)], check=True, capture_output=True)
+    _, _, ziel = probe(cut)
+    PG.run_ffmpeg(["ffmpeg", "-y", *inputs, "-filter_complex", ";".join(fc), "-map", "[vout]", "-map", "0:a",
+                   "-af", loudnorm_filter(measured), "-c:v", "libx264", "-crf", str(OUT["crf"]), "-preset", "medium",
+                   "-pix_fmt", "yuv420p", "-r", str(OUT["fps"]), "-g", str(OUT["gop"]), "-keyint_min", str(OUT["gop"]),
+                   "-sc_threshold", "0", "-c:a", "aac", "-b:a", OUT["abr"], "-ar", "48000",
+                   "-movflags", "+faststart", str(out)], ziel)
     void = vf
     del void
     return out
@@ -389,6 +392,7 @@ def render_clip(src: Path, clip: dict, words: list[dict], out: Path, work: Path,
     measured = measure_loudness(cut)
     fonts = Path(__file__).resolve().parent.parent / "assets" / "fonts"
     finish(cut, out, ass, hook_png, hook_xy, measured, fonts if fonts.is_dir() else None)
+    PG.stage("qa", detail=out.name)                                 # ohne Messwert: das Dashboard zeigt den Erwartungswert
     qa = quality(out, {**plan_, "hook_text": hook_text}, bool(ass), work)
     w2, h2, dur2 = probe(out)
     return {"path": str(out), "plan": plan_, "duration_s": round(dur2, 2), "size": f"{w2}x{h2}",
