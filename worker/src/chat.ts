@@ -128,7 +128,7 @@ async function runActTool(env: Env, name: string, a: any, ws: string): Promise<u
       const r = await putSettings(env, next, ws, diff); await logEvent(env, `settings_saved changes=${diff.length} version=${r.version} (chat)`);
       return { ok: true, ...r, diff };
     }
-    case "move_slot": return moveSlot(env, String(a.post_id), String(a.at), ws);
+    case "move_slot": { const { moveCalendarPost } = await import("./calendar"); return moveCalendarPost(env, String(a.post_id), String(a.at), ws); }
     case "complete_task": return { ok: await completeTask(env, String(a.task_id), "user"), task_id: a.task_id };
     default: return { ok: false, error: `unbekannte Aktion ${name}` };
   }
