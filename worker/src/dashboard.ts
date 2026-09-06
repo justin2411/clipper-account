@@ -1,7 +1,7 @@
 // GET /dashboard – Datenvertrag aus dashboard/index.html (Kommentar am Dateianfang).
 // Views kommen erst, wenn eine Views-Quelle angebunden ist (Blotato liefert keine) → views/qualified/earned
 // rechnen mit dem jeweils neuesten vorhandenen Wert (views_7d → views_72h → views_24h), sonst 0.
-import { Env, db } from "./shared";
+import { Env, db, nichesOf } from "./shared";
 import { accountsOf } from "./publisher";
 
 const BLOTATO_FIXED_USD = 29, LLM_PER_CLIP_USD = 0.01, EUR_RATE = 0.92, GOAL_MONTHLY = 2000;
@@ -60,28 +60,39 @@ export async function buildDashboard(env: Env) {
     const views = ps.reduce((a, p) => a + (p.views ?? 0), 0);
     const qualified = ps.filter((p) => (p.views ?? 0) >= (c.min_views ?? 0) && (p.views ?? 0) > 0).length;
     const earned = Math.round(ps.reduce((a, p) => a + earnedOf(p), 0));
-    return { id: c.id, name: c.name, platform: c.platform, kind: "paid", status: c.status === "draft" ? "joined" : c.status,
+    const total = c.budget_total_usd ?? 0, used = c.budget_used_usd ?? 0;
+    return { id: c.id, name: c.name, platform: c.platform, kind: "paid", niche: c.niche_id ?? "mrbeast", status: c.status === "draft" ? "joined" : c.status,
       rate_per_1k: c.rate_per_1k_usd ?? 0, clips: clipCounts.find((x) => x.campaign_id === c.id)?.n ?? 0,
-      views, qualified, earned, budget_used: c.budget_used_usd ?? 0, budget_total: c.budget_total_usd ?? 0 };
+      views, qualified, earned, budget_used: used, budget_total: total, paid_out_pct: total ? Math.round((used / total) * 100) : null };
   });
   if (fanIds.size) {                                   // Fan-Content als eine Sammelzeile (viele fan-<video>-Kampagnen)
     const ps = posts.filter((p) => fanIds.has(p.campaign_id) && p.status === "posted");
     const vids = await db.first<any>(env, "SELECT SUM(status='clipped') AS c, SUM(status='new') AS n FROM videos");
-    campaigns.push({ id: "fan", name: "Fan-Content (MrBeast-Kanäle)", platform: "youtube", kind: "fan", status: "active", rate_per_1k: 0,
+    campaigns.push({ id: "fan", name: "Fan-Content", platform: "upload", kind: "fan", niche: "mrbeast", status: "active", rate_per_1k: 0,
       clips: clipCounts.filter((x) => fanIds.has(x.campaign_id)).reduce((a, x) => a + x.n, 0),
-      views: ps.reduce((a, p) => a + (p.views ?? 0), 0), qualified: 0, earned: 0, budget_used: vids?.c ?? 0, budget_total: (vids?.c ?? 0) + (vids?.n ?? 0) });
+      views: ps.reduce((a, p) => a + (p.views ?? 0), 0), qualified: 0, earned: 0, budget_used: vids?.c ?? 0, budget_total: (vids?.c ?? 0) + (vids?.n ?? 0), paid_out_pct: null });
   }
 
-  // Accounts
+  // Accounts (Views/Likes aus Blotato-Post-Analytics via account_stats; Follower liefert Blotato nicht → 0, followers_7d 0)
   const state = await db.all<any>(env, "SELECT * FROM account_state");
   const cfg = accountsOf(env) as Record<string, any>;
+  const nichesCfg = nichesOf(env);
+  const todayStat = await db.all<any>(env, "SELECT s.* FROM account_stats s WHERE s.day = (SELECT MAX(day) FROM account_stats WHERE account = s.account)");
+  const weekAgoStat = await db.all<any>(env, "SELECT s.* FROM account_stats s WHERE s.day = (SELECT MAX(day) FROM account_stats WHERE account = s.account AND day <= ?)", new Date(now.getTime() - 7 * 86400000).toISOString().slice(0, 10));
   const accounts = Object.entries(cfg).map(([id, a]) => {
     const st = state.find((s) => s.account === id);
     const ps = posts.filter((p) => p.account === id && p.status === "posted" && p.views != null);
     const avg = ps.length ? Math.round(ps.reduce((x, p) => x + p.views, 0) / ps.length) : 0;
-    return { id, handle: a.handle ?? "", niche: NICHE[a.niche ?? a.style ?? ""] ?? (a.niche ?? a.style ?? ""), followers: a.followers ?? 0,
-      avg_views: avg, paused: !!st?.paused, reason: st?.reason ?? null };
+    const t = todayStat.find((x) => x.account === id), w = weekAgoStat.find((x) => x.account === id);
+    const earned30 = Math.round(posts.filter((p) => p.account === id && p.status === "posted" && p.posted_at >= new Date(now.getTime() - 30 * 86400000).toISOString()).reduce((x, p) => x + earnedOf(p), 0));
+    const handle = String(a.handle ?? "");
+    const niche = a.niche ?? nichesCfg.find((n) => n.accounts.includes(id))?.key ?? "";
+    return { id, handle, niche, platform: "tiktok", url: handle ? `https://www.tiktok.com/${handle.startsWith("@") ? handle : "@" + handle}` : "",
+      followers: t?.followers ?? 0, followers_7d: Math.max(0, (t?.followers ?? 0) - (w?.followers ?? 0)),
+      views_7d: t?.views_7d ?? 0, views_30d: t?.views_30d ?? 0, earnings_30d: earned30, avg_views: avg, posts_7d: t?.posts_7d ?? 0,
+      paused: !!st?.paused, reason: st?.reason ?? null, niche_label: NICHE[a.niche ?? a.style ?? ""] ?? (a.niche ?? a.style ?? "") };
   });
+  const niches = nichesCfg.map((n) => ({ key: n.key, label: n.label, color: n.color, accounts: n.accounts }));
 
   // Insights (nur mit Views-Daten aussagekräftig)
   const withViews = posts.filter((p) => p.status === "posted" && p.views != null);
@@ -112,8 +123,15 @@ export async function buildDashboard(env: Env) {
 
   const daysLeft = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0)).getUTCDate() - now.getUTCDate();
   const pipeline = await buildPipeline(env);
+  const postList = (await db.all<any>(env,
+    `SELECT p.id, p.post_url, p.posted_at, p.views, p.likes, c.account, c.caption, c.thumb_url, c.cover_url, c.campaign_id, ca.kind, ca.niche_id, ca.name AS camp_name
+     FROM posts p JOIN clips c ON c.id = p.clip_id JOIN campaigns ca ON ca.id = c.campaign_id
+     WHERE p.status = 'posted' AND p.post_url IS NOT NULL ORDER BY p.posted_at DESC LIMIT 120`)).map((p) => ({
+    id: p.id, account: p.account, niche: p.niche_id ?? cfg[p.account]?.niche ?? "mrbeast", url: p.post_url, thumb: p.cover_url ?? p.thumb_url ?? null,
+    caption: String(p.caption ?? "").split("\n")[0], posted_at: p.posted_at, views: p.views ?? 0, likes: p.likes ?? 0, type: p.kind ?? "paid", campaign: p.camp_name }));
+  const sources = await buildSources(env, allCamps, cfg);
   return {
-    pipeline,
+    pipeline, niches, sources, posts: postList,
     month, currency: "USD", eur_rate: EUR_RATE,
     totals: { revenue: Math.round(rev?.s ?? 0), costs, pending, week_delta: Math.round(revWeek?.s ?? 0) },
     history, campaigns, accounts, insights, tasks, goal_monthly: GOAL_MONTHLY,
@@ -256,4 +274,52 @@ export async function buildPipeline(env: Env) {
   const events = ev.filter((x) => !/^cron (scout|publisher) ok|^rss_check channels=\d+ new=0$/.test(x.event)).slice(0, 15).map((x) => ({ at: x.at, text: nice(x) }));
 
   return { stages, jobs: jobs.map(({ run_id, ...j }) => j), queue: { ready: q?.ready ?? 0, scheduled: q?.scheduled ?? 0, posted_today: pt?.n ?? 0, pending_submit: ps?.n ?? 0 }, events };
+}
+
+
+// ---------- Quellen (Footage) mit Workflow-Stufe 0–7 ----------
+// 0 Upload · 1 Transkript · 2 Momentwahl · 3 Schnitt · 4 QA · 5 Geplant · 6 Gepostet · 7 Eingereicht (aus Clip-Job-Events + Clip-/Post-Status)
+export async function buildSources(env: Env, camps: any[], cfg: Record<string, any>) {
+  const ev = await db.all<{ campaign_id: string | null; event: string; at: string }>(env, "SELECT campaign_id, event, at FROM events WHERE campaign_id IS NOT NULL ORDER BY id DESC LIMIT 600");
+  const clipAgg = await db.all<any>(env,
+    `SELECT campaign_id, COUNT(*) AS n, SUM(status IN ('ready','shadow','scheduled','posted','submitted','archived')) AS ok,
+            SUM(status IN ('shadow','scheduled')) AS planned, SUM(status IN ('posted','submitted','archived')) AS posted, SUM(status IN ('submitted','archived')) AS submitted,
+            SUM(qa IS NOT NULL) AS qa
+     FROM clips WHERE status NOT IN ('superseded','test_private') GROUP BY campaign_id`);
+  const uploads = await db.all<any>(env, "SELECT * FROM uploads ORDER BY created_at DESC LIMIT 100");
+  const out: any[] = [];
+  const stageOf = (cid: string, kind: string, up: any | null) => {
+    const e = ev.filter((x) => x.campaign_id === cid);
+    const has = (re: RegExp) => e.some((x) => re.test(x.event));
+    const agg = clipAgg.find((x) => x.campaign_id === cid);
+    const err = e.find((x) => /^(footage_error|footage_missing|clipper_error)/.test(x.event) || / error /.test(x.event));
+    let stage = 0, progress = 0, error: string | null = null;
+    if (up && up.status === "uploading") { stage = 0; progress = 0.3; }
+    else if (agg?.submitted) stage = 7;
+    else if (agg?.posted) stage = 6;
+    else if (agg?.planned) stage = 5;
+    else if (agg?.ok) stage = kind === "fan" ? 5 : 4, progress = 0;      // fertig, wartet auf Slot
+    else if (has(/^stage=render|^clipper_done/)) stage = 3, progress = 0.6;
+    else if (has(/^stage=cut/)) stage = 3, progress = 0.2;
+    else if (has(/^stage=moments/)) stage = 2, progress = 0.5;
+    else if (has(/^stage=transcript/)) stage = 1, progress = 0.5;
+    else if (has(/^footage_ok|^stage=download|^clip_jobs?_dispatched/)) stage = 1, progress = 0.1;
+    if (err && (!e[0] || e.indexOf(err) <= 2)) { error = err.event.replace(/^\w+ /, "").slice(0, 120); }
+    if (agg?.ok && stage >= 5) progress = 1;
+    return { stage, progress, error, clips: agg?.ok ?? 0 };
+  };
+  for (const c of camps) {
+    if (c.kind === "fan") continue;
+    const foot = (() => { try { return JSON.parse(c.footage || "{}"); } catch { return {}; } })();
+    const st = stageOf(c.id, "paid", null);
+    out.push({ id: c.id, niche: c.niche_id ?? "mrbeast", name: c.name, size_mb: null, type: "paid", ...st, added: c.created_at, campaign_id: c.id, footage_type: foot.type ?? null });
+  }
+  for (const u of uploads) {
+    const cid = u.campaign_id ?? `fan-${u.id}`;
+    const st = stageOf(cid, "fan", u);
+    if (u.status === "error" && !st.error) st.error = u.note ?? "Fehler";
+    out.push({ id: u.id, niche: u.niche_id, name: u.title || u.key.split("/").pop(), size_mb: Math.round((u.size ?? 0) / 1048576), type: u.kind === "paid" ? "paid" : "fan",
+               ...st, added: u.created_at, campaign_id: u.campaign_id ?? null });
+  }
+  return out.sort((a, b) => String(b.added).localeCompare(String(a.added)));
 }

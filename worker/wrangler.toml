@@ -39,5 +39,6 @@ PAID_SLOTS_PER_DAY = "2"                # aktive paid-Kampagne ersetzt 2 Fan-Slo
 PAID_SLOTS_PER_DAY_MULTI = "3"          # … bei mehreren paid-Kampagnen 3
 STOCK_DAYS = "3"                        # Vorproduktion: 3 Tage Vorrat fertiger Fan-Clips je Account
 PLATFORM_GAP_MIN = "30"
+PUBLIC_ORIGIN = "https://clipforge.clipforge-xy.workers.dev"
 GITHUB_REPO = "justin2411/clipper-account"
 GITHUB_REF = "main"

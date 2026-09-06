@@ -98,7 +98,17 @@ def _install_moments_patch(engine, work_dir: Path):
     out_dir = work_dir / "outputs"
     orig_tr = getattr(engine, "_clipforge_orig_transcribe", None) or engine.transcribe_video
 
+    def stage(name: str, extra: str = ""):
+        cid = os.environ.get("CLIPFORGE_CAMPAIGN")
+        if cid:
+            try:
+                from pipeline import db
+                db.log(cid, f"stage={name} {extra}".strip())
+            except Exception as e:
+                print("[clipper] stage event:", e)
+
     def transcribe(*a, **k):
+        stage("transcript")
         transcript, segs = orig_tr(*a, **k)
         try:
             out_dir.mkdir(parents=True, exist_ok=True)
@@ -107,9 +117,15 @@ def _install_moments_patch(engine, work_dir: Path):
             print("[clipper] words.json:", e)
         return transcript, segs
 
+    def analyze(transcript, cfg):
+        stage("moments")
+        items = moments.analyze(transcript, cfg, out_dir)
+        stage("cut", f"selected={len(items)}")
+        return items
+
     engine._clipforge_orig_transcribe = orig_tr
     engine.transcribe_video = transcribe
-    engine.analyze_with_ai = lambda transcript, cfg: moments.analyze(transcript, cfg, out_dir)
+    engine.analyze_with_ai = analyze
 
 
 def _cap_clips(argv: list[str], max_clips: int) -> list[str]:

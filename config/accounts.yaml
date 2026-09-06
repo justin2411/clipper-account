@@ -1,6 +1,21 @@
 # Zwei Accounts, unterschiedliche Schnittstile. Jeder Clip läuft nur auf EINEM Account.
+# Nischen: Kanalgruppe + Accounts + Fan-Caption. Footage kommt per Upload über die Nischen-Seite des Dashboards (R2);
+# jeder Upload legt eine Fan-Kampagne der Nische an und startet EINEN Clip-Job für alle Accounts der Nische.
+niches:
+  mrbeast:
+    label: "MrBeast"
+    color: "#FF5A1F"
+    accounts: ["A", "B"]
+    caption: "Credit @mrbeast"        # Fan-Caption = "<Kontextzeile> · Credit @mrbeast #mrbeast"
+    hashtags: ["#mrbeast"]
+    channels:                          # YouTube-Kanäle: RSS-Hinweis bei neuen Videos + Backlog-Liste (scripts/yt_backlog.py)
+      UCX6OQ3DkcsbYNE6H8uQQuVA: "MrBeast"
+      UCUaT_39o1x6qWjz7K2pWcgw: "Beast Reacts"
+      UC4-79UOlP48-QNGgCko5p2g: "MrBeast 2"
+      UCAiLfjNXkNv24uhpzUgPa6A: "Beast Philanthropy"
 accounts:
   - id: A
+    niche: mrbeast
     handle: "@mrbeastfire0"
     style: moments            # krasse Szenen, Cold Open, 2-s-Hook-Text unten (65–72 %), keine Untertitel
     clipper_flags: "--clips 3 --no-hook --no-subs --no-broll --no-bgm --whisper-model small --whisper-device cpu --whisper-compute-type int8"
@@ -14,6 +29,7 @@ accounts:
     blotato:
       tiktok: "58583"  # @mrbeastfire0 (Blotato accountId)
   - id: B
+    niche: mrbeast
     handle: "@beastcrewclips"
     style: reactions          # Reaktionen/Comedy, Cold Open, 2-s-Hook-Text unten (65–72 %), keine Untertitel
     clipper_flags: "--clips 3 --no-hook --no-subs --no-broll --no-bgm --whisper-model small --whisper-device cpu --whisper-compute-type int8"

@@ -86,6 +86,33 @@ def _clean_candidates(raw: list, video_dur: float | None) -> list[dict]:
     return out
 
 
+def load_words(out_dir: Path | None) -> list[dict]:
+    """Wort-Zeitstempel aus outputs/words.json (clipper.py schreibt sie nach der Transkription)."""
+    if not out_dir or not (out_dir / "words.json").is_file():
+        return []
+    try:
+        segs = json.loads((out_dir / "words.json").read_text())
+    except Exception:
+        return []
+    words = [w for seg in segs for w in (seg.get("words") or []) if w.get("start") is not None and w.get("end") is not None]
+    return sorted(words, key=lambda w: float(w["start"]))
+
+
+def snap_to_words(start: float, end: float, words: list[dict], pre: float = 0.12, post: float = 0.25) -> tuple[float, float]:
+    """Schnitt auf Whisper-Wortgrenzen: Start = Wortanfang −pre s, Ende = Wortende +post s (Stufe 4)."""
+    if not words:
+        return start, end
+    starts = [float(w["start"]) for w in words]
+    ends = [float(w["end"]) for w in words]
+    ws = min(starts, key=lambda x: abs(x - start))
+    we_cands = [e for e in ends if e <= end + 0.35]
+    we = max(we_cands) if we_cands else end
+    if we - ws < MIN_S - 1.0:                          # zu kurz → Ende beim nächsten Wortende hinter dem Wunschende
+        later = [e for e in ends if e > end]
+        we = later[0] if later else end
+    return max(0.0, round(ws - pre, 3)), round(we + post, 3)
+
+
 def analyze(transcript: str, cfg, out_dir: Path | None = None, top_n: int | None = None) -> list[dict]:
     """Drop-in für engine.analyze_with_ai: → Liste im Vendor-Format (rank, start_time, end_time, hook, …) + unsere Felder."""
     from google import genai
@@ -106,6 +133,9 @@ def analyze(transcript: str, cfg, out_dir: Path | None = None, top_n: int | None
         cands = _clean_candidates(data.get("candidates") if isinstance(data, dict) else data, video_dur)
         if len(cands) >= max(3, n):
             break
+    words = load_words(out_dir)
+    for c in cands:
+        c["start"], c["end"] = snap_to_words(c["start"], c["end"], words)
     kept = dedupe(cands)[:n]
     items = []
     for i, c in enumerate(kept, 1):

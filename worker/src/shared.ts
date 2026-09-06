@@ -17,6 +17,7 @@ export interface Env {
   PLATFORM_GAP_MIN?: string;
   GITHUB_REPO?: string;
   GITHUB_REF?: string;
+  PUBLIC_ORIGIN?: string;            // öffentliche Worker-URL (Media-Links in Cron-Läufen)
   // secrets
   CLIPFORGE_API_KEY?: string;
   DASHBOARD_READ_KEY?: string;
@@ -95,6 +96,25 @@ export async function telegram(env: Env, text: string): Promise<boolean> {
   });
   if (!r.ok) console.log("[telegram] Fehler", r.status, await r.text());
   return r.ok;
+}
+
+export interface Niche { key: string; label: string; color: string; accounts: string[]; caption: string; hashtags: string[]; channels: Record<string, string> }
+/** Nischen aus ACCOUNTS_JSON._niches (config/accounts.yaml → scripts/accounts_json.py). */
+export const nichesOf = (env: Env): Niche[] => {
+  try {
+    const all = JSON.parse(env.ACCOUNTS_JSON || "{}");
+    return Object.entries((all._niches ?? {}) as Record<string, any>).map(([key, n]) => ({
+      key, label: n.label ?? key, color: n.color ?? "#8B5CF6", accounts: n.accounts ?? [], caption: n.caption ?? "", hashtags: n.hashtags ?? [], channels: n.channels ?? {} }));
+  } catch { return []; }
+};
+export const nicheOfAccount = (env: Env, account: string): Niche | undefined => nichesOf(env).find((n) => n.accounts.includes(account));
+
+/** Dashboard-Lese-Key oder API-Key (zeitkonstant verglichen). */
+export function keyMatches(given: string, key?: string): boolean {
+  if (!key) return false;
+  let diff = key.length ^ given.length;
+  for (let i = 0; i < key.length && i < given.length; i++) diff |= key.charCodeAt(i) ^ given.charCodeAt(i);
+  return diff === 0;
 }
 
 export const BLOTATO = "https://backend.blotato.com/v2";

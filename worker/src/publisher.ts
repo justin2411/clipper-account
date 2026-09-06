@@ -8,9 +8,9 @@
 // draft → sofort als TikTok-Entwurf (Sichtprüfung). Konzept angelehnt an clippyme SmartScheduler.
 import { BLOTATO, Env, PublishMode, blotatoHeaders, db, logEvent, publishMode, toCampaign } from "./shared";
 
-interface AccountCfg { slots: string[]; blotato: Record<string, string>; handle?: string }
+interface AccountCfg { slots: string[]; blotato: Record<string, string>; handle?: string; niche?: string; style?: string }
 export const accountsOf = (env: Env): Record<string, AccountCfg> => {
-  try { return JSON.parse(env.ACCOUNTS_JSON || "{}"); } catch { return {}; }
+  try { return Object.fromEntries(Object.entries(JSON.parse(env.ACCOUNTS_JSON || "{}")).filter(([k]) => !k.startsWith("_"))) as Record<string, AccountCfg>; } catch { return {}; }
 };
 
 export function buildTarget(platform: string, caption: string, draft: boolean, tiktok: Record<string, unknown>, hasCover = false) {

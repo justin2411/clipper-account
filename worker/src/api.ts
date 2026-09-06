@@ -9,7 +9,10 @@
 //   PUT  /api/media/<key>             Upload nach R2 → {url}
 //   POST /api/run/:fn                 scout | fan | publisher | tracker | notify | daily | weekly manuell starten
 //   GET  /api/videos?status=&limit=   YouTube-Katalog | POST /api/videos [..] (Upsert, scripts/yt_backlog.py) | PATCH /api/videos/:id
-//   POST /api/fan/:videoId            Fan-Kampagne + Clip-Job (AB) für ein Video starten
+//   POST /api/uploads/:id/start       Clip-Job für einen fertigen Upload (erneut) starten | GET /api/uploads
+//   Dashboard-Upload (Header x-api-key = DASHBOARD_READ_KEY oder CLIPFORGE_API_KEY, CORS):
+//   POST /sources/presign {niche,name,size,type} → {source_id, upload_url, part_size}
+//   PUT  /sources/put/:id?part=N      ein Teilstück (≤ part_size) → R2 Multipart | POST /sources/complete {source_id} → Kampagne + Clip-Job
 //   GET  /api/plan?hours=24           geplante Posts (live/shadow)
 //   POST /api/shadow_release          Schattenmodus beenden: Schatten-Posts archivieren, Clips wieder 'ready'
 //   GET/PUT /api/kv/:key              Key-Value (z.B. yt_cookies: von yt-dlp aktualisierte YouTube-Cookies, nie öffentlich)
@@ -20,17 +23,17 @@
 //   GET  /submissions/pending         offene Posts [{post_id, campaign_id, campaign_url, post_url, account, account_handle}]
 //   POST /submissions/mark            {post_id, status: submitted|failed, note}
 //   POST /notify                      {text} → Telegram
-import { Env, Row, db, json, logEvent, mediaUrl, nowIso, publishMode, toCampaign } from "./shared";
+import { Env, Row, db, json, keyMatches, logEvent, mediaUrl, nichesOf, nowIso, publishMode, toCampaign } from "./shared";
 import { runScout, dispatchClipJob } from "./scout";
 import { runPublisher, publishClipNow, publishCampaignSpaced, plannedPosts, releaseShadow } from "./publisher";
 import { runTracker } from "./tracker";
 import { runNotify, dailyOverview, weeklyReport } from "./notify";
-import { runFan, startFanJob } from "./fan";
+import { runFan, startUploadJob } from "./fan";
 import { buildDashboard } from "./dashboard";
 import { BLOTATO, blotatoHeaders, telegram } from "./shared";
 
 export const FUNCTIONS: Record<string, (env: Env) => Promise<unknown>> = {
-  scout: runScout, fan: runFan, publisher: runPublisher, tracker: runTracker, notify: runNotify,
+  scout: runScout, fan: (env) => runFan(env, env.PUBLIC_ORIGIN ?? ""), publisher: runPublisher, tracker: runTracker, notify: runNotify,
   daily: (env) => dailyOverview(env, true), weekly: weeklyReport,
 };
 
@@ -125,6 +128,59 @@ export async function handleRequest(req: Request, env: Env, ctx: ExecutionContex
       return json({ sent: await telegram(env, String(b.text ?? "")) });
     }
     return json({ error: "method not allowed" }, 405);
+  }
+  // Dashboard-Upload nach R2 (Multipart über den Worker – Browser lädt Teilstücke, keine R2-Schlüssel im Browser)
+  if (seg[0] === "sources") {
+    const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "x-api-key, content-type", "Access-Control-Allow-Methods": "GET, POST, PUT, OPTIONS" };
+    const J = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status, headers: { "Content-Type": "application/json", ...cors } });
+    if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
+    const given = req.headers.get("x-api-key") ?? (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "");
+    if (!keyMatches(given, env.DASHBOARD_READ_KEY) && !keyMatches(given, env.CLIPFORGE_API_KEY)) return J({ error: "unauthorized" }, 401);
+    const PART = 25 * 1024 * 1024;
+    try {
+      if (seg[1] === "presign" && req.method === "POST") {
+        const b = (await req.json().catch(() => ({}))) as Row;
+        const niche = nichesOf(env).find((n) => n.key === b.niche);
+        if (!niche) return J({ error: `niche ${b.niche} unknown` }, 400);
+        const id = crypto.randomUUID().replace(/-/g, "").slice(0, 16);
+        const safe = String(b.name ?? "footage.mp4").replace(/[^\w.\-]+/g, "_").slice(0, 80);
+        const key = `uploads/${niche.key}/${id}/${safe.toLowerCase().endsWith(".mp4") || safe.toLowerCase().endsWith(".mov") ? safe : safe + ".mp4"}`;
+        const mp = await env.CLIPS.createMultipartUpload(key, { httpMetadata: { contentType: "video/mp4" } });
+        await db.run(env, "INSERT INTO uploads (id, niche_id, key, title, size, kind, video_id, upload_id, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'uploading')",
+          id, niche.key, key, String(b.name ?? "").replace(/\.[^.]+$/, "").slice(0, 120), Number(b.size ?? 0), b.type === "paid" ? "paid" : "fan", (b.video_id as string) ?? null, mp.uploadId);
+        await logEvent(env, `upload_started niche=${niche.key} size=${b.size ?? 0} name=${safe}`);
+        return J({ source_id: id, upload_url: `${url.origin}/sources/put/${id}`, part_size: PART, key });
+      }
+      if (seg[1] === "put" && seg[2] && req.method === "PUT") {
+        const u = await db.first<any>(env, "SELECT * FROM uploads WHERE id = ?", seg[2]);
+        if (!u || !u.upload_id) return J({ error: "upload not found" }, 404);
+        const part = Number(url.searchParams.get("part") || 1);
+        if (!req.body) return J({ error: "leerer Body" }, 400);
+        const mp = env.CLIPS.resumeMultipartUpload(u.key, u.upload_id);
+        const res = await mp.uploadPart(part, req.body);
+        const parts = (JSON.parse(u.parts || "[]") as { partNumber: number; etag: string }[]).filter((p) => p.partNumber !== part);
+        parts.push({ partNumber: res.partNumber, etag: res.etag });
+        await db.run(env, "UPDATE uploads SET parts = ?, updated_at = ? WHERE id = ?", JSON.stringify(parts), nowIso(), u.id);
+        return J({ part: res.partNumber, etag: res.etag, parts: parts.length });
+      }
+      if (seg[1] === "complete" && req.method === "POST") {
+        const b = (await req.json().catch(() => ({}))) as Row;
+        const u = await db.first<any>(env, "SELECT * FROM uploads WHERE id = ?", b.source_id);
+        if (!u) return J({ error: "upload not found" }, 404);
+        if (u.status === "uploading") {
+          const parts = (JSON.parse(u.parts || "[]") as { partNumber: number; etag: string }[]).sort((a, c) => a.partNumber - c.partNumber);
+          if (!parts.length) return J({ error: "keine Teilstücke hochgeladen" }, 400);
+          const obj = await env.CLIPS.resumeMultipartUpload(u.key, u.upload_id).complete(parts);
+          await db.run(env, "UPDATE uploads SET status = 'uploaded', size = ?, updated_at = ? WHERE id = ?", obj.size, nowIso(), u.id);
+          await logEvent(env, `upload_done niche=${u.niche_id} bytes=${obj.size} id=${u.id}`);
+        }
+        const r = await startUploadJob(env, u.id, url.origin);
+        return J({ ok: r.ok, source_id: u.id, campaign: r.campaign, status: r.status, error: r.error ?? null }, r.ok ? 200 : 502);
+      }
+      return J({ error: "not found" }, 404);
+    } catch (e: any) {
+      return J({ error: String(e?.message ?? e) }, 500);
+    }
   }
   if (path === "/dashboard") {
     const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "x-api-key, content-type", "Access-Control-Allow-Methods": "GET, OPTIONS" };
@@ -259,8 +315,16 @@ export async function handleRequest(req: Request, env: Env, ctx: ExecutionContex
         return json(await db.first(env, "SELECT * FROM videos WHERE id = ?", rest[1]));
       }
     }
-    // Fan-Job für ein Video manuell starten
-    if (rest[0] === "fan" && rest[1] && req.method === "POST") return json(await startFanJob(env, rest[1], !!url.searchParams.get("preview")));
+    // Uploads: Liste | Clip-Job für einen fertigen Upload (erneut) starten
+    if (rest[0] === "uploads" && !rest[1] && req.method === "GET") return json(await db.all(env, "SELECT id, niche_id, key, title, size, kind, status, campaign_id, note, created_at, updated_at FROM uploads ORDER BY created_at DESC LIMIT 200"));
+    if (rest[0] === "uploads" && rest[1] && rest[2] === "start" && req.method === "POST") return json(await startUploadJob(env, rest[1], url.origin, !!url.searchParams.get("preview")));
+    if (rest[0] === "uploads" && rest[1] && !rest[2] && req.method === "PATCH") {
+      const b = await body();
+      const fields = ["status", "note", "title"].filter((k) => k in b);
+      if (!fields.length) return json({ error: "keine Felder" }, 400);
+      await db.run(env, `UPDATE uploads SET ${fields.map((k) => `${k} = ?`).join(", ")}, updated_at = ? WHERE id = ?`, ...fields.map((k) => b[k] ?? null), nowIso(), rest[1]);
+      return json(await db.first(env, "SELECT * FROM uploads WHERE id = ?", rest[1]));
+    }
     // Plan der nächsten Stunden (live + shadow)
     if (rest[0] === "plan" && req.method === "GET") return json(await plannedPosts(env, Number(url.searchParams.get("hours") || 24)));
     // Schattenmodus beenden (danach PUBLISH_MODE=live deployen)

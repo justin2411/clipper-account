@@ -88,3 +88,11 @@ def kv_put(key, value):
                      data=value.encode("utf-8"), timeout=60)
     r.raise_for_status()
     return r.json()
+
+
+def patch_upload(upload_id, **fields):
+    """Status eines Dashboard-Uploads (schlägt nie hart fehl)."""
+    try:
+        return _req("PATCH", f"/uploads/{upload_id}", json=fields)
+    except SystemExit as e:
+        print("patch_upload failed:", e); return None
