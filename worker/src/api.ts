@@ -238,7 +238,7 @@ export async function handleRequest(req: Request, env: Env, ctx: ExecutionContex
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT(id) DO UPDATE SET views = MAX(videos.views, excluded.views), duration_s = COALESCE(excluded.duration_s, videos.duration_s),
                published_at = COALESCE(videos.published_at, excluded.published_at), title = COALESCE(videos.title, excluded.title),
-               is_short = MAX(videos.is_short, excluded.is_short), updated_at = excluded.updated_at`,
+               is_short = MAX(videos.is_short, excluded.is_short)`,
             v.id, v.channel_id, v.channel_name ?? null, v.title ?? null, v.url ?? `https://www.youtube.com/watch?v=${v.id}`, v.published_at ?? null,
             Number(v.views ?? 0), v.duration_s ?? null, v.is_short ? 1 : 0, v.source ?? "backlog",
             v.is_short || (v.duration_s != null && v.duration_s < 180) ? "skipped" : "new", v.is_short ? "short" : (v.duration_s != null && v.duration_s < 180 ? "too short" : null));
