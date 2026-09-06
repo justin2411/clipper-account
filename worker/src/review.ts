@@ -1,7 +1,7 @@
 // Clip-Vorschau (Studio): Clips ready/scheduled/shadow/review mit Video-URL, Cover, Scores, QA; Aktionen approve/reject/redo/edit.
 // approve: nächster freier Slot des Accounts → sofort geplant und automatisch gepostet (Modus des Clip-Typs).
 // redo: Clip verworfen, Clip-Job der Kampagne neu mit Feedback als Zusatzanweisung (Few-Shot aus feedback-Tabelle).
-import { Env, db, logEvent, nichesOf, BLOTATO, blotatoHeaders } from "./shared";
+import { Env, db, logEvent, nichesOf, nowIso, BLOTATO, blotatoHeaders } from "./shared";
 import { blotatoScheduleId } from "./chat";
 import { accountsOf, accountRules, planSlots, publishClipNow } from "./publisher";
 import { dispatchClipJob } from "./scout";
@@ -12,7 +12,9 @@ export async function listReview(env: Env, ws = "default") {
   const rows = await db.all<any>(env,
     `SELECT c.*, ca.name AS campaign_name, ca.kind, ca.niche_id, ca.probe_state, (SELECT MIN(p.scheduled_at) FROM posts p WHERE p.clip_id = c.id AND p.status IN ('scheduled','shadow')) AS scheduled_for
      FROM clips c JOIN campaigns ca ON ca.id = c.campaign_id
-     WHERE c.workspace_id = ? AND c.status IN ('ready','review','scheduled','shadow') ORDER BY c.created_at DESC LIMIT 60`, ws);
+     WHERE c.workspace_id = ? AND c.status IN ('ready','review','scheduled','shadow')
+       AND NOT (c.status IN ('scheduled','shadow') AND c.approved_at IS NOT NULL)
+     ORDER BY c.created_at DESC LIMIT 60`, ws);
   const acc = accountsOf(env);
   return rows.map((c) => {
     const sc = parse<Record<string, number>>(c.scores, {});
@@ -87,7 +89,7 @@ export async function reviewAction(env: Env, clipId: string, body: { action: str
       await db.run(env, "UPDATE posts SET status = 'cancelled', submit_note = ? WHERE id = ?", (blotato ?? "zurueckgezogen").slice(0, 180), p.id);
       details.push({ post: p.id, platform: p.platform, at: p.scheduled_at, blotato });
     }
-    await db.run(env, "UPDATE clips SET status = 'review' WHERE id = ?", c.id);
+    await db.run(env, "UPDATE clips SET status = 'review', approved_at = NULL WHERE id = ?", c.id);
     await logEvent(env, `review withdraw clip=${c.id} posts=${posts.length}`, c.campaign_id);
     const offen = details.filter((d) => d.blotato_open).length;
     return { ok: true, action: "withdraw", posts: posts.length, blotato_offen: offen,
@@ -95,13 +97,16 @@ export async function reviewAction(env: Env, clipId: string, body: { action: str
                                 : "war nicht eingeplant", details };
   }
   if (body.action === "approve") {
-    if (c.status === "scheduled") {
+    if (c.status === "scheduled" || c.status === "shadow") {          // schon eingeplant: Abnahme festhalten, Termin bleibt
       const p = await db.first<any>(env, "SELECT scheduled_at, platform FROM posts WHERE clip_id = ? AND status IN ('scheduled','shadow') ORDER BY scheduled_at LIMIT 1", c.id);
-      return { ok: true, action: "approve", note: "bereits geplant", scheduled_for: p?.scheduled_at ?? null,
-               message: p?.scheduled_at ? `Dieser Clip ist schon fuer ${new Date(p.scheduled_at).toLocaleString("de-DE")} eingeplant.` : "Dieser Clip ist schon eingeplant." };
+      await db.run(env, "UPDATE clips SET approved_at = ? WHERE id = ?", nowIso(), c.id);
+      await logEvent(env, `review approve clip=${c.id} (war bereits geplant für ${p?.scheduled_at ?? "?"})`, c.campaign_id);
+      return { ok: true, action: "approve", note: "abgenommen", scheduled_for: p?.scheduled_at ?? null,
+               message: p?.scheduled_at ? `abgenommen – bleibt für ${new Date(p.scheduled_at).toLocaleString("de-DE")} eingeplant` : "abgenommen – bleibt eingeplant" };
     }
     if (c.status === "shadow") { await db.run(env, "UPDATE posts SET status = 'cancelled' WHERE clip_id = ? AND status = 'shadow'", c.id); }
     await db.run(env, "UPDATE clips SET status = 'ready' WHERE id = ?", c.id);
+    await db.run(env, "UPDATE clips SET approved_at = ? WHERE id = ?", nowIso(), c.id);
     const slot = await nextFreeSlot(env, c.account);
     const r = await publishClipNow(env, c.id, slot);
     await logEvent(env, `review approve clip=${c.id} slot=${slot ?? "now"}`, c.campaign_id);
