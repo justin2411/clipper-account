@@ -79,7 +79,11 @@ export const logEvent = (env: Env, event: string, campaignId: string | null = nu
   db.run(env, "INSERT INTO events (campaign_id, event, workspace_id) VALUES (?, ?, ?)", campaignId, event, env.WS ?? "default");   // Stufe 7: Ereignis im Workspace der Anfrage
 
 /** Telegram-Foto per URL (z.B. Standbild aus R2) mit Bildunterschrift. */
+import { recordNotification } from "./inbox";
+
 export async function telegramPhoto(env: Env, photoUrl: string, caption: string): Promise<boolean> {
+  const rec = await recordNotification(env, caption, photoUrl);                 // Nachtrag 2: Spiegel in der Benachrichtigungszentrale
+  if (!rec.telegram) return false;                                                // Regel: dieser Ereignistyp geht nicht an Telegram
   if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_CHAT_ID) return false;
   const r = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendPhoto`, {
     method: "POST", headers: { "Content-Type": "application/json" },
@@ -91,6 +95,8 @@ export async function telegramPhoto(env: Env, photoUrl: string, caption: string)
 
 /** Telegram-Nachricht; ohne Token/Chat-ID nur Log (Einrichtung darf nicht blockieren). */
 export async function telegram(env: Env, text: string): Promise<boolean> {
+  const rec = await recordNotification(env, text);                                // Nachtrag 2: Spiegel in der Benachrichtigungszentrale
+  if (!rec.telegram) return false;
   if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_CHAT_ID) { console.log("[telegram] nicht konfiguriert:", text.slice(0, 120)); return false; }
   const r = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
     method: "POST", headers: { "Content-Type": "application/json" },
