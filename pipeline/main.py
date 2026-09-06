@@ -52,9 +52,10 @@ def main():
         caption_hook, pinned = gen["caption_hook"] or meta.get("caption_hook", ""), gen["pinned_comment"] or meta.get("pinned_comment", "")
         caption = platform.caption(campaign, hook=caption_hook)
         staged = overlay.apply(clip, overlay_text, WORK / "stage", name=f"s{i}_{clip.name}")     # Pflicht-Overlay (falls Kampagne)
-        if th.get("enabled"):                                                                # Branding A: 2-s-Text-Hook
+        if th.get("enabled"):                                                                # Branding: 2-s-Hook-Text unten (65–72 %)
             final = overlay.apply_text_hook(staged, caption_hook or hook, WORK / "final", name=f"s{i}_{clip.name}",
-                                            seconds=float(th.get("seconds", 2)), color=str(th.get("color", "white")), accent=str(th.get("accent", "#FF5A1F")))
+                                            seconds=float(th.get("seconds", 2)), color=str(th.get("color", "white")),
+                                            accent=str(th.get("accent", "#FF5A1F")), style=str(th.get("style", "bar")))
         else:
             final = overlay.apply(staged, "", WORK / "final", name=f"s{i}_{clip.name}")           # Kopie
         ok, reason = checks.validate(final, rules, forbidden=campaign.get("forbidden", {}))
