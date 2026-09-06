@@ -62,6 +62,8 @@ def main():
         if src_dur < MIN_SOURCE_S or clipper.is_vertical(sources[0]):
             db.log(a.campaign, f"footage_skipped account={label} reason={'short' if src_dur < MIN_SOURCE_S else 'vertical'} dur={src_dur:.0f}")
             if video_id: db.patch_video(video_id, status="skipped", note="short/vertical", is_short=1)
+            up = (campaign.get("footage") or {}).get("upload_id")
+            if up: db.patch_upload(up, status="error", note="zu kurz (< 3 min)" if src_dur < MIN_SOURCE_S else "vertikales Video")
             db.notify(f"⏭ Fan-Video übersprungen ({'zu kurz' if src_dur < MIN_SOURCE_S else 'vertikal'}): {campaign['name']}")
             return
 

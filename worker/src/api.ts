@@ -174,7 +174,7 @@ export async function handleRequest(req: Request, env: Env, ctx: ExecutionContex
           await db.run(env, "UPDATE uploads SET status = 'uploaded', size = ?, updated_at = ? WHERE id = ?", obj.size, nowIso(), u.id);
           await logEvent(env, `upload_done niche=${u.niche_id} bytes=${obj.size} id=${u.id}`);
         }
-        const r = await startUploadJob(env, u.id, url.origin);
+        const r = await startUploadJob(env, u.id, url.origin, !!b.preview);
         return J({ ok: r.ok, source_id: u.id, campaign: r.campaign, status: r.status, error: r.error ?? null }, r.ok ? 200 : 502);
       }
       return J({ error: "not found" }, 404);
