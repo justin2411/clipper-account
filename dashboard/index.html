@@ -58,6 +58,8 @@
               Stufe 3: settings_versions:[{id, created_at, changes, diff}] (letzte 10) · GET /settings/versions · POST /settings/reset {version?|defaults, confirm} (ohne confirm nur Diff)
               Upload läuft in 25-MB-Teilen über PUT {upload_url}?part=N (Header x-api-key), dann POST /sources/complete
   POST /review/{id} approve  -> Clip wird sofort in den nächsten freien Slot des Accounts geplant und automatisch gepostet
+                    withdraw -> geplanter Beitrag wird bei Blotato entfernt, Clip wartet wieder auf die Freigabe
+                    (im Modus „Erst Vorschau" plant der Publisher nichts von selbst – nur was hier freigegeben wird)
   POST /review/bulk { ids:[...], action:"approve" }
   POST /tasks/{id}/done  -> markiert erledigt.   POST /accounts/{id}/resume -> Kill-Switch aufheben.
   Upload: POST /sources/presign {niche,name,size,type} -> {upload_url,source_id}; PUT upload_url (Browser→R2); POST /sources/complete {source_id}
@@ -696,7 +698,11 @@ function page(d){const r=route(); nav(d);
       <div class="cap">${c.caption}</div>
       <div class="sc"><span>Überraschung <b>${c.scores.surprise}</b></span><span>Einsatz <b>${c.scores.stakes}</b></span><span>Reaktion <b>${c.scores.reaction}</b></span><span>Cliffhanger <b>${c.scores.cliffhanger}</b></span><span>Ohne Kontext <b>${c.scores.context}</b></span><span>Sekunde 1 <b>${c.scores.clarity}</b></span>${c.qa.notes.map(n=>`<span>${n}</span>`).join("")}</div>
       <div class="fb">${TAGS.map(t=>`<button data-tag="${t}">${t}</button>`).join("")}</div>
-      ${c.probe?`<div class="act"><button class="ok" data-probe="release">Rest freigeben</button><button class="re" data-probe="another">Nochmal, andere Momente</button><button class="no" data-probe="reject">Video verwerfen</button></div>`:`<div class="act"><button class="ok" data-act="approve">Freigeben → nächster Slot</button><button class="re" data-act="redo">Neu schneiden</button><button class="no" data-act="reject">Verwerfen</button><input placeholder="Feedback in eigenen Worten (optional) …"></div>`}</div></div>`).join("")||`<div class="empty">Keine Clips in der Vorschau – Accounts im Modus „auto" posten direkt.</div>`}</section>`;
+      ${c.probe?`<div class="act"><button class="ok" data-probe="release">Rest freigeben</button><button class="re" data-probe="another">Nochmal, andere Momente</button><button class="no" data-probe="reject">Video verwerfen</button></div>`
+       :(c.status==="scheduled"||c.status==="shadow")
+        ?`<div class="act"><span class="pill ok">${c.status==="shadow"?"im Schatten":"eingeplant"}${c.scheduled_for?` · ${tm(c.scheduled_for)}`:""}</span><button class="re" data-act="withdraw">Zurückziehen</button><button class="no" data-act="reject">Verwerfen</button><input placeholder="Feedback in eigenen Worten (optional) …"></div>`
+        :`<div class="act"><button class="ok" data-act="approve">Freigeben → nächster Slot</button><button class="re" data-act="redo">Neu schneiden</button><button class="no" data-act="reject">Verwerfen</button><input placeholder="Feedback in eigenen Worten (optional) …"></div>`}
+      <div class="up" data-msg></div></div></div>`).join("")||`<div class="empty">Keine Clips in der Vorschau – Accounts im Modus „auto" posten direkt.</div>`}</section>`;
   } else if(r==="settings"){const st=d.settings||{global:{},niches:{},accounts:{}};
     const keys=Object.keys(st.niches);if(!setNiche||!st.niches[setNiche])setNiche=keys[0];const N=st.niches[setNiche]||{};const n=nicheOf(d,setNiche);
     const dirty=(path)=>{const a=get(st.niches[setNiche],path),b=get(SAVED?.niches?.[setNiche]||{},path);return SAVED&&JSON.stringify(a)!==JSON.stringify(b)};
@@ -1220,9 +1226,19 @@ function wireStudio(d){wireProbe(d);
   const bulk=$("#bulk");if(bulk)bulk.onclick=async()=>{if(DEMO_MODE){document.querySelectorAll(".rv").forEach(c=>c.style.opacity=.35);return}await fetch(cfg.apiUrl+"/review/bulk",{method:"POST",headers:{"x-api-key":cfg.apiKey,"Content-Type":"application/json"},body:JSON.stringify({ids:(d.review||[]).map(c=>c.id),action:"approve"})});refresh()};
   document.querySelectorAll(".rv").forEach(card=>{const id=card.dataset.id;const tags=new Set();
     card.querySelectorAll("[data-tag]").forEach(b=>b.onclick=()=>{b.classList.toggle("on");b.classList.contains("on")?tags.add(b.dataset.tag):tags.delete(b.dataset.tag)});
-    card.querySelectorAll("[data-act]").forEach(b=>b.onclick=async()=>{const feedback=card.querySelector("input").value;
+    card.querySelectorAll("[data-act]").forEach(b=>b.onclick=async()=>{const feedback=card.querySelector("input")?.value||"";
       if(DEMO_MODE){card.style.opacity=.35;return}
-      await fetch(cfg.apiUrl+"/review/"+id,{method:"POST",headers:{"x-api-key":cfg.apiKey,"Content-Type":"application/json"},body:JSON.stringify({action:b.dataset.act,feedback,tags:[...tags]})});refresh()});});
+      const msg=card.querySelector("[data-msg]"),vorher=b.textContent;
+      if(b.dataset.act==="withdraw"&&!confirm("Clip aus dem Plan nehmen?\n\nDer geplante Beitrag wird bei Blotato entfernt, der Clip wartet danach wieder auf deine Freigabe."))return;
+      b.disabled=true;b.textContent="…";if(msg)msg.textContent="";
+      try{
+        const r=await (await fetch(cfg.apiUrl+"/review/"+id,{method:"POST",headers:{"x-api-key":cfg.apiKey,"Content-Type":"application/json"},body:JSON.stringify({action:b.dataset.act,feedback,tags:[...tags]})})).json();
+        if(r.error||r.ok===false){b.disabled=false;b.textContent=vorher;if(msg){msg.style.color="var(--bad)";msg.textContent="⚠ "+(r.error||r.message||"Das hat nicht geklappt.")}return}
+        if(msg){msg.style.color=r.note==="bereits geplant"?"var(--ink3)":"var(--ok)";
+                msg.textContent=(r.note==="bereits geplant"?"ℹ ":"✓ ")+(r.message||r.note||{approve:"freigegeben – geht in den nächsten freien Slot",reject:"verworfen",redo:"wird neu geschnitten",withdraw:"aus dem Plan genommen"}[b.dataset.act]||"erledigt")}
+        setTimeout(refresh,1400);
+      }catch(e){b.disabled=false;b.textContent=vorher;if(msg){msg.style.color="var(--bad)";msg.textContent="⚠ Keine Verbindung zum Worker."}}
+    });});
   const st=d.settings;if(!st||route()!=="settings")return;if(!PEND){PEND=JSON.parse(JSON.stringify(st));SAVED=JSON.parse(JSON.stringify(st))}const N=()=>PEND.niches[setNiche];
   if(!$("#versions")){const vs=d.settings_versions||[];const box=document.createElement("details");box.className="more";box.id="versions";
     box.innerHTML=`<summary>Versionen &amp; Zurücksetzen <span style="font-weight:500;color:var(--ink3);font-size:12px">letzte ${vs.length} Stände</span></summary><div>
