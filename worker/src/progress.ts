@@ -8,7 +8,7 @@
 //   • Jeder laufende Job schreibt alle 30 Sekunden einen Zeitstempel. Kommt zehn Minuten nichts, heißt die Stufe
 //     „hängt" – mit dem letzten bekannten Stand und dem Link auf den Actions-Lauf.
 //   • Zwei Stunden ohne Lebenszeichen räumt der nächste Cron-Lauf auf 'failed' ab, sonst sammeln sich Karteileichen.
-import { Env, db, nowIso, logEvent } from "./shared";
+import { Env, db, nowIso, logEvent, telegram } from "./shared";
 import { dispatchClipJob } from "./scout";
 import { PROBE_CLIPS } from "./probe";
 
@@ -314,5 +314,44 @@ export async function cleanupJobs(env: Env, ws = "default") {
                  note.slice(0, 200), nowIso(), ws, j.upload_id ?? "", j.campaign_id ?? "");
     await logEvent(env, `job_leiche stufe=${j.stage} quelle=${j.campaign_id ?? j.upload_id} run=${j.run_id ?? "-"} ${note}`.slice(0, 300), j.campaign_id);
   }
-  return { cleaned: dead.length - finished, finished, stages: dead.map((j) => `${j.campaign_id ?? j.upload_id}:${j.stage}`) };
+  const frei = await recoverProbes(env, ws);
+  return { cleaned: dead.length - finished, finished, recovered: frei.length, recovered_probes: frei,
+           stages: dead.map((j) => `${j.campaign_id ?? j.upload_id}:${j.stage}`) };
+}
+
+/** Ein abgestürzter Probelauf blockiert sonst für immer den einzigen Probelauf-Platz: die Kampagne steht auf
+ *  'probe', es gibt aber keinen Clip zu entscheiden und keinen laufenden Job. Solche Fälle werden bis zu drei
+ *  Runden automatisch neu angestoßen; danach bleibt es liegen und Telegram fragt nach. */
+export async function recoverProbes(env: Env, ws = "default"): Promise<string[]> {
+  const busy = await db.first<{ n: number }>(env,
+    "SELECT COUNT(*) AS n FROM job_runs WHERE workspace_id = ? AND status = 'running'", ws);
+  if ((busy?.n ?? 0) > 0) return [];                            // immer nur ein Clip-Job gleichzeitig (YouTube-Cookies)
+  const offen = await db.all<any>(env,
+    "SELECT id, name, accounts FROM campaigns WHERE workspace_id = ? AND probe_state = 'probe' LIMIT 3", ws);
+  const wieder: string[] = [];
+  for (const c of offen) {
+    const clips = await db.first<{ n: number }>(env,
+      "SELECT COUNT(*) AS n FROM clips WHERE workspace_id = ? AND campaign_id = ? AND COALESCE(probe,0) = 1 AND status NOT IN ('rejected_review','superseded')", ws, c.id);
+    if ((clips?.n ?? 0) > 0) continue;                         // es liegt etwas zum Entscheiden vor – nichts zu tun
+    const läuft = await db.first<{ n: number }>(env,
+      "SELECT COUNT(*) AS n FROM job_runs WHERE workspace_id = ? AND campaign_id = ? AND status = 'running'", ws, c.id);
+    if ((läuft?.n ?? 0) > 0) continue;                          // der Lauf arbeitet noch
+    const v = await db.first<any>(env, "SELECT id, title, probe_round FROM videos WHERE workspace_id = ? AND campaign_id = ?", ws, c.id);
+    const runde = Number(v?.probe_round ?? 0);
+    if (runde >= 3) {                                           // dreimal gescheitert: nicht endlos weiterversuchen
+      await db.run(env, "UPDATE campaigns SET probe_state = 'rejected', status = 'paused' WHERE id = ?", c.id);
+      if (v) await db.run(env, "UPDATE videos SET status = 'error', note = 'Probelauf dreimal gescheitert', updated_at = ? WHERE id = ?", nowIso(), v.id);
+      await logEvent(env, `probe_aufgegeben campaign=${c.id} video=${v?.id ?? "-"} nach ${runde} Runden – Platz wieder frei`, c.id);
+      await telegram(env, `⚠️ Probelauf ${v?.title ?? c.name} dreimal gescheitert – Video aussortiert, der Platz ist wieder frei.`);
+      wieder.push(`${c.id}:aufgegeben`);
+      continue;
+    }
+    let account = "AB";
+    try { const a = JSON.parse(c.accounts || "[]"); if (Array.isArray(a) && a.length) account = a.join(""); } catch { /* Standard */ }
+    const status = await dispatchClipJob(env, c.id, account, { preview: "true", probe: String(PROBE_CLIPS) });
+    if (status === 204 && v) await db.run(env, "UPDATE videos SET probe_round = COALESCE(probe_round,0) + 1, dispatched_at = ?, updated_at = ? WHERE id = ?", nowIso(), nowIso(), v.id);
+    await logEvent(env, `probe_neustart campaign=${c.id} video=${v?.id ?? "-"} runde=${runde + 1} dispatch=${status} (vorheriger Lauf ohne Clips beendet)`, c.id);
+    wieder.push(`${c.id}:neu gestartet`);
+  }
+  return wieder;
 }
