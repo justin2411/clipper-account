@@ -1,7 +1,7 @@
 // Tracker: holt Post-Status/URLs von Blotato, Post-Analytics (Views/Likes je Post: GET /v2/posts/{publishedPostId}/analytics),
 // Tages-Snapshot je Account (account_stats: Views 7/30 Tage, Posts 7 Tage – Follower liefert Blotato nicht), Kill-Switch,
 // löscht eingereichte/abgeschlossene Clips aus R2.
-import { BLOTATO, Env, blotatoHeaders, db, mediaKeyFromUrl, nowIso, telegram, tiktokProfile } from "./shared";
+import { BLOTATO, Env, blotatoHeaders, db, mediaKeyFromUrl, nowIso, telegram, tiktokProfile, logEvent } from "./shared";
 import { accountsOf } from "./publisher";
 
 const DROP = 0.2;
@@ -99,6 +99,7 @@ export async function runTracker(env: Env) {
       "SELECT p.rejection_reason FROM posts p JOIN clips c ON c.id = p.clip_id WHERE c.account = ? AND p.status = 'rejected_platform'", account);
     if (rej.some((r) => STOP_WORDS.some((w) => (r.rejection_reason ?? "").toLowerCase().includes(w)))) {
       await db.run(env, "UPDATE account_state SET paused = 1, reason = 'rejection', updated_at = ? WHERE account = ?", nowIso(), account);
+      await logEvent(env, `kill_switch ${account} reason=rejection`);
       stats.paused.push(account);
       await telegram(env, `⛔ Account ${account} pausiert: Ablehnung mit Spam/Automation-Grund. Bitte prüfen.`);
       continue;
@@ -110,6 +111,7 @@ export async function runTracker(env: Env) {
       const recent = avg(w.slice(0, 10)), prev = avg(w.slice(10, 20));
       if (prev > 0 && recent < prev * DROP) {
         await db.run(env, "UPDATE account_state SET paused = 1, reason = 'views_drop', updated_at = ? WHERE account = ?", nowIso(), account);
+        await logEvent(env, `kill_switch ${account} reason=views_drop`);
         stats.paused.push(account);
         await telegram(env, `⚠️ Account ${account} pausiert: Views-Einbruch (${Math.round(recent)} vs ${Math.round(prev)}).`);
       }
