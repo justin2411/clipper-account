@@ -21,6 +21,16 @@
                     "avg_views": 7900, "paused": false, "reason": null } ],
     "insights": { "best_hook": "Textfrage im Overlay", "best_slot": "20:00", "qualified_rate": 0.34 },
     "tasks": [ { "type": "submit|join|review", "text": "...", "url": "..." } ],
+    "pipeline": {                                                            // Live-Ansicht, Worker liefert aus D1 + GitHub Actions API
+      "stages": [ { "key":"scout", "label":"Scout", "status":"idle|running|ok|error", "last_run":"ISO", "info":"letzte Mail 09:10" },
+                  { "key":"footage", "label":"Footage", "status":"ok", "info":"2 Kampagnen geladen" },
+                  { "key":"clip", "label":"Clip-Job", "status":"running", "info":"Extreme Places · A · Schnitt 7/12" },
+                  { "key":"publish", "label":"Publisher", "status":"ok", "info":"nächster Slot 14:00 · 9 Clips in Queue" },
+                  { "key":"track", "label":"Tracker", "status":"ok", "info":"vor 2 h · 6 Posts aktualisiert" } ],
+      "jobs": [ { "id":"run-5", "label":"Clip-Job · vyro-extreme-places · A", "started":"ISO", "progress":0.6, "step":"Schnitt 7/12", "url":"https://github.com/..." } ],
+      "queue": { "ready": 9, "scheduled": 4, "posted_today": 3, "pending_submit": 2 },
+      "events": [ { "at":"ISO", "text":"Clip 7/12 gerendert (A)" } ]                          // letzte 15
+    },
     "goal_monthly": 2000,                                                    // optional, Standard 2000
     "forecast": { "month_end": 640, "next_month": 980, "days_left": 25 }     // optional – fehlt es, rechnet das Dashboard selbst
   }
@@ -59,6 +69,33 @@ header{display:flex;align-items:center;justify-content:space-between;gap:12px;pa
 .bars div{flex:1;background:var(--line);border-radius:4px 4px 0 0;position:relative;min-height:3px}
 .bars div.cur{background:var(--flame)}
 .bars div:after{content:attr(data-w);position:absolute;top:100%;left:0;right:0;text-align:center;font-size:10px;color:var(--ink-3);margin-top:4px}
+/* pipeline */
+.flow{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;align-items:stretch}
+.stage{position:relative;padding:12px 12px 12px 14px;border-radius:12px;background:color-mix(in srgb,var(--panel) 70%,var(--bg));border:1px solid var(--line)}
+.stage:after{content:"›";position:absolute;right:-9px;top:50%;transform:translateY(-50%);color:var(--ink-3);font-size:18px}
+.stage:last-child:after{content:""}
+.stage .st{display:flex;align-items:center;gap:8px;font-weight:800;font-size:13px}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--ink-3);flex:none}
+.dot.ok{background:var(--ok)}.dot.error{background:var(--bad)}
+.dot.running{background:var(--flame);box-shadow:0 0 0 0 rgba(255,90,31,.6);animation:pulse 1.4s infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(255,90,31,.55)}70%{box-shadow:0 0 0 9px rgba(255,90,31,0)}100%{box-shadow:0 0 0 0 rgba(255,90,31,0)}}
+.stage .si{font-size:11px;color:var(--ink-3);margin-top:4px;line-height:1.35}
+.qs{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:12px}
+.qs div{text-align:center;padding:8px;border-radius:10px;background:color-mix(in srgb,var(--panel) 70%,var(--bg))}
+.qs b{display:block;font-size:18px;font-weight:800}.qs span{font-size:11px;color:var(--ink-3)}
+.job{padding:10px 0;border-top:1px solid var(--line)}
+.job:first-of-type{border-top:0}
+.job .jl{display:flex;justify-content:space-between;font-size:13px;font-weight:700;gap:10px}
+.job .jl span{color:var(--ink-3);font-weight:500;font-size:12px;white-space:nowrap}
+.job .bar{height:6px;border-radius:3px;background:var(--line);margin:7px 0 4px;overflow:hidden}
+.job .bar i{display:block;height:100%;background:var(--flame)}
+.job .js{font-size:12px;color:var(--ink-2)}
+.ev{font-size:12.5px;padding:6px 0;border-top:1px solid var(--line);display:flex;gap:10px}
+.ev:first-of-type{border-top:0}
+.ev time{color:var(--ink-3);flex:none;font-variant-numeric:tabular-nums}
+.live{font-size:11px;color:var(--ok);font-weight:700;display:inline-flex;align-items:center;gap:6px}
+.live i{width:7px;height:7px;border-radius:50%;background:var(--ok);display:inline-block;animation:pulse 1.4s infinite}
+@media (max-width:720px){.flow{grid-template-columns:1fr 1fr}.stage:after{content:""}.qs{grid-template-columns:1fr 1fr}}
 /* forecast */
 .fc{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
 .fc div{padding:12px 14px;border-radius:10px;border:1px dashed var(--line)}
@@ -123,6 +160,22 @@ const DEMO = {
     {id:"B",handle:"@beastcrewclips",niche:"Reaktionen",followers:1100,avg_views:3100,paused:false},
     {id:"C",handle:"@…",niche:"Gaming",followers:600,avg_views:900,paused:true,reason:"Views-Einbruch"}],
   insights:{best_hook:"Textfrage im Overlay",best_slot:"20:00",qualified_rate:0.34},
+  pipeline:{
+    stages:[
+      {key:"scout",label:"Scout",status:"ok",info:"letzte Prüfung 09:10 · 0 neue"},
+      {key:"footage",label:"Footage",status:"ok",info:"2 Kampagnen geladen"},
+      {key:"clip",label:"Clip-Job",status:"running",info:"Extreme Places · A · Schnitt 7/12"},
+      {key:"publish",label:"Publisher",status:"ok",info:"nächster Slot 14:00 · 9 in Queue"},
+      {key:"track",label:"Tracker",status:"ok",info:"vor 2 h · 6 Posts aktualisiert"}],
+    jobs:[{id:"run-5",label:"Clip-Job · Extreme Places · Account A",started:new Date(Date.now()-14*60000).toISOString(),progress:0.58,step:"Schnitt 7/12 · Face-Tracking",url:"#"},
+          {id:"run-6",label:"Clip-Job · Extreme Places · Account B",started:new Date(Date.now()-13*60000).toISOString(),progress:0.42,step:"Gemini-Momentwahl",url:"#"}],
+    queue:{ready:9,scheduled:4,posted_today:3,pending_submit:2},
+    events:[{at:new Date(Date.now()-40000).toISOString(),text:"Clip 7/12 gerendert · Extreme Places · A"},
+            {at:new Date(Date.now()-3*60000).toISOString(),text:"Gemini hat 12 Momente gewählt · B"},
+            {at:new Date(Date.now()-9*60000).toISOString(),text:"Whisper fertig (20:14 Min) · A"},
+            {at:new Date(Date.now()-14*60000).toISOString(),text:"Frame.io-Download 610 MB · A"},
+            {at:new Date(Date.now()-31*60000).toISOString(),text:"Publisher: 3 Clips für Slot 14:00 geplant"},
+            {at:new Date(Date.now()-2*3600000).toISOString(),text:"Tracker: Views für 6 Posts aktualisiert"}]},
   tasks:[
     {type:"submit",text:"6 Post-Links bei Vyro einreichen – Book Challenge",url:"https://app.vyro.com"},
     {type:"join",text:"Neue Kampagne wartet auf Join – Beast Games S3, 2 $/1k",url:"https://app.vyro.com"},
@@ -132,16 +185,17 @@ const $=(s)=>document.querySelector(s);
 const fmt=(n)=>Math.round(n).toLocaleString("de-DE");
 const money=(n,c="$")=>fmt(n)+" "+c;
 const k=(n)=>n>=1e6?(n/1e6).toFixed(1)+"M":n>=1000?Math.round(n/1000)+"k":fmt(n);
+// FEST EINGETRAGEN – Claude Code füllt beide Werte beim Deploy. Dann lädt das Dashboard ohne Anmeldung.
+const CONFIG={ apiUrl:"https://clipforge.clipforge-xy.workers.dev", apiKey:"__DASHBOARD_READ_KEY__" };   // Platzhalter wird von scripts/deploy_dashboard.sh beim Deploy ersetzt
 const cfgKey="clipforge.cfg";
-// Fest verdrahtet: kein Login. Der Lese-Key erlaubt nur GET /dashboard (Statistiken, keine Secrets, kein Schreiben).
-const DEFAULT_CFG={apiUrl:"https://clipforge.clipforge-xy.workers.dev",apiKey:"__DASHBOARD_READ_KEY__"};
-let cfg=null; try{cfg=JSON.parse(localStorage.getItem(cfgKey)||"null")}catch(e){cfg=null}
-if(!cfg||!cfg.apiKey)cfg=DEFAULT_CFG;
+let cfg=null;
+if(CONFIG.apiUrl&&CONFIG.apiKey){cfg={...CONFIG}}
+else{ try{cfg=JSON.parse(localStorage.getItem(cfgKey)||"null")}catch(e){cfg=null} }
 
 function gate(msg=""){
-  $("#app").innerHTML=`<div class="gate"><h1>ClipForge</h1><p>Verbinde das Dashboard mit deinem Worker. Worker-URL und DASHBOARD_READ_KEY stehen in SECRETS.local.md.</p>
+  $("#app").innerHTML=`<div class="gate"><h1>ClipForge</h1><p>Verbinde das Dashboard mit deinem Worker. Beides steht in SECRETS.local.md.</p>
   <label>Worker-URL</label><input id="u" placeholder="https://clipforge.xyz.workers.dev" value="${cfg?.apiUrl||""}">
-  <label>Lese-Key</label><input id="p" type="password" placeholder="DASHBOARD_READ_KEY">
+  <label>API-Key</label><input id="p" type="password" placeholder="CLIPFORGE_API_KEY">
   <div class="err" id="e">${msg}</div><button id="go">Öffnen</button>
   <div class="banner" style="margin-top:14px"><a href="#" id="demo">Mit Beispieldaten ansehen</a></div></div>`;
   $("#go").onclick=async()=>{const apiUrl=$("#u").value.trim().replace(/\/$/,""),apiKey=$("#p").value.trim();
@@ -157,6 +211,7 @@ function render(d,demo){
   const max=Math.max(1,...d.history.map(h=>h.revenue));
   const cur=d.campaigns.filter(c=>c.status!=="ended").length;
   const fc=forecast(d);
+  const pl=d.pipeline||{stages:[],jobs:[],queue:{ready:0,scheduled:0,posted_today:0,pending_submit:0},events:[]};
   $("#app").innerHTML=`
   <header><div class="brand"><i></i>ClipForge</div>
     <div class="meta">${monthLabel(d.month)} · ${d.accounts.length} Accounts · ${cur} aktiv <button id="rf">${demo?"Verbinden":"Aktualisieren"}</button></div></header>
@@ -166,6 +221,13 @@ function render(d,demo){
     <div class="split"><div><b>${money(t.revenue)}</b><span>Umsatz ausgezahlt</span></div><div><b>${money(t.costs)}</b><span>Kosten</span></div><div><b>${money(t.pending)}</b><span>offen bei Vyro</span></div></div>
     <div class="bars">${d.history.map((h,i)=>`<div class="${i===d.history.length-1?"cur":""}" style="height:${Math.max(4,h.revenue/max*100)}%" data-w="${h.week}" title="${money(h.revenue)}"></div>`).join("")}</div>
     <div style="height:18px"></div></div>
+
+  <section><h2>Pipeline <span class="live"><i></i>live${pl.jobs.length?` · ${pl.jobs.length} Job${pl.jobs.length>1?"s":""} läuft`:" · nichts läuft"}</span></h2>
+    <div class="flow">${pl.stages.map(st=>`<div class="stage"><div class="st"><span class="dot ${st.status}"></span>${st.label}</div><div class="si">${st.info||""}</div></div>`).join("")}</div>
+    <div class="qs"><div><b>${pl.queue.ready}</b><span>Clips bereit</span></div><div><b>${pl.queue.scheduled}</b><span>geplant</span></div><div><b>${pl.queue.posted_today}</b><span>heute gepostet</span></div><div><b>${pl.queue.pending_submit}</b><span>einzureichen</span></div></div>
+    ${pl.jobs.length?`<div style="margin-top:12px">${pl.jobs.map(j=>`<div class="job"><div class="jl">${j.label}<span>seit ${ago(j.started)}</span></div><div class="bar"><i style="width:${Math.round((j.progress||0)*100)}%"></i></div><div class="js">${j.step||""}${j.url&&j.url!=="#"?` · <a href="${j.url}" target="_blank" rel="noopener">Log</a>`:""}</div></div>`).join("")}</div>`:""}
+    <div style="margin-top:12px">${pl.events.slice(0,8).map(e=>`<div class="ev"><time>${tm(e.at)}</time><div>${e.text}</div></div>`).join("")}</div>
+  </section>
 
   <section><h2>Prognose <span>bei aktuellem Tempo</span></h2>
     <div class="fc">
@@ -220,10 +282,13 @@ function forecast(d){
   });
   return {month_end,next_month,goal,gap,views_per_day,left:f.days_left??left,growth,camp};
 }
+function ago(iso){const m=Math.max(0,Math.round((Date.now()-new Date(iso))/60000));return m<60?`${m} min`:`${Math.floor(m/60)} h ${m%60} min`}
+function tm(iso){const d=new Date(iso);return d.toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"})}
 function status(s){return {active:"aktiv",ended:"beendet",joined:"beigetreten",paused:"pausiert"}[s]||s}
 function monthLabel(m){const [y,mo]=(m||"").split("-");const n=["Januar","Februar","März","April","Mai","Juni","Juli","August","September","Oktober","November","Dezember"];return mo?`${n[+mo-1]} ${y}`:""}
 
-(async()=>{ try{render(await load(cfg),false);return}catch(e){ if(cfg!==DEFAULT_CFG){cfg=DEFAULT_CFG;try{render(await load(cfg),false);return}catch(e2){}} gate("Worker nicht erreichbar: "+e.message); } })();
+(async()=>{ if(cfg){try{render(await load(cfg),false);return}catch(e){}} gate(); })();
+setInterval(async()=>{ if(cfg&&document.querySelector(".live")){try{render(await load(cfg),false)}catch(e){}} },30000);
 </script>
 </body>
 </html>
