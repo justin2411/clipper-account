@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
     inputs:
       campaign: { required: true, type: string }
-      account:  { required: true, type: string }
+      account:  { required: true, type: string }   # A | B | AB (fan: ein Schnitt, Verteilung nach Rang)
 jobs:
   clip:
     runs-on: ubuntu-latest
@@ -12,6 +12,7 @@ jobs:
       CLIPFORGE_API_URL: ${{ secrets.CLIPFORGE_API_URL }}
       CLIPFORGE_API_KEY: ${{ secrets.CLIPFORGE_API_KEY }}
       GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+      YT_COOKIES_B64: ${{ secrets.YT_COOKIES_B64 }}   # optional: base64 cookies.txt gegen YouTube-Bot-Checks
     steps:
       - uses: actions/checkout@v4
         with: { submodules: recursive }

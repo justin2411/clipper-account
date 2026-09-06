@@ -51,17 +51,26 @@ export async function buildDashboard(env: Env) {
   }
 
   // Kampagnen
-  const campRows = await db.all<any>(env, "SELECT * FROM campaigns ORDER BY created_at DESC");
+  const allCamps = await db.all<any>(env, "SELECT * FROM campaigns ORDER BY created_at DESC");
+  const campRows = allCamps.filter((c) => c.kind !== "fan");
+  const fanIds = new Set(allCamps.filter((c) => c.kind === "fan").map((c) => c.id));
   const clipCounts = await db.all<{ campaign_id: string; n: number }>(env, "SELECT campaign_id, COUNT(*) AS n FROM clips WHERE status NOT IN ('rejected_precheck','rejected_review','test_private') GROUP BY campaign_id");
-  const campaigns = campRows.map((c) => {
+  const campaigns: any[] = campRows.map((c) => {
     const ps = posts.filter((p) => p.campaign_id === c.id && p.status === "posted");
     const views = ps.reduce((a, p) => a + (p.views ?? 0), 0);
     const qualified = ps.filter((p) => (p.views ?? 0) >= (c.min_views ?? 0) && (p.views ?? 0) > 0).length;
     const earned = Math.round(ps.reduce((a, p) => a + earnedOf(p), 0));
-    return { id: c.id, name: c.name, platform: c.platform, status: c.status === "draft" ? "joined" : c.status,
+    return { id: c.id, name: c.name, platform: c.platform, kind: "paid", status: c.status === "draft" ? "joined" : c.status,
       rate_per_1k: c.rate_per_1k_usd ?? 0, clips: clipCounts.find((x) => x.campaign_id === c.id)?.n ?? 0,
       views, qualified, earned, budget_used: c.budget_used_usd ?? 0, budget_total: c.budget_total_usd ?? 0 };
   });
+  if (fanIds.size) {                                   // Fan-Content als eine Sammelzeile (viele fan-<video>-Kampagnen)
+    const ps = posts.filter((p) => fanIds.has(p.campaign_id) && p.status === "posted");
+    const vids = await db.first<any>(env, "SELECT SUM(status='clipped') AS c, SUM(status='new') AS n FROM videos");
+    campaigns.push({ id: "fan", name: "Fan-Content (MrBeast-Kanäle)", platform: "youtube", kind: "fan", status: "active", rate_per_1k: 0,
+      clips: clipCounts.filter((x) => fanIds.has(x.campaign_id)).reduce((a, x) => a + x.n, 0),
+      views: ps.reduce((a, p) => a + (p.views ?? 0), 0), qualified: 0, earned: 0, budget_used: vids?.c ?? 0, budget_total: (vids?.c ?? 0) + (vids?.n ?? 0) });
+  }
 
   // Accounts
   const state = await db.all<any>(env, "SELECT * FROM account_state");
@@ -201,11 +210,11 @@ export async function buildPipeline(env: Env) {
   // Queue
   const q = await db.first<any>(env,
     `SELECT SUM(CASE WHEN status='ready' THEN 1 ELSE 0 END) AS ready,
-            SUM(CASE WHEN status='scheduled' THEN 1 ELSE 0 END) AS scheduled FROM clips`);
+            SUM(CASE WHEN status IN ('scheduled','shadow') THEN 1 ELSE 0 END) AS scheduled FROM clips`);
   const today = new Date().toISOString().slice(0, 10);
   const pt = await db.first<{ n: number }>(env, "SELECT COUNT(*) AS n FROM posts WHERE status='posted' AND substr(posted_at,1,10)=?", today);
   const ps = await db.first<{ n: number }>(env, "SELECT COUNT(*) AS n FROM posts WHERE status='posted' AND submitted_at IS NULL AND post_url IS NOT NULL");
-  const nextSlot = await db.first<{ t: string }>(env, "SELECT MIN(scheduled_at) AS t FROM posts WHERE status='scheduled' AND scheduled_at > ?", new Date().toISOString());
+  const nextSlot = await db.first<{ t: string }>(env, "SELECT MIN(scheduled_at) AS t FROM posts WHERE status IN ('scheduled','shadow') AND scheduled_at > ?", new Date().toISOString());
   const paused = await db.all<any>(env, "SELECT account FROM account_state WHERE paused=1");
 
   const stages: Stage[] = [
@@ -214,7 +223,8 @@ export async function buildPipeline(env: Env) {
     clipStage,
     (() => { const s = cronStage("publisher", "Publisher", 30, (_e, at) => `letzter Lauf ${tmUtc(at)}`);
              const extra = paused.length ? `pausiert: ${paused.map((p) => p.account).join(", ")}` : nextSlot?.t ? `nächster Slot ${tmUtc(nextSlot.t)}` : "kein Slot geplant";
-             return { ...s, info: `${extra} · ${q?.ready ?? 0} bereit` }; })(),
+             const mode = (env.PUBLISH_MODE ?? "live").toLowerCase();
+             return { ...s, info: `${mode === "shadow" ? "SCHATTEN · " : ""}${extra} · ${q?.ready ?? 0} bereit` }; })(),
     (() => { const s = cronStage("tracker", "Tracker", 360, (e, at) => { const m = e.match(/"(updated|live|posted)":(\d+)/); return `vor ${Math.round(agoMin(at) / 60)} h${m ? ` · ${m[2]} Posts aktualisiert` : ""}`; }); return s; })(),
   ];
 
@@ -227,7 +237,7 @@ export async function buildPipeline(env: Env) {
     if (e.startsWith("clipper_done")) return `Schnitt fertig: ${p.raw ?? "?"} Rohclips · ${c} · ${p.account ?? ""}`;
     if (e.startsWith("clipper_error")) return `Schnitt-Fehler · ${c} · ${p.account ?? ""}: ${(e.split("err=")[1] ?? "").slice(0, 60)}`;
     if (e.startsWith("pipeline_done")) return `Clip-Job fertig: ${p.kept ?? "?"} Clips bereit · ${c} · ${p.account ?? ""}`;
-    if (e.startsWith("publisher")) return `Publisher: ${p.scheduled ?? 0} Clips eingeplant`;
+    if (e.startsWith("publisher")) return p.mode === "shadow" ? `Publisher (Schatten): ${p.shadow ?? 0} Slots geplant` : `Publisher: ${p.scheduled ?? 0} Clips eingeplant`;
     if (e.startsWith("publish_now")) return `Sofort veröffentlicht · ${c} · ${p.account ?? ""}`;
     if (e.startsWith("vyro_submitted")) return `Bei Vyro eingereicht (${p.post ?? ""})`;
     if (e.startsWith("vyro_submit_failed")) return `Vyro-Einreichung fehlgeschlagen`;
@@ -235,11 +245,15 @@ export async function buildPipeline(env: Env) {
     if (e.startsWith("account_rules")) return `Account-Regel: ${e.replace("account_rules ", "").slice(0, 70)}`;
     if (e.startsWith("cron ")) { const m = e.match(/^cron (\w+) (ok|error)/); return m ? `${({ scout: "Scout", publisher: "Publisher", tracker: "Tracker", notify: "Tagesbericht" } as any)[m[1]] ?? m[1]} ${m[2] === "ok" ? "gelaufen" : "Fehler"}` : e; }
     if (e.startsWith("campaign_patch")) return `Kampagne aktualisiert · ${c}`;
+    if (e.startsWith("rss_check")) return `RSS geprüft: ${p.new ?? 0} neue Videos${e.includes("errors=") ? " · Fehler" : ""}`;
+    if (e.startsWith("backlog_import")) return `Backlog importiert: ${p.total ?? "?"} Videos im Katalog`;
+    if (e.startsWith("shadow_release")) return `Schattenmodus beendet: ${p.clips ?? 0} Clips wieder frei`;
+    if (e.startsWith("fan error")) return `Fan-Lauf Fehler: ${e.slice(10, 80)}`;
     if (e.startsWith("submitted:")) return `${e.split(":")[1]} Clips als eingereicht markiert · ${c}`;
     if (e.startsWith("mail:")) return `Vyro-Mail erkannt`;
     return e.slice(0, 80);
   };
-  const events = ev.filter((x) => !/^cron (scout|publisher) ok/.test(x.event)).slice(0, 15).map((x) => ({ at: x.at, text: nice(x) }));
+  const events = ev.filter((x) => !/^cron (scout|publisher) ok|^rss_check channels=\d+ new=0$/.test(x.event)).slice(0, 15).map((x) => ({ at: x.at, text: nice(x) }));
 
   return { stages, jobs: jobs.map(({ run_id, ...j }) => j), queue: { ready: q?.ready ?? 0, scheduled: q?.scheduled ?? 0, posted_today: pt?.n ?? 0, pending_submit: ps?.n ?? 0 }, events };
 }

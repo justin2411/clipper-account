@@ -7,10 +7,11 @@ URL = os.environ["CLIPFORGE_API_URL"].rstrip("/")
 KEY = os.environ["CLIPFORGE_API_KEY"]
 
 
-def upload(p: Path, prefix: str) -> str:
+def upload(p: Path, prefix: str, content_type: str | None = None) -> str:
     key = f"{prefix}/{p.name}"
+    ct = content_type or ("image/jpeg" if p.suffix.lower() in (".jpg", ".jpeg") else "video/mp4")
     with open(p, "rb") as f:
         r = requests.put(f"{URL}/api/media/{key}", data=f, timeout=600,
-                         headers={"Authorization": f"Bearer {KEY}", "Content-Type": "video/mp4"})
+                         headers={"Authorization": f"Bearer {KEY}", "Content-Type": ct})
     r.raise_for_status()
     return r.json()["url"]

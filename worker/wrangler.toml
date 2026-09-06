@@ -13,7 +13,7 @@ crons = [
   "*/10 * * * *",   # scout
   "*/30 * * * *",   # publisher
   "0 */6 * * *",    # tracker
-  "0 19 * * *",     # notify – 21:00 Berlin (Sommer), 20:00 (Winter)
+  "0 18 * * *",     # notify – 20:00 Berlin (Sommer): Einreich-Liste, Tagesübersicht, montags Wochenreport
 ]
 
 [[d1_databases]]
@@ -29,8 +29,14 @@ bucket_name = "clips"
 # Nicht-geheime Konfiguration. Geheimnisse (BLOTATO_API_KEY, TELEGRAM_*, GMAIL_*, GITHUB_TOKEN, ACCOUNTS_JSON,
 # CLIPFORGE_API_KEY) kommen per `wrangler secret put` bzw. scripts/cf_bootstrap.sh aus .env.
 [vars]
-BLOTATO_DRAFT = "false"                 # Sichtprüfung am 2026-09-05 bestanden → live. "true" = Posts nur als TikTok-Entwurf
-MAX_CLIPS_PER_DAY = "4"                 # 4 Posts/Account/Tag zu festen Slot-Zeiten (config/accounts.yaml)
+PUBLISH_MODE = "shadow"                 # shadow: alles läuft, Publisher schreibt nur in D1 + Tagesübersicht 20:00 | live | draft
+MAX_CLIPS_PER_DAY = "5"                 # Posts je Account/Tag im Dauerbetrieb (5 Slots alle 3–4 h, config/accounts.yaml)
+RAMP_DAYS = "7"                         # neue Accounts: erste 7 Tage ab erstem Live-Post …
+RAMP_MAX_PER_DAY = "3"                  # … höchstens 3 Posts/Tag
+POST_GAP_MIN = "90"                     # Kollisionsschutz über alle Accounts und Quellen
+PAID_SLOTS_PER_DAY = "2"                # aktive paid-Kampagne ersetzt 2 Fan-Slots je Account/Tag …
+PAID_SLOTS_PER_DAY_MULTI = "3"          # … bei mehreren paid-Kampagnen 3
+STOCK_DAYS = "3"                        # Vorproduktion: 3 Tage Vorrat fertiger Fan-Clips je Account
 PLATFORM_GAP_MIN = "30"
 GITHUB_REPO = "justin2411/clipper-account"
 GITHUB_REF = "main"
