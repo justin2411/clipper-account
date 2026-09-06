@@ -63,7 +63,7 @@ export async function checkRss(env: Env): Promise<{ checked: number; added: stri
       res.checked++;
       for (const v of parseRss(await r.text())) {
         const known = await db.first<{ id: string; views: number }>(env, "SELECT id, views FROM videos WHERE id = ?", v.id);
-        if (known) { if (v.views > (known.views ?? 0)) await db.run(env, "UPDATE videos SET views = ?, updated_at = ? WHERE id = ?", v.views, nowIso(), v.id); continue; }
+        if (known) { if (v.views > (known.views ?? 0)) await db.run(env, "UPDATE videos SET views = ? WHERE id = ?", v.views, v.id); continue; }   // updated_at = Statuswechsel, nicht Views
         const short = await isShort(v.id);
         await db.run(env,
           `INSERT OR IGNORE INTO videos (id, channel_id, channel_name, title, url, published_at, views, is_short, source, status, note)
