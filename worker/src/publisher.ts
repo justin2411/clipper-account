@@ -157,6 +157,9 @@ export async function runPublisher(env: Env) {
     const es = eff.settings;
     const slots = (es.slots?.length ? es.slots : cfg.slots) ?? [];
     const maxPerDay = rules.rulesUntil ? rules.maxPerDay : Math.min(rules.maxPerDay, Number(es.posts_per_day || rules.maxPerDay));
+    // Freigabe „Erst Vorschau": der Publisher fuellt keine Slots von selbst. Freigegebene Clips gehen ueber
+    // reviewAction/publishClipNow direkt in den naechsten Slot – ohne Freigabe geht nichts raus.
+    if ((es.mode ?? "auto") === "review") { stats.skipped.push(`${acc}: Freigabe „Erst Vorschau" – es wird nur geplant, was du freigibst`); continue; }
     const free = planSlots(acc, slots, maxPerDay, ctx.occ, Math.max(GAP, Number(es.min_gap_min || 0)), rules.minGapMin, now);
     const fanQuota = Math.round((Number(es.fan_ratio ?? 60) / 100) * maxPerDay);            // Fan-Anteil je Tag; paid ersetzt Fan-Slots (PAID_SLOTS_PER_DAY)
     ctx.paidPerDay = Math.max(paidPerDay, maxPerDay - fanQuota);

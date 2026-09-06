@@ -1,7 +1,8 @@
 // Clip-Vorschau (Studio): Clips ready/scheduled/shadow/review mit Video-URL, Cover, Scores, QA; Aktionen approve/reject/redo/edit.
 // approve: nächster freier Slot des Accounts → sofort geplant und automatisch gepostet (Modus des Clip-Typs).
 // redo: Clip verworfen, Clip-Job der Kampagne neu mit Feedback als Zusatzanweisung (Few-Shot aus feedback-Tabelle).
-import { Env, db, logEvent, nichesOf } from "./shared";
+import { Env, db, logEvent, nichesOf, BLOTATO, blotatoHeaders } from "./shared";
+import { blotatoScheduleId } from "./chat";
 import { accountsOf, accountRules, planSlots, publishClipNow } from "./publisher";
 import { dispatchClipJob } from "./scout";
 
@@ -69,8 +70,36 @@ export async function reviewAction(env: Env, clipId: string, body: { action: str
     await logEvent(env, `review redo clip=${c.id} dispatch=${status} tags=${tags.join(",")}`, c.campaign_id);
     return { ok: status === 204, action: "redo", dispatch: status };
   }
+  if (body.action === "withdraw") {                                 // zurueckziehen: geplanter Post raus, Clip zurueck in die Freigabe
+    const posts = await db.all<any>(env, "SELECT * FROM posts WHERE clip_id = ? AND status IN ('scheduled','shadow')", c.id);
+    const details: any[] = [];
+    for (const p of posts) {
+      let blotato: string | null = null;
+      if (p.status === "scheduled" && env.BLOTATO_API_KEY) {
+        const accId = (accountsOf(env)[c.account] as any)?.blotato?.[p.platform ?? "tiktok"];
+        const schedId = accId ? await blotatoScheduleId(env, String(accId), p.scheduled_at) : null;
+        if (schedId) {
+          const r = await fetch(`${BLOTATO}/schedules/${schedId}`, { method: "DELETE", headers: blotatoHeaders(env) });
+          blotato = r.ok ? `Zeitplan ${schedId} bei Blotato geloescht` : `Blotato antwortet ${r.status} – der Beitrag steht dort noch, bitte in Blotato entfernen`;
+          if (!r.ok) details.push({ post: p.id, blotato_open: true, schedule_id: schedId, status: r.status });
+        } else blotato = "kein Zeitplan bei Blotato gefunden (evtl. schon gepostet)";
+      }
+      await db.run(env, "UPDATE posts SET status = 'cancelled', submit_note = ? WHERE id = ?", (blotato ?? "zurueckgezogen").slice(0, 180), p.id);
+      details.push({ post: p.id, platform: p.platform, at: p.scheduled_at, blotato });
+    }
+    await db.run(env, "UPDATE clips SET status = 'review' WHERE id = ?", c.id);
+    await logEvent(env, `review withdraw clip=${c.id} posts=${posts.length}`, c.campaign_id);
+    const offen = details.filter((d) => d.blotato_open).length;
+    return { ok: true, action: "withdraw", posts: posts.length, blotato_offen: offen,
+             note: posts.length ? (offen ? `${offen} Beitrag/Beitraege stehen bei Blotato noch – dort entfernen` : "aus dem Plan genommen, wartet wieder auf deine Freigabe")
+                                : "war nicht eingeplant", details };
+  }
   if (body.action === "approve") {
-    if (c.status === "scheduled") return { ok: true, action: "approve", note: "already scheduled" };
+    if (c.status === "scheduled") {
+      const p = await db.first<any>(env, "SELECT scheduled_at, platform FROM posts WHERE clip_id = ? AND status IN ('scheduled','shadow') ORDER BY scheduled_at LIMIT 1", c.id);
+      return { ok: true, action: "approve", note: "bereits geplant", scheduled_for: p?.scheduled_at ?? null,
+               message: p?.scheduled_at ? `Dieser Clip ist schon fuer ${new Date(p.scheduled_at).toLocaleString("de-DE")} eingeplant.` : "Dieser Clip ist schon eingeplant." };
+    }
     if (c.status === "shadow") { await db.run(env, "UPDATE posts SET status = 'cancelled' WHERE clip_id = ? AND status = 'shadow'", c.id); }
     await db.run(env, "UPDATE clips SET status = 'ready' WHERE id = ?", c.id);
     const slot = await nextFreeSlot(env, c.account);
