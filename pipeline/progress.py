@@ -131,5 +131,8 @@ def run_ffmpeg(cmd, total_s, on=None):
     err = p.stderr.read()
     code = p.wait()
     if code != 0:
-        raise subprocess.CalledProcessError(code, full, stderr=err)
+        # Die Ursache steht in ffmpegs stderr, nicht im Kommando - sonst steht im Ereignis-Log nur die Zeile,
+        # mit der es nicht geklappt hat, und man raet, warum.
+        letzte = " | ".join(z.strip() for z in (err or "").strip().splitlines()[-4:])
+        raise RuntimeError(f"ffmpeg (exit {code}): {letzte[-400:]}")
     return code
