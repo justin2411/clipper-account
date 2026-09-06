@@ -64,6 +64,10 @@ jobs:
       # CPU-Torch (kein CUDA, spart ~2 GB); pyannote/HF nur bei --split-screen nötig
       - name: pip install
         run: pip install --extra-index-url https://download.pytorch.org/whl/cpu -r pipeline/requirements.txt -r vendor/opensource-clipping/requirements.txt
+      # Selbsttest der reinen Funktionen (eine Sekunde): ein kaputter Stand faellt hier auf,
+      # nicht erst nach einer halben Stunde Whisper, Gemini und ffmpeg.
+      - name: selbsttest
+        run: python3 scripts/check_pipeline.py
       - name: clip pipeline
         run: python -m pipeline.main --campaign "${{ inputs.campaign }}" --account "${{ inputs.account }}"
       - uses: actions/upload-artifact@v4

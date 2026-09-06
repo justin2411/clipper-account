@@ -319,9 +319,13 @@ export async function cleanupJobs(env: Env, ws = "default") {
            stages: dead.map((j) => `${j.campaign_id ?? j.upload_id}:${j.stage}`) };
 }
 
-/** Ein abgestürzter Probelauf blockiert sonst für immer den einzigen Probelauf-Platz: die Kampagne steht auf
- *  'probe', es gibt aber keinen Clip zu entscheiden und keinen laufenden Job. Solche Fälle werden bis zu drei
- *  Runden automatisch neu angestoßen; danach bleibt es liegen und Telegram fragt nach. */
+export const MAX_REVIVE = 3;      // so oft wird ein gescheiterter Clip-Job automatisch neu angestoßen
+
+/** Gescheiterte Clip-Jobs, die nichts hinterlassen haben, werden von selbst neu angestoßen – ein Absturz darf
+ *  nicht in „gar keine Clips" enden. Zwei Fälle:
+ *    • Probelauf: Kampagne steht auf 'probe', es gibt aber keinen Clip zu entscheiden (blockiert sonst den Platz)
+ *    • Jede andere aktive Kampagne, deren letzter Lauf gescheitert ist und die keinen einzigen Clip hat
+ *  Höchstens drei Runden je Kampagne, immer nur ein Job gleichzeitig. Danach bleibt es liegen und Telegram fragt nach. */
 export async function recoverProbes(env: Env, ws = "default"): Promise<string[]> {
   const busy = await db.first<{ n: number }>(env,
     "SELECT COUNT(*) AS n FROM job_runs WHERE workspace_id = ? AND status = 'running'", ws);
@@ -352,6 +356,34 @@ export async function recoverProbes(env: Env, ws = "default"): Promise<string[]>
     if (status === 204 && v) await db.run(env, "UPDATE videos SET probe_round = COALESCE(probe_round,0) + 1, dispatched_at = ?, updated_at = ? WHERE id = ?", nowIso(), nowIso(), v.id);
     await logEvent(env, `probe_neustart campaign=${c.id} video=${v?.id ?? "-"} runde=${runde + 1} dispatch=${status} (vorheriger Lauf ohne Clips beendet)`, c.id);
     wieder.push(`${c.id}:neu gestartet`);
+    return wieder;                                              // ein Job je Durchgang reicht
   }
-  return wieder;
+  return [...wieder, ...(await reviveFailed(env, ws))];
+}
+
+/** Kampagne ohne Probelauf, deren letzter Lauf gescheitert ist und die keinen Clip hat → einmal neu anstoßen. */
+async function reviveFailed(env: Env, ws: string): Promise<string[]> {
+  const kandidaten = await db.all<any>(env,
+    `SELECT j.campaign_id AS id, MAX(j.ended_at) AS zuletzt,
+            SUM(CASE WHEN j.status = 'failed' THEN 1 ELSE 0 END) AS versuche
+       FROM job_runs j WHERE j.workspace_id = ? AND j.campaign_id IS NOT NULL AND j.ended_at >= ?
+      GROUP BY j.campaign_id HAVING versuche > 0 ORDER BY zuletzt DESC LIMIT 5`,
+    ws, new Date(Date.now() - 12 * 3600e3).toISOString());
+  for (const k of kandidaten) {
+    if (Number(k.versuche) >= MAX_REVIVE) continue;
+    const c = await db.first<any>(env,
+      "SELECT id, name, accounts, kind, status, probe_state FROM campaigns WHERE id = ? AND workspace_id = ?", k.id, ws);
+    if (!c || c.probe_state === "probe" || c.probe_state === "rejected" || c.status === "paused") continue;
+    const clips = await db.first<{ n: number }>(env,
+      "SELECT COUNT(*) AS n FROM clips WHERE workspace_id = ? AND campaign_id = ? AND status NOT IN ('superseded','test_private')", ws, k.id);
+    if ((clips?.n ?? 0) > 0) continue;                          // es sind Clips entstanden – kein Grund für einen Neustart
+    let account = "AB";
+    try { const a = JSON.parse(c.accounts || "[]"); if (Array.isArray(a) && a.length) account = a.join(""); } catch { /* Standard */ }
+    const status = await dispatchClipJob(env, c.id, account, {});
+    await logEvent(env, `job_neustart campaign=${c.id} versuch=${Number(k.versuche) + 1}/${MAX_REVIVE} dispatch=${status} (letzter Lauf gescheitert, keine Clips)`, c.id);
+    if (Number(k.versuche) + 1 >= MAX_REVIVE)
+      await telegram(env, `⚠️ ${c.name}: dritter Anlauf für den Clip-Job. Kommt auch der nicht durch, schaue ich mir das Actions-Protokoll an.`);
+    return [`${c.id}:neu gestartet`];                            // immer nur einer je Durchgang
+  }
+  return [];
 }
