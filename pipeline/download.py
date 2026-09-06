@@ -25,19 +25,57 @@ def _direct(url: str, dest: Path):
                 fh.write(chunk)
 
 
+COOKIE_KEY = "yt_cookies"
+
+
+def _load_cookies(dest: Path) -> Path | None:
+    """YouTube-Cookies: zuerst der von yt-dlp aktualisierte Stand aus D1 (kv yt_cookies), sonst Seed aus YT_COOKIES_B64.
+    yt-dlp schreibt die Datei nach jedem Lauf mit erneuerten Cookies zurück → _save_cookies hält die Sitzung frisch."""
+    text = ""
+    try:
+        from pipeline import db
+        text = db.kv_get(COOKIE_KEY) or ""
+    except Exception as e:
+        print("[download] kv cookies nicht lesbar:", e)
+    if not text.strip() and os.environ.get("YT_COOKIES_B64"):
+        text = base64.b64decode(os.environ["YT_COOKIES_B64"]).decode("utf-8", "replace")
+    if not text.strip():
+        return None
+    ck = dest / "cookies.txt"; ck.write_text(text, encoding="utf-8")
+    return ck
+
+
+def _save_cookies(ck: Path | None, before: str) -> None:
+    if not ck or not ck.exists():
+        return
+    after = ck.read_text(encoding="utf-8", errors="replace")
+    if after.strip() and after != before:
+        try:
+            from pipeline import db
+            db.kv_put(COOKIE_KEY, after); print("[download] YouTube-Cookies aktualisiert gespeichert")
+        except Exception as e:
+            print("[download] kv cookies speichern fehlgeschlagen:", e)
+
+
 def _ytdlp(url: str, dest: Path, fmt: str = "bv*[height<=1080][ext=mp4]+ba[ext=m4a]/b[height<=1080]/b") -> None:
     cmd = ["yt-dlp", "-f", fmt, "--merge-output-format", "mp4", "--no-playlist", "-o", str(dest / "%(id)s.%(ext)s"), url]
-    if os.environ.get("YT_COOKIES_B64"):
-        ck = dest / "cookies.txt"; ck.write_bytes(base64.b64decode(os.environ["YT_COOKIES_B64"])); cmd[1:1] = ["--cookies", str(ck)]
+    ck = _load_cookies(dest)
+    before = ck.read_text(encoding="utf-8") if ck else ""
+    if ck:
+        cmd[1:1] = ["--cookies", str(ck)]
     last = None
-    for attempt, extra in enumerate(([], ["--extractor-args", "youtube:player_client=default,web_safari"]), 1):
-        r = subprocess.run(cmd + extra, capture_output=True, text=True)
-        if r.returncode == 0:
-            return
-        last = (r.stderr or r.stdout)[-400:]
-        print(f"[download] yt-dlp Versuch {attempt} fehlgeschlagen: {last}")
-        time.sleep(20)
-    raise RuntimeError(f"yt-dlp: {last}")
+    try:
+        for attempt, extra in enumerate(([], ["--extractor-args", "youtube:player_client=default,web_safari"]), 1):
+            r = subprocess.run(cmd + extra, capture_output=True, text=True)
+            if r.returncode == 0:
+                return
+            last = (r.stderr or r.stdout)[-400:]
+            print(f"[download] yt-dlp Versuch {attempt} fehlgeschlagen: {last}")
+            time.sleep(20)
+    finally:
+        _save_cookies(ck, before)
+        if ck: ck.unlink(missing_ok=True)
+    raise RuntimeError(f"yt-dlp: {last}" + (" (Cookies vorhanden, aber abgelaufen? → python scripts/yt_cookies.py <cookies.txt>)" if ck and last and "not a bot" in last else ""))
 
 
 def fetch(footage: dict, dest: Path) -> list[Path]:

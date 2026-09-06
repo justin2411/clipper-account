@@ -12,6 +12,7 @@
 //   POST /api/fan/:videoId            Fan-Kampagne + Clip-Job (AB) für ein Video starten
 //   GET  /api/plan?hours=24           geplante Posts (live/shadow)
 //   POST /api/shadow_release          Schattenmodus beenden: Schatten-Posts archivieren, Clips wieder 'ready'
+//   GET/PUT /api/kv/:key              Key-Value (z.B. yt_cookies: von yt-dlp aktualisierte YouTube-Cookies, nie öffentlich)
 //   POST /api/dispatch/:campaign/:account   Clip-Job (GitHub Actions) gezielt für einen Account starten
 //   GET  /api/blotato/accounts        verbundene Blotato-Accounts (IDs für config/accounts.yaml)
 //   POST /api/telegram/send           {text}  Info-Nachricht (Pipeline meldet z.B. "Clip-Job fertig")
@@ -261,6 +262,22 @@ export async function handleRequest(req: Request, env: Env, ctx: ExecutionContex
     if (rest[0] === "plan" && req.method === "GET") return json(await plannedPosts(env, Number(url.searchParams.get("hours") || 24)));
     // Schattenmodus beenden (danach PUBLISH_MODE=live deployen)
     if (rest[0] === "shadow_release" && req.method === "POST") return json(await releaseShadow(env));
+
+    // kv (nur mit API-Key; Werte werden nie über /media ausgeliefert)
+    if (rest[0] === "kv" && rest[1]) {
+      if (req.method === "GET") {
+        const row = await db.first<any>(env, "SELECT key, value, updated_at FROM kv WHERE key = ?", rest[1]);
+        return row ? json(row) : json({ error: "not found" }, 404);
+      }
+      if (req.method === "PUT" || req.method === "POST") {
+        const ct = req.headers.get("Content-Type") ?? "";
+        const value = ct.includes("json") ? String(((await req.json()) as any)?.value ?? "") : await req.text();
+        await db.run(env, "INSERT INTO kv (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at", rest[1], value, nowIso());
+        await logEvent(env, `kv_set ${rest[1]} bytes=${value.length}`);
+        return json({ key: rest[1], bytes: value.length });
+      }
+      if (req.method === "DELETE") { await db.run(env, "DELETE FROM kv WHERE key = ?", rest[1]); return json({ ok: true }); }
+    }
 
     // events
     if (rest[0] === "events" && req.method === "POST") {
