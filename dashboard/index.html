@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ClipForge</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&family=Anton&family=Bangers&family=Bebas+Neue&family=Luckiest+Guy&family=Montserrat:wght@800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&family=Anton&family=Bangers&family=Bebas+Neue&family=Luckiest+Guy&family=Montserrat:wght@800&family=Oswald:wght@700&family=Archivo+Black&display=swap" rel="stylesheet">
 <!--
   DATENVERTRAG – GET {apiUrl}/dashboard, Header x-api-key. Ergänzt gegenüber v1:
   accounts[]: { id, handle, niche, platform:"tiktok", url, followers, followers_7d, views_7d, views_30d, earnings_30d, avg_views, posts_7d, paused, reason }
@@ -27,7 +27,9 @@
               NicheSettings = { mode:"auto|review", platforms:["tiktok","instagram","youtube"], posts_per_day, slots:["14:00",...], min_gap_min, fan_ratio,
                 cut:{ min_s, max_s, cold_open:true, pad_start_ms, pad_end_ms, silence_trim_s, word_boundary:true, end_style:"freeze|cut|none" },
                 select:{ candidates, render_top, dedupe_s, weights:{surprise,stakes,reaction,cliffhanger,context,clarity}, min_score, context_line:true },
-                visual:{ font, color, accent, outline_px, hook_y_pct, hook_max_words, hook_max_lines, zoom_pct, zoom_max_per_clip, zoom_ease_ms, safe_top_px, safe_bottom_px, safe_right_px, cover_text:true },
+                visual:{ font, color, accent, outline_px, hook_y_pct, hook_max_words, hook_max_lines, zoom_pct, zoom_max_per_clip, zoom_ease_ms, safe_top_px, safe_bottom_px, safe_right_px, cover_text:true,
+                         hook_size (px bei 1080 breit), hook_weight (400–900), hook_spacing (Buchstabenabstand px), hook_line_h, hook_align:"left|center|right", hook_x_pct, hook_w_pct (Textbox-Breite), hook_case:"upper|none",
+                         box:"none|solid|blur", box_color, box_opacity (0–100), box_pad, box_radius, shadow (0–6), anim:"none|pop|slide|typewriter", accent_mode:"none|last2|first|keyword" },
                 audio:{ lufs, true_peak, normalize:true },
                 caption:{ template:"{hook} · Credit @mrbeast #mrbeast", hashtags:[...], pinned_comment:true, tone:"knapp|locker" },
                 qa:{ threshold, checks:{hook_legible,no_overlap,face_in_frame,not_blurry,safe_zone} } }
@@ -150,7 +152,10 @@ td.r,th.r{text-align:right;font-variant-numeric:tabular-nums}
 .frame .sz{position:absolute;left:0;right:0;background:repeating-linear-gradient(135deg,rgba(255,255,255,.05) 0 6px,transparent 6px 12px)}
 .frame .ui{position:absolute;right:10px;bottom:22%;display:flex;flex-direction:column;gap:14px}.frame .ui i{width:22px;height:22px;border-radius:50%;background:rgba(255,255,255,.18);display:block}
 .frame .capbar{position:absolute;left:10px;right:56px;bottom:6%;height:22px;border-radius:6px;background:rgba(255,255,255,.12)}
-.frame .hook{position:absolute;left:8%;right:8%;text-align:center;font-weight:900;line-height:1.05;letter-spacing:-.01em;text-transform:uppercase}
+.frame .hook{position:absolute;font-weight:900;line-height:1.05;letter-spacing:-.01em;text-transform:uppercase}
+@keyframes hookpop{from{opacity:0;transform:translateX(-50%) scale(.7)}to{opacity:1;transform:translateX(-50%) scale(1)}}
+@keyframes hookslide{from{opacity:0;transform:translateX(-50%) translateY(14px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
+@keyframes hooktype{from{width:0}to{width:var(--w,84%)}}
 .frame .top{position:absolute;left:8%;right:8%;top:11%;text-align:center;font-size:10px;color:#fff;background:rgba(0,0,0,.5);padding:4px;border-radius:6px}
 .frame .face{position:absolute;left:50%;top:38%;width:34%;aspect-ratio:1;border-radius:50%;transform:translateX(-50%);background:radial-gradient(circle at 40% 35%,#d9b08c,#8a6a52);opacity:.85}
 .prev .cap{font-size:12px;color:var(--ink2);margin-top:10px;line-height:1.4}
@@ -165,6 +170,52 @@ td.r,th.r{text-align:right;font-variant-numeric:tabular-nums}
 .cover .lb{position:absolute;left:6px;bottom:6px;font-size:10px;color:#fff;background:rgba(0,0,0,.55);padding:2px 6px;border-radius:6px}
 .pv-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}
 .diff{margin-top:10px;font-size:12px;color:var(--ink2)}.diff b{color:var(--ink)}.diff .d{display:flex;justify-content:space-between;padding:4px 0;border-top:1px solid var(--line)}.diff .d span:last-child{color:var(--flame);font-weight:700}
+/* how it works */
+.how{display:grid;grid-template-columns:1fr 340px;gap:16px;align-items:start}
+.hnode{cursor:pointer}.hnode rect{transition:.15s}.hnode.on rect{stroke:var(--flame);stroke-width:2}
+.hinfo h3{margin:0 0 6px;font-size:16px;font-weight:800}.hinfo p{margin:0 0 10px;font-size:13px;color:var(--ink2);line-height:1.5}
+.hinfo .kv{display:flex;justify-content:space-between;font-size:12.5px;padding:6px 0;border-top:1px solid var(--line)}.hinfo .kv span{color:var(--ink3)}
+.hinfo .who{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;margin-bottom:8px}.who.a{background:color-mix(in srgb,var(--ok) 18%,transparent);color:var(--ok)}.who.m{background:color-mix(in srgb,var(--flame) 18%,transparent);color:var(--flame)}
+.hmore{margin-top:8px}.hmore summary{cursor:pointer;font-size:12px;font-weight:700;color:var(--ink2)}.hmore ul{margin:6px 0 0;padding-left:18px;font-size:12px;color:var(--ink2)}
+/* x-ray */
+.xr{position:relative;min-height:420px}
+.xr .lvl{transition:opacity .35s ease,transform .45s cubic-bezier(.2,.8,.2,1)}
+.xr .lvl.out{opacity:0;transform:scale(1.06);pointer-events:none;position:absolute;inset:0}
+.xr .lvl.in{animation:zoomin .5s cubic-bezier(.2,.8,.2,1)}
+@keyframes zoomin{from{opacity:0;transform:scale(.92)}to{opacity:1;transform:scale(1)}}
+.xnode{cursor:pointer;transition:transform .2s}.xnode:hover{transform:translateY(-2px)}
+.xnode rect{transition:stroke .2s,filter .2s}.xnode:hover rect{stroke:#8E909B}
+.xnode.m rect{stroke:rgba(255,90,31,.5)}
+.xdot{fill:#3DD68C;filter:drop-shadow(0 0 4px #3DD68C)}.xdot.m{fill:#FF5A1F;filter:drop-shadow(0 0 4px #FF5A1F)}
+.lens{background:var(--panel2);border:1px solid var(--line);border-radius:16px;padding:18px 20px;position:relative;overflow:hidden}
+.lens:before{content:"";position:absolute;inset:-40%;background:radial-gradient(circle at 30% 20%,rgba(255,90,31,.12),transparent 40%),radial-gradient(circle at 80% 80%,rgba(139,92,246,.12),transparent 40%);animation:drift 12s linear infinite;pointer-events:none}
+@keyframes drift{to{transform:rotate(360deg)}}
+.lens .hd{display:flex;align-items:center;gap:12px;margin-bottom:6px;position:relative}.lens .hd h3{margin:0;font-size:20px;font-weight:800}
+.lens .bk{font:inherit;font-size:12px;font-weight:700;padding:6px 12px;border-radius:999px;border:1px solid var(--line);background:var(--panel);color:var(--ink2);cursor:pointer}
+.lens p{position:relative;font-size:13.5px;color:var(--ink2);margin:0 0 12px;line-height:1.5;max-width:760px}
+.sub{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;position:relative}
+.sub .sn{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px;cursor:pointer;position:relative;transition:transform .2s,border-color .2s;animation:pop .4s both}
+.sub .sn:hover{transform:translateY(-2px);border-color:var(--ink3)}.sub .sn.on{border-color:var(--flame)}
+@keyframes pop{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.sub .sn b{display:block;font-size:13px;margin-bottom:3px}.sub .sn span{font-size:11px;color:var(--ink3);line-height:1.4;display:block}
+.sub .sn i{position:absolute;top:10px;right:10px;width:8px;height:8px;border-radius:50%;background:var(--ok);animation:blink 1.6s infinite}
+.sub .sn:after{content:"›";position:absolute;right:-9px;top:50%;transform:translateY(-50%);color:var(--ink3)}.sub .sn:last-child:after{content:""}
+.sub .conn{grid-column:1/-1;height:3px;border-radius:2px;background:linear-gradient(90deg,transparent,var(--ok),transparent);background-size:200% 100%;animation:sweep 1.8s linear infinite;margin:-4px 0 2px}
+@keyframes sweep{from{background-position:200% 0}to{background-position:-200% 0}}
+.det{margin-top:12px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px;position:relative;animation:pop .35s both}
+.det h4{margin:0 0 6px;font-size:14px;font-weight:800}.det p{margin:0 0 8px;font-size:12.5px}
+.det .kv{display:flex;justify-content:space-between;font-size:12px;padding:5px 0;border-top:1px solid var(--line)}.det .kv span{color:var(--ink3)}
+.det a.tune{display:inline-block;margin-top:8px;font-size:12px;font-weight:700;color:var(--flame)}
+.facts{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:10px 0;position:relative}.facts div{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px 10px;font-size:11px;color:var(--ink3)}.facts b{display:block;font-size:14px;color:var(--ink)}
+.crumb{font-size:12px;color:var(--ink3);margin-bottom:10px}.crumb a{color:var(--ink2);font-weight:700}
+/* forecast */
+.fc-wrap{display:grid;grid-template-columns:1fr 340px;gap:16px;align-items:start}
+.fc-big{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:14px}
+.fc-big div{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:14px}.fc-big b{display:block;font-size:26px;font-weight:800;letter-spacing:-.02em}.fc-big span{font-size:12px;color:var(--ink3)}
+.fc-chart{height:240px}
+.fc-p{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:8px}.fc-p label{display:flex;justify-content:space-between;font-size:11px;color:var(--ink3);font-weight:700}.fc-p label b{color:var(--ink)}.fc-p input{width:100%;accent-color:var(--flame)}.fc-p small{display:block;font-size:11px;color:var(--ink3);margin-top:2px}
+.scen{display:flex;gap:6px;margin-bottom:10px}.scen button{font:inherit;font-size:12px;font-weight:700;padding:6px 10px;border-radius:999px;border:1px solid var(--line);background:transparent;color:var(--ink2);cursor:pointer}.scen button.on{background:var(--flame);border-color:var(--flame);color:#fff}
+@media (max-width:900px){.how,.fc-wrap{grid-template-columns:1fr}}
 .modeswitch{display:inline-flex;border:1px solid var(--line);border-radius:999px;overflow:hidden;margin-left:8px}.modeswitch button{font:inherit;font-size:12px;font-weight:700;padding:5px 12px;border:0;background:transparent;color:var(--ink2);cursor:pointer}.modeswitch button.on{background:var(--panel2);color:var(--ink)}
 @media (max-width:900px){.simple{grid-template-columns:1fr}.prev{position:static}}
 .set{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px}
@@ -191,17 +242,15 @@ td.r,th.r{text-align:right;font-variant-numeric:tabular-nums}
 .gate{max-width:420px;margin:60px auto;background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:24px}.gate input{width:100%;font:inherit;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink);margin:6px 0 10px}.gate button{width:100%;font:inherit;font-weight:800;padding:11px;border-radius:10px;border:0;background:var(--flame);color:#fff;cursor:pointer}
 .banner{font-size:12px;color:var(--ink3);margin:-8px 0 12px}
 @media (max-width:860px){.app{grid-template-columns:1fr}nav{position:static;height:auto;border-right:0;border-bottom:1px solid var(--line);display:flex;gap:6px;flex-wrap:wrap;padding:12px}.nh,.brand{display:none}.nl small{display:none}main{padding:14px}.g2,.g4{grid-template-columns:1fr 1fr}.flow{grid-template-columns:1fr 1fr}.stage:after{content:""}.steps{grid-template-columns:repeat(4,1fr)}}
+/* mobil: keine horizontale Scrollleiste – Grid-Kinder dürfen schrumpfen, lange Links umbrechen */
+main{min-width:0;overflow-x:hidden}section,.kpi,.tk,.card,.rv{min-width:0}
+.urls{white-space:pre-wrap;word-break:break-all}
+@media (max-width:480px){.g2,.g4,.flow,.cards{grid-template-columns:1fr}.steps{grid-template-columns:repeat(2,1fr)}table{display:block;overflow-x:auto}}
 </style>
 </head>
 <body><div class="app"><nav id="nav"></nav><main id="main"></main></div>
 <script>
 const CONFIG={apiUrl:"https://clipforge.clipforge-xy.workers.dev",apiKey:"__DASHBOARD_READ_KEY__"}; // Lese-Key wird von scripts/deploy_dashboard.sh beim Deploy eingesetzt → kein Login
-// Upload in Teilstücken (R2-Multipart über den Worker): große Dateien bis 5 GB, Fortschritt je Teil, 3 Versuche je Teil
-async function putChunked(pre,f,onProgress){const PART=pre.part_size||25*1024*1024,total=Math.ceil(f.size/PART);let done=0;
-  for(let i=0;i<total;i++){const blob=f.slice(i*PART,Math.min(f.size,(i+1)*PART));let ok=false;
-    for(let tries=0;tries<3&&!ok;tries++){try{await new Promise((res,rej)=>{const x=new XMLHttpRequest();x.open("PUT",`${pre.upload_url}?part=${i+1}`);x.setRequestHeader("x-api-key",cfg.apiKey);x.setRequestHeader("Content-Type","application/octet-stream");
-      x.upload.onprogress=e=>{if(e.lengthComputable)onProgress(Math.round((done+e.loaded)/f.size*100),i+1,total)};x.onload=()=>x.status<300?res():rej(new Error("HTTP "+x.status));x.onerror=()=>rej(new Error("Upload fehlgeschlagen"));x.send(blob)});ok=true}catch(e){if(tries===2)throw e}}
-    done+=blob.size}}
 const STAGES=["Upload","Transkript","Momentwahl","Schnitt","QA","Geplant","Gepostet","Eingereicht"];
 const now=Date.now(), iso=(m)=>new Date(now-m*60000).toISOString();
 const DEMO={month:"2026-09",currency:"USD",eur_rate:0.92,goal_monthly:2000,
@@ -239,21 +288,21 @@ const DEMO={month:"2026-09",currency:"USD",eur_rate:0.92,goal_monthly:2000,
    mrbeast:{mode:"review",platforms:["tiktok"],posts_per_day:5,slots:["12:00","15:00","18:00","20:30","22:30"],min_gap_min:90,fan_ratio:60,
     cut:{min_s:15,max_s:35,cold_open:true,pad_start_ms:120,pad_end_ms:250,silence_trim_s:0.6,word_boundary:true,end_style:"freeze"},
     select:{candidates:20,render_top:8,dedupe_s:25,weights:{surprise:2,stakes:2,reaction:1,cliffhanger:2,context:2,clarity:2},min_score:7,context_line:true},
-    visual:{font:"Anton",color:"#FFFFFF",accent:"#FF6A00",outline_px:5,hook_y_pct:68,hook_max_words:8,hook_max_lines:2,zoom_pct:8,zoom_max_per_clip:2,zoom_ease_ms:400,safe_top_px:140,safe_bottom_px:400,safe_right_px:180,cover_text:true},
+    visual:{font:"Anton",color:"#FFFFFF",accent:"#FF6A00",outline_px:5,hook_y_pct:68,hook_max_words:8,hook_max_lines:2,zoom_pct:8,zoom_max_per_clip:2,zoom_ease_ms:400,safe_top_px:140,safe_bottom_px:400,safe_right_px:180,cover_text:true,hook_size:52,hook_weight:800,hook_spacing:-1,hook_line_h:1.05,hook_align:"center",hook_x_pct:50,hook_w_pct:84,hook_case:"upper",box:"none",box_color:"#000000",box_opacity:55,box_pad:10,box_radius:10,shadow:2,anim:"pop",accent_mode:"last2"},
     audio:{lufs:-14,true_peak:-1.5,normalize:true},
     caption:{template:"{hook} · Credit @mrbeast #mrbeast",hashtags:["#mrbeast"],pinned_comment:true,tone:"knapp"},
     qa:{threshold:7,checks:{hook_legible:true,no_overlap:true,face_in_frame:true,not_blurry:true,safe_zone:true}}},
    gaming:{mode:"review",platforms:["tiktok"],posts_per_day:4,slots:["13:00","17:00","20:00","22:00"],min_gap_min:120,fan_ratio:40,
     cut:{min_s:20,max_s:40,cold_open:true,pad_start_ms:80,pad_end_ms:200,silence_trim_s:0.5,word_boundary:false,end_style:"cut"},
     select:{candidates:20,render_top:8,dedupe_s:20,weights:{surprise:2,stakes:2,reaction:2,cliffhanger:1,context:2,clarity:2},min_score:7,context_line:true},
-    visual:{font:"Bebas Neue",color:"#FFFFFF",accent:"#8B5CF6",outline_px:4,hook_y_pct:66,hook_max_words:7,hook_max_lines:2,zoom_pct:6,zoom_max_per_clip:3,zoom_ease_ms:300,safe_top_px:140,safe_bottom_px:400,safe_right_px:180,cover_text:true},
+    visual:{font:"Bebas Neue",color:"#FFFFFF",accent:"#8B5CF6",outline_px:4,hook_y_pct:66,hook_max_words:7,hook_max_lines:2,zoom_pct:6,zoom_max_per_clip:3,zoom_ease_ms:300,safe_top_px:140,safe_bottom_px:400,safe_right_px:180,cover_text:true,hook_size:52,hook_weight:800,hook_spacing:-1,hook_line_h:1.05,hook_align:"center",hook_x_pct:50,hook_w_pct:84,hook_case:"upper",box:"none",box_color:"#000000",box_opacity:55,box_pad:10,box_radius:10,shadow:2,anim:"pop",accent_mode:"last2"},
     audio:{lufs:-14,true_peak:-1.5,normalize:true},
     caption:{template:"{hook} #gaming",hashtags:["#gaming"],pinned_comment:true,tone:"locker"},
     qa:{threshold:7,checks:{hook_legible:true,no_overlap:true,face_in_frame:false,not_blurry:true,safe_zone:true}}},
    film:{mode:"review",platforms:["tiktok"],posts_per_day:3,slots:["14:00","19:00","22:00"],min_gap_min:120,fan_ratio:50,
     cut:{min_s:15,max_s:30,cold_open:true,pad_start_ms:120,pad_end_ms:250,silence_trim_s:0.7,word_boundary:true,end_style:"cut"},
     select:{candidates:16,render_top:6,dedupe_s:30,weights:{surprise:2,stakes:1,reaction:2,cliffhanger:2,context:2,clarity:2},min_score:7,context_line:true},
-    visual:{font:"Montserrat",color:"#FFFFFF",accent:"#3DD68C",outline_px:4,hook_y_pct:68,hook_max_words:8,hook_max_lines:2,zoom_pct:5,zoom_max_per_clip:2,zoom_ease_ms:400,safe_top_px:140,safe_bottom_px:400,safe_right_px:180,cover_text:true},
+    visual:{font:"Montserrat",color:"#FFFFFF",accent:"#3DD68C",outline_px:4,hook_y_pct:68,hook_max_words:8,hook_max_lines:2,zoom_pct:5,zoom_max_per_clip:2,zoom_ease_ms:400,safe_top_px:140,safe_bottom_px:400,safe_right_px:180,cover_text:true,hook_size:52,hook_weight:800,hook_spacing:-1,hook_line_h:1.05,hook_align:"center",hook_x_pct:50,hook_w_pct:84,hook_case:"upper",box:"none",box_color:"#000000",box_opacity:55,box_pad:10,box_radius:10,shadow:2,anim:"pop",accent_mode:"last2"},
     audio:{lufs:-14,true_peak:-1.5,normalize:true},
     caption:{template:"{hook}",hashtags:[],pinned_comment:true,tone:"knapp"},
     qa:{threshold:7,checks:{hook_legible:true,no_overlap:true,face_in_frame:true,not_blurry:true,safe_zone:true}}}},
@@ -273,7 +322,7 @@ const fmt=n=>Math.round(n||0).toLocaleString("de-DE"), k=n=>n>=1e6?(n/1e6).toFix
 const ago=i=>{const m=Math.max(0,Math.round((Date.now()-new Date(i))/60000));return m<60?`vor ${m} min`:m<1440?`vor ${Math.floor(m/60)} h`:`vor ${Math.floor(m/1440)} d`};
 const tm=i=>new Date(i).toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"});
 const monthLabel=m=>{const [y,mo]=(m||"").split("-");const n=["Januar","Februar","März","April","Mai","Juni","Juli","August","September","Oktober","November","Dezember"];return mo?`${n[+mo-1]} ${y}`:""};
-let cfg=(CONFIG.apiUrl&&CONFIG.apiKey)?{...CONFIG}:null, DATA=null, DEMO_MODE=false, sortKey="earnings_30d", setNiche=null, PEND=null, expert=false, pvAcc="", pvUI=true, pvZoom=true, pvSrc="clip";
+let cfg=(CONFIG.apiUrl&&CONFIG.apiKey)?{...CONFIG}:null, DATA=null, DEMO_MODE=false, sortKey="earnings_30d", setNiche=null, PEND=null, expert=false, pvAcc="", pvUI=true, pvZoom=true, pvSrc="clip", howSel=-1, howSub=-1, fcScen="konsequent", FC=null;
 const get=(o,p)=>p.split(".").reduce((x,k)=>x?.[k],o);
 const setp=(o,p,v)=>{const ks=p.split(".");let x=o;ks.slice(0,-1).forEach(k=>{x[k]=x[k]||{};x=x[k]});x[ks.at(-1)]=v};
 const flatten=(o,pre="")=>Object.entries(o||{}).reduce((a,[k,v])=>{const kk=pre?pre+"."+k:k;if(v&&typeof v==="object"&&!Array.isArray(v))Object.assign(a,flatten(v,kk));else a[kk]=Array.isArray(v)?v.join(","):v;return a},{});
@@ -293,7 +342,9 @@ function nav(d){const r=route();
   <a class="nl ${r==="review"?"on":""}" href="#review">Clip-Vorschau<small>${(d.review||[]).length}</small></a>
   <a class="nl ${r==="settings"?"on":""}" href="#settings">Feinjustierung</a>
   <div class="nh">Sonstiges</div>
-  <a class="nl ${r==="tasks"?"on":""}" href="#tasks">Aufgaben<small>${(d.tasks||[]).length}</small></a>`;}
+  <a class="nl ${r==="tasks"?"on":""}" href="#tasks">Aufgaben<small>${(d.tasks||[]).length}</small></a>
+  <a class="nl ${r==="how"?"on":""}" href="#how">So funktioniert es</a>
+  <a class="nl ${r==="forecast"?"on":""}" href="#forecast">Hochrechnung</a>`;}
 
 function leaderboard(d,filterNiche){
   const acc=d.accounts.filter(a=>!filterNiche||a.niche===filterNiche).slice().sort((a,b)=>(b[sortKey]||0)-(a[sortKey]||0));
@@ -351,7 +402,7 @@ function page(d){const r=route(); nav(d);
     html=`<div class="top"><h1>Clip-Vorschau</h1><div class="meta">${rv.length} Clips vor dem Posten <button class="b" id="rf">Aktualisieren</button></div></div>${banner}
     <section><h2>Nächste Clips <span>Freigeben = automatisch in den nächsten freien Slot · ${rv.length?`<button class="b" id="bulk">Alle ${rv.length} freigeben</button>`:""}</span></h2>${rv.map(c=>`<div class="rv" data-id="${c.id}">
       ${c.video_url?`<video src="${c.video_url}" poster="${c.cover_url||""}" controls muted playsinline preload="metadata"></video>`:`<div class="ph">Vorschau<br>${c.duration}s</div>`}
-      <div><div class="hd"><div><div class="hk">${c.hook}</div><div class="mt">${c.account} · ${c.source} · ${c.duration}s · Variante ${c.variant} · geplant ${tm(c.scheduled_for)}</div></div><span class="qa ${qacls(c.qa.score)}">QA ${c.qa.score.toFixed(1)}</span></div>
+      <div><div class="hd"><div><div class="hk">${c.hook}</div><div class="mt">${c.account} · ${c.source} · ${c.duration}s · Variante ${c.variant} · geplant ${tm(c.scheduled_for)}</div></div><span class="qa ${qacls(c.qa.score)}">QA ${c.qa&&c.qa.score!=null?Number(c.qa.score).toFixed(1):"–"}</span></div>
       <div class="cap">${c.caption}</div>
       <div class="sc"><span>Überraschung <b>${c.scores.surprise}</b></span><span>Einsatz <b>${c.scores.stakes}</b></span><span>Reaktion <b>${c.scores.reaction}</b></span><span>Cliffhanger <b>${c.scores.cliffhanger}</b></span><span>Ohne Kontext <b>${c.scores.context}</b></span><span>Sekunde 1 <b>${c.scores.clarity}</b></span>${c.qa.notes.map(n=>`<span>${n}</span>`).join("")}</div>
       <div class="fb">${TAGS.map(t=>`<button data-tag="${t}">${t}</button>`).join("")}</div>
@@ -370,7 +421,7 @@ function page(d){const r=route(); nav(d);
       <span class="seg"><button class="${st.global.shadow?"":"on"}" data-g="shadow" data-v="false">Live</button><button class="${st.global.shadow?"on":""}" data-g="shadow" data-v="true">Schatten</button></span></div>
 
     ${expert?"":simpleView(N,n,d)}
-    <div id="expertwrap" style="${expert?"":"display:none"}">
+    ${expert?`<div class="simple"><div id="expertwrap">`:`<div id="expertwrap" style="display:none">`}
     <section><h2>Posting <span>${n?.label||""}</span></h2><div class="set">
       <div class="f"><label>Freigabe</label><div class="seg"><button class="${N.mode==="review"?"on":""}" data-p="mode" data-v="review">Erst Vorschau</button><button class="${N.mode==="auto"?"on":""}" data-p="mode" data-v="auto">Automatisch</button></div></div>
       ${R("posts_per_day","Posts pro Tag",1,8,1)}${R("min_gap_min","Mindestabstand",30,240,10," min")}${R("fan_ratio","Anteil Fan-Content",0,100,10," %")}
@@ -388,9 +439,15 @@ function page(d){const r=route(); nav(d);
       ${R("cut.pad_start_ms","Puffer vor erstem Wort",0,400,10," ms")}${R("cut.pad_end_ms","Puffer nach letztem Wort",0,600,10," ms")}${R("cut.silence_trim_s","Stille trimmen ab",0.3,1.5,0.1," s")}${S("cut.end_style","Ende",["freeze","cut","none"])}
     </div></section>
 
-    <section><h2>Bild & Branding</h2><div class="set">
-      ${S("visual.font","Schrift",["Anton","Bangers","Bebas Neue","Luckiest Guy","Montserrat"])}${C("visual.color","Textfarbe")}${C("visual.accent","Akzentfarbe")}${R("visual.outline_px","Outline",0,8,1," px")}
-      ${R("visual.hook_y_pct","Hook-Position (Höhe)",55,72,1," %")}${R("visual.hook_max_words","Hook max. Wörter",4,12,1)}${R("visual.hook_max_lines","Hook max. Zeilen",1,3,1)}${T("visual.cover_text","Hook-Text auf Cover")}
+    <section><h2>Hook-Text <span>Schrift, Größe, Lage, Box – alles live rechts sichtbar</span></h2><div class="set">
+      ${S("visual.font","Schrift",["Anton","Bangers","Bebas Neue","Luckiest Guy","Montserrat","Oswald","Archivo Black"])}${R("visual.hook_size","Schriftgröße",28,96,2," px")}${R("visual.hook_weight","Dicke",400,900,100)}${R("visual.hook_spacing","Buchstabenabstand",-3,4,0.5," px")}
+      ${R("visual.hook_line_h","Zeilenhöhe",0.9,1.4,0.05)}${S("visual.hook_case","Großschreibung",["upper","none"])}${S("visual.hook_align","Ausrichtung",["left","center","right"])}${R("visual.hook_max_lines","Max. Zeilen",1,3,1)}
+      ${R("visual.hook_y_pct","Höhe (Position)",50,72,1," %")}${R("visual.hook_x_pct","Horizontale Mitte",20,80,1," %")}${R("visual.hook_w_pct","Breite der Textbox",40,92,1," %")}${R("visual.hook_max_words","Max. Wörter",4,12,1)}
+      ${C("visual.color","Textfarbe")}${C("visual.accent","Akzentfarbe")}${S("visual.accent_mode","Akzent auf",["none","last2","first","keyword"])}${R("visual.outline_px","Outline",0,8,1," px")}
+      ${R("visual.shadow","Schatten",0,6,1)}${S("visual.box","Hintergrund-Box",["none","solid","blur"])}${C("visual.box_color","Box-Farbe")}${R("visual.box_opacity","Box-Deckkraft",0,100,5," %")}
+      ${R("visual.box_pad","Box-Innenabstand",0,30,2," px")}${R("visual.box_radius","Box-Rundung",0,30,2," px")}${S("visual.anim","Einblendung",["none","pop","slide","typewriter"])}${T("visual.cover_text","Hook-Text auf Cover")}
+    </div></section>
+    <section><h2>Bild & Bewegung</h2><div class="set">
       ${R("visual.zoom_pct","Punch-in-Zoom",0,12,1," %")}${R("visual.zoom_max_per_clip","Zooms pro Clip max.",0,4,1)}${R("visual.zoom_ease_ms","Zoom-Einlauf",100,800,50," ms")}
       ${R("visual.safe_top_px","Safe-Zone oben",80,220,10," px")}${R("visual.safe_bottom_px","Safe-Zone unten",250,500,10," px")}${R("visual.safe_right_px","Safe-Zone rechts",100,240,10," px")}
     </div></section>
@@ -404,13 +461,17 @@ function page(d){const r=route(); nav(d);
       ${R("qa.threshold","QA-Schwelle",5,9.5,0.5)}${T("qa.checks.hook_legible","Hook lesbar")}${T("qa.checks.no_overlap","Keine Textüberlappung")}${T("qa.checks.face_in_frame","Gesicht im Rahmen")}${T("qa.checks.not_blurry","Schärfe")}${T("qa.checks.safe_zone","Safe-Zones")}
     </div></section>
 
-    </div>
+    </div>${expert?`<div class="prev" id="prev">${previewPanel(N,n,d)}</div></div>`:""}
     <section><h2>Abweichungen pro Account <span>leer = erbt von „${n?.label||""}"</span></h2>${accs.map(a=>{const o=st.accounts[a.id]||{};const flat=flatten(o);const keysO=Object.keys(flat);return `<div class="src"><div class="t"><b>${a.id} · ${a.handle}</b><span>${keysO.length?keysO.length+" Abweichung(en)":"erbt alles"}</span></div>${keysO.length?`<div class="sc">${keysO.map(kk=>`<span>${kk} <b>${flat[kk]}</b> <button data-clr="${a.id}|${kk}" style="border:0;background:transparent;color:var(--bad);cursor:pointer;font-weight:800">×</button></span>`).join("")}</div>`:""}<div class="act"><select data-ov="${a.id}"><option value="">Abweichung hinzufügen …</option>${["visual.font","visual.color","visual.accent","visual.zoom_pct","visual.hook_y_pct","caption.tone","caption.template","posts_per_day","fan_ratio","mode","cut.min_s","cut.max_s"].map(kk=>`<option>${kk}</option>`).join("")}</select><input placeholder="Wert" data-ovv="${a.id}" style="max-width:160px"><button data-ovadd="${a.id}">Setzen</button></div></div>`}).join("")}</section>`;
+  } else if(r==="how"){
+    html=`<div class="top"><h1>So funktioniert es</h1><div class="meta">${howSel<0?"Stufe anklicken zum Hineinzoomen":"Teilschritt anklicken für Details"}</div></div>${banner}<section>${howView(d)}</section>`;
+  } else if(r==="forecast"){
+    html=`<div class="top"><h1>Hochrechnung</h1><div class="meta">Annahme: konsequent durchgearbeitet – Regler rechts anpassen</div></div>${banner}<section>${forecastView(d)}</section>`;
   } else if(r==="tasks"){
     html=`<div class="top"><h1>Aufgaben</h1><div class="meta">${(d.tasks||[]).length} offen <button class="b" id="rf">Aktualisieren</button></div></div>${banner}<section>${(d.tasks||[]).map(t=>taskCard(t,d)).join("")||`<div class="empty">Nichts offen – alles läuft.</div>`}</section>`;
   }
   $("#main").innerHTML=html; const rf=$("#rf"); if(rf) rf.onclick=refresh;
-  document.querySelectorAll("th[data-k]").forEach(th=>th.onclick=()=>{sortKey=th.dataset.k;page(d)}); wireUpload(d); wireTasks(d); wireStudio(d);}
+  document.querySelectorAll("th[data-k]").forEach(th=>th.onclick=()=>{sortKey=th.dataset.k;page(d)}); wireUpload(d); wireTasks(d); wireStudio(d); wireHow(d);}
 
 function taskCard(t,d){const n=nicheOf(d,t.niche);const icon={submit:"↥",join:"+",footage:"▲",review:"!",calibrate:"⚙"}[t.kind]||"•";
   let tools="";
@@ -428,10 +489,9 @@ function wireTasks(d){
     drop.ondrop=e=>{e.preventDefault();drop.classList.remove("over");up([...e.dataTransfer.files])};file.onchange=()=>up([...file.files]);
     async function up(files){if(DEMO_MODE||!cfg){stat.textContent="Beispielmodus – Upload erst mit verbundenem Worker.";return}
       for(const f of files){try{stat.textContent=`${f.name}: vorbereiten…`;const pre=await (await fetch(cfg.apiUrl+"/sources/presign",{method:"POST",headers:{"x-api-key":cfg.apiKey,"Content-Type":"application/json"},body:JSON.stringify({niche:drop.dataset.niche,name:f.name,size:f.size,type:"fan",task_id:drop.dataset.task})})).json();
-        if(!pre.source_id)throw new Error(pre.error||"presign fehlgeschlagen");
-        await putChunked(pre,f,(p,i,n)=>{stat.textContent=`${f.name}: ${p} % (Teil ${i}/${n})`});
-        stat.textContent=`${f.name}: abschließen…`;const fin=await (await fetch(cfg.apiUrl+"/sources/complete",{method:"POST",headers:{"x-api-key":cfg.apiKey,"Content-Type":"application/json"},body:JSON.stringify({source_id:pre.source_id,task_id:drop.dataset.task})})).json();
-        if(fin.error)throw new Error(fin.error);stat.textContent=`${f.name}: fertig – Clip-Job gestartet.`}catch(err){stat.textContent=`${f.name}: ${err.message}`}}
+        await new Promise((res,rej)=>{const x=new XMLHttpRequest();x.open("PUT",pre.upload_url);x.upload.onprogress=e=>{if(e.lengthComputable)stat.textContent=`${f.name}: ${Math.round(e.loaded/e.total*100)} %`};x.onload=()=>x.status<300?res():rej(new Error("HTTP "+x.status));x.onerror=()=>rej(new Error("Upload fehlgeschlagen"));x.setRequestHeader("Content-Type",f.type||"video/mp4");x.send(f)});
+        await fetch(cfg.apiUrl+"/sources/complete",{method:"POST",headers:{"x-api-key":cfg.apiKey,"Content-Type":"application/json"},body:JSON.stringify({source_id:pre.source_id,task_id:drop.dataset.task})});
+        stat.textContent=`${f.name}: fertig.`}catch(err){stat.textContent=`${f.name}: ${err.message}`}}
       refresh()}});}
 // Einfache Regler → Feinwerte
 const SIMPLE={
@@ -466,7 +526,11 @@ function simpleView(N,n,d){
   const mp=presetOf(N,MOMENT_PRESETS,"select.weights"), sp=presetOf(N,STYLE_PRESETS,"visual");
   const moment=`<div class="sc-card"><h3>Welche Momente</h3><p>Wonach die KI im Video sucht. Die Vorlage setzt die sechs Gewichte im Experten-Modus.</p><div class="opts">${Object.keys(MOMENT_PRESETS).map(kk=>`<button class="${mp===kk?"on":""}" data-mpreset="${kk}">${kk}</button>`).join("")}${mp?"":`<button class="on">Eigene Gewichte</button>`}</div></div>`;
   const style=`<div class="sc-card"><h3>Look</h3><p>Schrift und Farben des Hook-Texts – das ist die Wiedererkennung deiner Kategorie. Rechts siehst du, wie ein Clip damit aussieht.</p><div class="opts">${Object.keys(STYLE_PRESETS).map(kk=>`<button class="${sp===kk?"on":""}" data-spreset="${kk}">${kk}</button>`).join("")}${sp?"":`<button class="on">Eigener Look</button>`}</div>
-    <div class="lbl" style="margin-top:10px"><span>Hook-Position</span><span>${get(N,"visual.hook_y_pct")} % Höhe</span></div><input type="range" min="55" max="72" value="${get(N,"visual.hook_y_pct")}" data-p="visual.hook_y_pct" data-live="1"></div>`;
+    <div class="lbl" style="margin-top:10px"><span>Hook-Position</span><span>${get(N,"visual.hook_y_pct")} % Höhe</span></div><input type="range" min="50" max="72" value="${get(N,"visual.hook_y_pct")}" data-p="visual.hook_y_pct" data-live="1" data-unit=" % Höhe">
+    <div class="lbl" style="margin-top:8px"><span>Schriftgröße</span><span>${get(N,"visual.hook_size")} px</span></div><input type="range" min="28" max="96" step="2" value="${get(N,"visual.hook_size")}" data-p="visual.hook_size" data-live="1" data-unit=" px">
+    <div class="lbl" style="margin-top:8px"><span>Textbox-Breite</span><span>${get(N,"visual.hook_w_pct")} %</span></div><input type="range" min="40" max="92" value="${get(N,"visual.hook_w_pct")}" data-p="visual.hook_w_pct" data-live="1" data-unit=" %">
+    <div class="opts" style="margin-top:10px">${[["none","Ohne Box"],["solid","Farbige Box"],["blur","Glas-Box"]].map(([kk,l])=>`<button class="${get(N,"visual.box")===kk?"on":""}" data-p="visual.box" data-v="${kk}" data-live="1">${l}</button>`).join("")}</div>
+    <div class="opts" style="margin-top:6px">${[["none","Keine Animation"],["pop","Pop"],["slide","Slide"],["typewriter","Tippen"]].map(([kk,l])=>`<button class="${get(N,"visual.anim")===kk?"on":""}" data-p="visual.anim" data-v="${kk}" data-live="1">${l}</button>`).join("")}</div></div>`;
   const mode=`<div class="sc-card"><h3>Freigabe</h3><p>„Erst Vorschau": jeder Clip wartet in der Clip-Vorschau auf dein Freigeben und geht dann automatisch in den nächsten Slot. „Automatisch": postet ohne Nachfrage.</p><div class="opts"><button class="${N.mode==="review"?"on":""}" data-p="mode" data-v="review">Erst Vorschau</button><button class="${N.mode==="auto"?"on":""}" data-p="mode" data-v="auto">Automatisch</button></div></div>`;
   return `<div class="simple"><div>${mode}${moment}${style}${cards}</div><div class="prev" id="prev">${previewPanel(N,n,d)}</div></div>`}
 function effective(N,d){const o=(d.settings?.accounts||{})[pvAcc]||{};const m=JSON.parse(JSON.stringify(N));Object.entries(flatten(o)).forEach(([k,v])=>setp(m,k,v));return m}
@@ -478,17 +542,24 @@ function previewPanel(N,n,d){const accs=d.accounts.filter(a=>a.niche===n?.key);i
   return `${tools}<div class="frame" id="frame">${framePreview(E,sm)}</div>
   <div class="pv-grid"><div class="cover" id="coverpv">${coverPreview(E,sm)}</div><div class="cap" style="margin:0">Links: Clip mit Hook, Overlay und Zoom-Bewegung.<br>Unten links: das <b>Cover</b>, wie es im Profil-Raster erscheint.<br>Schraffiert: von TikToks Oberfläche verdeckt.</div></div>${diff}`}
 function coverPreview(E,sm){const v=E.visual||{};const fontcss=fontOf(v.font);const hook=(sm.hook||"The moment the boat started sinking").split(" ").slice(0,v.hook_max_words||8).join(" ");
-  return `${sm.cover?`<img class="bg" src="${sm.cover}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover">`:""}${v.cover_text?`<div class="ct" style="font-family:${fontcss};color:${v.color||"#fff"}">${hook}</div>`:""}<div class="lb">Cover</div>`}
-function fontOf(f){return {Anton:"'Anton',Impact,sans-serif",Bangers:"'Bangers',Impact,sans-serif","Bebas Neue":"'Bebas Neue',Impact,sans-serif","Luckiest Guy":"'Luckiest Guy',Impact,sans-serif",Montserrat:"'Montserrat',sans-serif"}[f]||"Impact,sans-serif"}
+  return `${sm.cover?`<img class="bg" src="${sm.cover}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover">`:""}${v.cover_text?`<div class="ct" style="font-family:${fontcss};color:${v.color||"#fff"};font-weight:${v.hook_weight||800};text-transform:${v.hook_case==="none"?"none":"uppercase"}">${hook}</div>`:""}<div class="lb">Cover</div>`}
+function hexa(hex,op){const h=hex.replace("#","");const r=parseInt(h.slice(0,2),16),g=parseInt(h.slice(2,4),16),b=parseInt(h.slice(4,6),16);return `rgba(${r},${g},${b},${(op||0)/100})`}
+function fontOf(f){return {Oswald:"'Oswald',Impact,sans-serif","Archivo Black":"'Archivo Black',Impact,sans-serif",Anton:"'Anton',Impact,sans-serif",Bangers:"'Bangers',Impact,sans-serif","Bebas Neue":"'Bebas Neue',Impact,sans-serif","Luckiest Guy":"'Luckiest Guy',Impact,sans-serif",Montserrat:"'Montserrat',sans-serif"}[f]||"Impact,sans-serif"}
 function framePreview(N,sm={}){const v=N.visual||{};const H=1920;const top=(v.safe_top_px||140)/H*100,bot=(v.safe_bottom_px||400)/H*100;
   const hook=(sm.hook||(N.caption?.tone==="locker"?"Nolan didn't know the camera was on":"The moment the boat started sinking")).split(" ").slice(0,v.hook_max_words||8).join(" ");
   const fontcss=fontOf(v.font);const words=hook.split(" ");const acc=words.length>2?words.slice(-2).join(" "):"";const base=acc?words.slice(0,-2).join(" ")+" ":hook;
   const zs=1+(pvZoom?(v.zoom_pct||0)/100:0), zd=Math.max(0.6,(v.zoom_ease_ms||400)/250)+"s";
   const bg=(pvSrc==="clip"&&sm.video)?`<video src="${sm.video}" poster="${sm.cover||""}" autoplay muted loop playsinline class="${pvZoom?"z":""}" style="--zs:${zs};--zd:${zd}"></video>`:(sm.cover?`<img class="bg ${pvZoom?"z":""}" src="${sm.cover}" style="--zs:${zs};--zd:${zd}">`:`<div class="face ${pvZoom?"z":""}" style="--zs:${zs};--zd:${zd}"></div>`);
   const uiCls=pvUI?"":"hidden-ui";
+  // Skalierung: Vorschau ist ~300px breit, Original 1080px
+  const sc=300/1080;const fs=(v.hook_size||52)*sc*1.15;const pad=(v.box_pad||10)*sc,rad=(v.box_radius||10)*sc;
+  const boxbg=v.box==="solid"?`background:${hexa(v.box_color||"#000",v.box_opacity??55)};`:v.box==="blur"?`background:${hexa(v.box_color||"#000",Math.min(60,v.box_opacity??55))};backdrop-filter:blur(6px);`:"";
+  const accHtml=(()=>{const m=v.accent_mode||"last2";if(m==="none")return hook;const w=hook.split(" ");if(m==="first")return `<span style="color:${v.accent}">${w[0]}</span> ${w.slice(1).join(" ")}`;if(m==="keyword"){const i=w.findIndex(x=>/\$|[0-9]|million|boat|camera|win/i.test(x));if(i>=0){w[i]=`<span style="color:${v.accent}">${w[i]}</span>`;return w.join(" ")}}return w.length>2?w.slice(0,-2).join(" ")+" <span style=\"color:"+v.accent+"\">"+w.slice(-2).join(" ")+"</span>":hook})();
+  const anim={pop:"hookpop .5s cubic-bezier(.2,.8,.2,1) both",slide:"hookslide .5s ease-out both",typewriter:"hooktype 1.2s steps(24) both"}[v.anim]||"none";
+  const hookStyle=`top:${v.hook_y_pct||68}%;left:${v.hook_x_pct||50}%;transform:translateX(-50%);width:${v.hook_w_pct||84}%;text-align:${v.hook_align||"center"};font-family:${fontcss};font-size:${fs}px;font-weight:${v.hook_weight||800};letter-spacing:${(v.hook_spacing||0)*sc}px;line-height:${v.hook_line_h||1.05};text-transform:${v.hook_case==="none"?"none":"uppercase"};color:${v.color||"#fff"};-webkit-text-stroke:${Math.min(2.5,(v.outline_px||5)*sc*1.2)}px #000;paint-order:stroke fill;text-shadow:0 ${(v.shadow??2)*0.8}px ${(v.shadow??2)*0.6}px rgba(0,0,0,.8);${boxbg}padding:${pad}px ${pad*1.4}px;border-radius:${rad}px;animation:${anim};overflow:hidden;white-space:${v.anim==="typewriter"?"nowrap":"normal"}`;
   return `<div class="${uiCls}">${bg}<div class="sz" style="top:0;height:${top}%"></div><div class="sz" style="bottom:0;height:${bot}%"></div><div class="sz" style="top:${top}%;bottom:${bot}%;left:auto;right:0;width:${(v.safe_right_px||180)/1080*100}%"></div>
   <div class="top">The Most Dangerous Games · $1,000,000 · Sept 14</div>
-  <div class="hook" style="top:${v.hook_y_pct||68}%;font-family:${fontcss};font-size:${v.font==="Montserrat"?13:16}px;color:${v.color||"#fff"};-webkit-text-stroke:${Math.min(2,(v.outline_px||5)/3)}px #000;text-shadow:0 2px 0 #000">${base}<span style="color:${v.accent||"#FF6A00"}">${acc}</span></div>
+  <div class="hook" style="${hookStyle}">${accHtml}</div>
   ${pvZoom&&(v.zoom_pct||0)>0?`<div class="zoomlbl">Zoom ${v.zoom_pct} % · ${v.zoom_ease_ms} ms</div>`:""}
   <div class="ui"><i></i><i></i><i></i><i></i></div><div class="capbar"></div></div>`}
 function repaint(d){const N=PEND.niches[setNiche];const n=nicheOf(d,setNiche);const pv=$("#prev");if(pv)pv.innerHTML=previewPanel(N,n,d);wirePreview(d)}
@@ -500,8 +571,76 @@ function wireSimple(d){const N=()=>PEND.niches[setNiche];wirePreview(d);
   document.querySelectorAll("[data-simple]").forEach(i=>i.oninput=()=>{const c=SIMPLE[i.dataset.simple];c.apply(N(),+i.value);document.querySelector(`[data-now="${i.dataset.simple}"]`).textContent=c.now(N());repaint(d)});
   document.querySelectorAll("[data-mpreset]").forEach(b=>b.onclick=()=>{setp(N(),"select.weights",{...MOMENT_PRESETS[b.dataset.mpreset]});d.settings=PEND;page(d)});
   document.querySelectorAll("[data-spreset]").forEach(b=>b.onclick=()=>{Object.entries(STYLE_PRESETS[b.dataset.spreset]).forEach(([k,v])=>setp(N(),"visual."+k,v));d.settings=PEND;page(d)});
-  document.querySelectorAll("[data-live]").forEach(i=>i.oninput=()=>{setp(N(),i.dataset.p,+i.value);i.previousElementSibling.lastElementChild.textContent=i.value+" % Höhe";repaint(d)});
-  document.querySelectorAll(".sc-card .opts button[data-p]").forEach(b=>b.onclick=()=>{setp(N(),b.dataset.p,b.dataset.v);b.parentElement.querySelectorAll("button").forEach(x=>x.classList.toggle("on",x===b))});}
+  document.querySelectorAll("input[data-live]").forEach(i=>i.oninput=()=>{setp(N(),i.dataset.p,+i.value);i.previousElementSibling.lastElementChild.textContent=i.value+(i.dataset.unit||"");repaint(d)});
+  document.querySelectorAll(".sc-card .opts button[data-p]").forEach(b=>b.onclick=()=>{setp(N(),b.dataset.p,b.dataset.v);b.parentElement.querySelectorAll("button").forEach(x=>x.classList.toggle("on",x===b));if(b.dataset.live)repaint(d)});}
+const HOW=[
+ {t:"Quelle",who:"a",short:"Kampagne oder Video kommt rein",p:"Bezahlte Kampagnen erkennt der Scout über Vyro/Whop-Mails und lädt das Footage von Frame.io selbst. Fan-Videos lädst du über die Nischen-Seite hoch. Neue Videos deiner Kanäle kommen per RSS.",kv:[["Auslöser","Mail, RSS, Upload"],["Takt","alle 10 Minuten"],["Dein Anteil","Join tippen bei bezahlten Kampagnen"]],more:["Footage landet in R2 (Cloud-Speicher), nie auf deinem Rechner","Backlog-Liste sorgt für Nachschub, wenn nichts Neues kommt","Kampagnen-Regeln (Caption, Hashtags, Mindestlänge) werden aus dem Briefing übernommen"]},
+ {t:"Transkript",who:"a",short:"Whisper schreibt mit, wortgenau",p:"Jedes Wort bekommt einen Zeitstempel. Daraus weiß der Schnitt später, wo Sätze anfangen und enden – deshalb schneidet er nie mitten im Wort.",kv:[["Dauer","~1 Minute pro 20 Minuten Video"],["Kosten","0 €"],["Läuft auf","GitHub Actions"]],more:["Modell: faster-whisper small, CPU","Wort-Zeitstempel = Grundlage für Cuts und Stille-Erkennung"]},
+ {t:"Momentwahl",who:"a",short:"KI bewertet 20 Kandidaten",p:"Gemini liest das Transkript und schlägt Momente vor, bewertet nach den sechs Gewichten deiner Kategorie (Überraschung, Einsatz, Reaktion, Cliffhanger, Kontext, Sekunde 1). Nur die besten werden gerendert, doppelte Stellen fliegen raus.",kv:[["Kandidaten","20 → 8 gerendert"],["Kosten","< 1 Cent pro Video"],["Steuerung","Feinjustierung → Welche Momente"]],more:["Jeder Moment bekommt eine Kontext-Zeile in eigenen Worten (Originalität für TikTok)","Momente werden auf Account A und B verteilt, nie derselbe auf beiden","Dein Feedback aus der Clip-Vorschau fließt als Beispiel ein"]},
+ {t:"Schnitt",who:"a",short:"Cold Open, Zoom, Ton, Overlay",p:"Der Clip startet direkt im Moment, Stille wird gekürzt, an Höhepunkten zoomt das Bild leicht, die Lautheit wird auf TikTok-Standard gebracht. Hook-Text und Pflicht-Overlay der Kampagne kommen in die Safe-Zones.",kv:[["Dauer","1–2 Minuten pro Clip"],["Format","1080×1920, 30 fps"],["Steuerung","Feinjustierung → Schnitt, Look"]],more:["Face-Tracking nur bei Querformat-Quellen","Zwei Varianten pro Moment für den A/B-Test","Cover-Frame mit Hook-Text wird automatisch gewählt"]},
+ {t:"Qualitätsprüfung",who:"a",short:"Drei Standbilder, ein Score",p:"Ein Bildmodell prüft Anfang, Mitte und Ende: Hook lesbar? Text überlappt? Gesicht im Bild? Scharf? Safe-Zones eingehalten? Unter der Schwelle wird der Clip verworfen und der nächste Kandidat genommen.",kv:[["Kosten","< 0,1 Cent pro Clip"],["Schwelle","7 von 10 (einstellbar)"],["Ergebnis","ready oder verworfen"]],more:["Ablehnungsgründe stehen im Studio am Clip","Deine Bewertungen kalibrieren die Schwelle"]},
+ {t:"Freigabe",who:"m",short:"Du entscheidest – oder es läuft",p:"Im Modus „Erst Vorschau“ wartet jeder Clip in der Clip-Vorschau: freigeben, neu schneiden mit Feedback, oder verwerfen. Im Modus „Automatisch“ überspringt das System diesen Schritt.",kv:[["Dein Anteil","1 Klick pro Clip oder „Alle freigeben“"],["Steuerung","Feinjustierung → Freigabe"],["Freigeben heißt","nächster freier Slot"]],more:["Feedback-Chips werden gespeichert und verbessern die Momentwahl","Kategorie kann jederzeit auf Automatisch umgestellt werden"]},
+ {t:"Posten",who:"a",short:"Blotato über TikToks offizielle API",p:"Der Publisher plant Clips in feste Slots, hält Mindestabstände ein, ersetzt Fan-Slots durch Kampagnen-Clips und postet mit Caption, Hashtags und Branded-Content-Kennzeichnung – ohne dein Handy.",kv:[["Takt","alle 30 Minuten"],["Posts","3–5 pro Account und Tag"],["Kosten","Blotato 29 $/Monat"]],more:["Slots und Plattformen pro Kategorie einstellbar","90-Minuten-Kollisionsschutz über alle Quellen","Kalender zeigt die nächsten 7 Tage"]},
+ {t:"Einreichen",who:"m",short:"Post-Links bei Vyro",p:"Views zählen erst ab Einreichung. Das Dashboard listet die Links, du fügst sie in der Vyro-App ein – oder ein Assistent tut es. Sobald Vyros „approved“-Mail kommt, hakt sich die Aufgabe selbst ab.",kv:[["Dein Anteil","2 Minuten am Abend"],["Wo","Aufgaben → Links kopieren"],["Automatisch","Abhaken bei Vyro-Mail"]],more:["Vyro verbietet Automatisierung in ihrer App – deshalb bleibt dieser Schritt manuell","Bei Fan-Content entfällt er"]},
+ {t:"Tracken & Lernen",who:"a",short:"Views, Geld, Kill-Switch, Wochenbericht",p:"Der Tracker holt Views nach 24, 72 Stunden und 7 Tagen, ordnet Auszahlungen zu, pausiert Accounts bei Einbruch und wertet sonntags aus: welcher Hook, welche Uhrzeit, welche Variante – und stellt die Vorlagen nach.",kv:[["Takt","alle 6 Stunden"],["Kill-Switch","Views −80 % oder Spam-Ablehnung"],["Bericht","sonntags 9 Uhr"]],more:["A/B: eine Variable pro Woche, min. 20 Clips pro Variante","Account-Gesundheit als Ampel auf der Übersicht"]}];
+const SUBS={
+ 0:[["Scout","liest Vyro/Whop-Mails und RSS",[["Takt","10 min"],["Quelle","Gmail-API, RSS"],["Ergebnis","Kampagne angelegt"]],"#tasks"],["Join","du tippst in der Vyro-App",[["Dauer","5 s"],["Warum manuell","Vyro verbietet Bots in ihrer App"]],"#tasks"],["Footage","Frame.io-Download oder dein Upload",[["Ziel","R2-Speicher"],["Größe","bis 5 GB"]],"#n:mrbeast"],["Regeln","Caption, Hashtags, Mindestlänge aus dem Briefing",[["Gespeichert in","Kampagnen-Vorlage"]],"#settings"]],
+ 1:[["Audio","Tonspur extrahieren",[["Tool","ffmpeg"]],""],["Whisper","Wort-Zeitstempel",[["Modell","small, CPU"],["20 Min Video","~1 min"]],""],["Cache","Transkript wiederverwendbar",[["Für","Zweitvarianten ohne Neulauf"]],""]],
+ 2:[["Kandidaten","20 Momente vorschlagen",[["Modell","Gemini Flash"],["Kosten","< 1 Cent"]],"#settings"],["Bewerten","6 Gewichte deiner Kategorie",[["Skala","0–2 je Kriterium"],["Mindest-Score","einstellbar"]],"#settings"],["Kontext-Zeile","eigene Worte, kein Zitat",[["Zweck","Originalität für TikTok"]],"#settings"],["Dedupe & Verteilen","Top 8, A/B getrennt",[["Abstand","≥ 25 s"],["A","Rang 1,3,5…"],["B","Rang 2,4,6…"]],"#settings"]],
+ 3:[["Cut","auf Wortgrenzen, Cold Open",[["Puffer","−120 / +250 ms"],["Stille","ab 0,6 s raus"]],"#settings"],["Bild","Face-Tracking, Punch-in",[["Zoom","max. 2 × 8 %"],["Format","1080×1920"]],"#settings"],["Text","Hook unten, Overlay oben",[["Safe-Zones","140 / 400 / 180 px"],["Font","pro Kategorie"]],"#settings"],["Ton","Lautheit normalisieren",[["Ziel","−14 LUFS, −1,5 dBTP"],["Verfahren","2-Pass loudnorm"]],"#settings"],["Cover","Frame mit meister Bewegung + Hook",[["Wo sichtbar","Profil-Raster"]],"#settings"]],
+ 4:[["Standbilder","0,5 s · Mitte · Ende",[["Modell","Gemini Flash Vision"]],""],["Checks","Lesbarkeit, Überlappung, Gesicht, Schärfe, Safe-Zone",[["Ergebnis","Score 1–10"]],"#settings"],["Entscheidung","≥ Schwelle → ready, sonst nächster Kandidat",[["Schwelle","7 (einstellbar)"]],"#settings"]],
+ 5:[["Vorschau","Clip, Caption, Scores im Studio",[["Wo","Clip-Vorschau"]],"#review"],["Feedback","Chips + Freitext",[["Wirkung","Few-Shot für Momentwahl & QA"]],"#review"],["Freigeben","→ nächster freier Slot",[["Auto-Modus","überspringt diesen Schritt"]],"#settings"]],
+ 6:[["Slot-Plan","feste Uhrzeiten, Mindestabstand",[["Posts","3–5/Tag"],["Abstand","≥ 90 min"]],"#settings"],["Priorität","paid > fan-neu > backlog",[["Kampagne","ersetzt 2 Fan-Slots"]],"#settings"],["Blotato","offizielle TikTok-API",[["Branded Content","gesetzt"],["Sichtbarkeit","öffentlich"]],""],["Kill-Switch","Views −80 % oder Spam-Ablehnung",[["Aktion","Account pausiert + Meldung"]],"#tasks"]],
+ 7:[["Liste","Post-Links im Dashboard",[["Wo","Aufgaben"]],"#tasks"],["Einfügen","in der Vyro-App",[["Dauer","2 min/Tag"]],"#tasks"],["Abhaken","automatisch bei approved-Mail",[["Fallback","Erledigt-Knopf"]],"#tasks"]],
+ 8:[["Views","24 h · 72 h · 7 d",[["Quelle","Blotato-Analytics"]],"#pipeline"],["Geld","Auszahlungen ↔ Clips",[["Quelle","Vyro-Mails"]],"#home"],["A/B","eine Variable pro Woche",[["Signal ab","20 Clips/Variante"]],"#settings"],["Wochenbericht","3 Sätze, 3 Vorschläge",[["Wann","sonntags 9 Uhr"]],"#home"]]};
+function howView(d){const cols=3,W=760,cw=W/cols,rh=96,H=rh*3+40;
+  // LEVEL 0: overview with flowing dots
+  const svg=`<svg viewBox="0 0 ${W} ${H}" width="100%" style="display:block"><defs><marker id="ha" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M2 1L8 5L2 9" fill="none" stroke="#6B6E7B" stroke-width="1.5"/></marker></defs>
+  ${HOW.map((h,i)=>{const r=Math.floor(i/cols),c=i%cols;const x=c*cw+10,y=30+r*rh,w=cw-20,hh=64;const col=h.who==="m"?"#FF5A1F":"#3DD68C";
+    let path="";if(i<HOW.length-1){path=c<cols-1?`M ${x+w} ${y+32} H ${x+w+18}`:`M ${x+w/2} ${y+hh} C ${x+w/2} ${y+hh+16}, ${10+(cw-20)/2} ${y+hh+16}, ${10+(cw-20)/2} ${y+rh-2}`}
+    const arrow=path?`<path d="${path}" fill="none" stroke="#6B6E7B" stroke-width="1.5" marker-end="url(#ha)"/><circle class="xdot ${h.who}" r="3"><animateMotion dur="${1.6+i*0.15}s" begin="${i*0.2}s" repeatCount="indefinite" path="${path}"/></circle>`:"";
+    return `<g class="xnode ${h.who}" data-how="${i}"><rect x="${x}" y="${y}" width="${w}" height="${hh}" rx="12" fill="#14161D" stroke="#262A35"/><circle cx="${x+18}" cy="${y+20}" r="5" fill="${col}"><animate attributeName="r" values="5;6.5;5" dur="2s" repeatCount="indefinite"/></circle><text x="${x+30}" y="${y+24}" font-size="13" font-weight="800" fill="#F2F1EC">${i+1}. ${h.t}</text><text x="${x+14}" y="${y+48}" font-size="11" fill="#8E909B">${h.short}</text>${arrow}</g>`}).join("")}
+  <path id="loop" d="M ${W-cw/2} ${30+2*rh+64} C ${W-cw/2} ${H-6}, ${cw/2} ${H-6}, ${cw/2} ${30+64+4}" fill="none" stroke="#6B6E7B" stroke-width="1.2" stroke-dasharray="4 4"/><circle r="2.5" fill="#8B5CF6" style="filter:drop-shadow(0 0 4px #8B5CF6)"><animateMotion dur="6s" repeatCount="indefinite"><mpath href="#loop"/></animateMotion></circle><text x="${W/2}" y="${H-10}" text-anchor="middle" font-size="10.5" fill="#8E909B">Learnings fließen zurück in Momentwahl, Schnitt und Slots</text>
+  <circle cx="14" cy="12" r="5" fill="#3DD68C"/><text x="24" y="16" font-size="11" fill="#8E909B">automatisch</text><circle cx="110" cy="12" r="5" fill="#FF5A1F"/><text x="120" y="16" font-size="11" fill="#8E909B">du – Minuten pro Tag</text></svg>
+  <p style="font-size:13px;color:var(--ink2);margin:10px 4px 0;line-height:1.5">Ein Video durchläuft neun Stufen. Grün passiert von allein, rund um die Uhr. Orange sind die zwei Stellen, an denen du gebraucht wirst. <b style="color:var(--ink)">Klick auf eine Stufe</b>, um hineinzuzoomen.</p>`;
+  if(howSel<0) return `<div class="xr"><div class="lvl in">${svg}</div></div>`;
+  // LEVEL 1/2: lens
+  const h=HOW[howSel],subs=SUBS[howSel]||[];const sd=howSub>=0?subs[howSub]:null;
+  const lens=`<div class="lens"><div class="crumb"><a href="#" data-xr="root">Ablauf</a> › ${howSel+1}. ${h.t}${sd?` › ${sd[0]}`:""}</div>
+    <div class="hd"><span class="who ${h.who}" style="margin:0">${h.who==="m"?"Dein Schritt":"Automatisch"}</span><h3>${howSel+1}. ${h.t}</h3><span style="margin-left:auto;display:flex;gap:6px"><button class="bk" data-hownav="-1">‹</button><button class="bk" data-hownav="1">›</button><button class="bk" data-xr="root">Zurück zum Ablauf</button></span></div>
+    <p>${h.p}</p>
+    <div class="facts">${h.kv.map(([k,v])=>`<div>${k}<b>${v}</b></div>`).join("")}</div>
+    <div class="sub">${subs.map((sb,i)=>`<div class="sn ${i===howSub?"on":""}" data-sub="${i}" style="animation-delay:${i*0.06}s"><i></i><b>${sb[0]}</b><span>${sb[1]}</span></div>`).join("")}<div class="conn"></div></div>
+    ${sd?`<div class="det"><h4>${sd[0]}</h4><p>${sd[1]}</p>${sd[2].map(([k,v])=>`<div class="kv">${k}<span>${v}</span></div>`).join("")}${sd[3]?`<a class="tune" href="${sd[3]}">Hier einstellen →</a>`:""}</div>`:`<div style="font-size:12px;color:var(--ink3);margin-top:10px">Klick auf einen Teilschritt für die Details.</div>`}
+  </div>`;
+  return `<div class="xr"><div class="lvl in">${lens}</div></div>`}
+// ---- Hochrechnung
+const SCEN={
+  konsequent:{label:"Konsequent",accounts:4,posts:4,platforms:3,q0:0.15,q1:0.45,cpm:1.6,growth:0.18,camp:0.5,cost:150},
+  ambitioniert:{label:"Ambitioniert",accounts:8,posts:5,platforms:3,q0:0.15,q1:0.5,cpm:1.8,growth:0.22,camp:0.6,cost:400},
+  vorsichtig:{label:"Vorsichtig",accounts:2,posts:3,platforms:1,q0:0.1,q1:0.35,cpm:1.4,growth:0.12,camp:0.4,cost:40}};
+function fcCalc(P){const out=[];let followers=P.followers0||0;for(let m=1;m<=12;m++){const ramp=Math.min(1,(m-1)/4);const q=P.q0+(P.q1-P.q0)*ramp;const avg=(P.avg0||600)*Math.pow(1+P.growth,m-1);
+  const posts=P.accounts*P.posts*P.platforms*30;const qualified=posts*q;const paidShare=P.camp;const views=qualified*avg*paidShare;const revenue=views/1000*P.cpm;
+  const sponsor=m>=6?P.accounts*Math.min(600,avg/50):0;const rev=revenue+sponsor;out.push({m,posts,avg:Math.round(avg),q,revenue:Math.round(rev),profit:Math.round(rev-P.cost),sponsor:Math.round(sponsor)})}return out}
+function forecastView(d){if(!FC){const base=SCEN[fcScen];const real=d.accounts.length?d.accounts.reduce((a,x)=>a+(x.avg_views||0),0)/d.accounts.length:600;FC={...base,avg0:Math.max(600,Math.round(real||600))}}
+  const rows=fcCalc(FC);const max=Math.max(1,...rows.map(r=>r.revenue));const m6=rows[5],m12=rows[11],sum=rows.reduce((a,r)=>a+r.profit,0);
+  const P=(key,label,min,max,step,fmtv,help)=>`<div class="fc-p"><label>${label}<b>${fmtv(FC[key])}</b></label><input type="range" min="${min}" max="${max}" step="${step}" value="${FC[key]}" data-fc="${key}"><small>${help}</small></div>`;
+  const chart=`<svg viewBox="0 0 620 240" width="100%" class="fc-chart"><g font-size="10" fill="#8E909B">${[0.25,0.5,0.75,1].map(f=>`<line x1="66" x2="610" y1="${200-f*180}" y2="${200-f*180}" stroke="#1B1D26"/><text x="60" y="${204-f*180}" text-anchor="end">${money(Math.round(max*f/100)*100)}</text>`).join("")}</g>
+    ${rows.map((r,i)=>{const x=76+i*45,h=Math.max(2,r.revenue/max*180);return `<rect x="${x}" y="${200-h}" width="30" height="${h}" rx="4" fill="${r.profit>=2000?"#8B5CF6":"#FF5A1F"}" opacity="${0.55+i*0.04}"/><text x="${x+15}" y="215" text-anchor="middle" font-size="10" fill="#C9CAD2">M${r.m}</text>`}).join("")}
+    <line x1="66" x2="610" y1="${200-Math.min(1,2000/max)*180}" y2="${200-Math.min(1,2000/max)*180}" stroke="#3DD68C" stroke-dasharray="4 4"/><text x="610" y="${196-Math.min(1,2000/max)*180}" text-anchor="end" font-size="10" fill="#3DD68C">Ziel 2.000 $</text></svg>`;
+  const first2k=rows.find(r=>r.profit>=2000);
+  return `<div class="fc-wrap"><div><div class="scen">${Object.entries(SCEN).map(([k,v])=>`<button class="${fcScen===k?"on":""}" data-scen="${k}">${v.label}</button>`).join("")}</div>
+    <div class="fc-big"><div><b>${money(m6.profit)}</b><span>Gewinn Monat 6</span></div><div><b>${money(m12.profit)}</b><span>Gewinn Monat 12</span></div><div><b>${first2k?"Monat "+first2k.m:"> 12 Monate"}</b><span>2.000 $ erreicht</span></div></div>
+    ${chart}
+    <div style="font-size:12.5px;color:var(--ink2);line-height:1.5;margin-top:6px">Summe Gewinn 12 Monate: <b style="color:var(--ink)">${money(sum)}</b>. Startpunkt sind deine echten Ø Views (${fmt(FC.avg0)} pro Clip); Wachstum, Quote über Schwelle und Rate sind Annahmen bei täglicher Konsequenz – kein Worst Case, aber auch keine Ausreißer wie ein viraler Clip am 1.000-$-Deckel. Ab Monat 6 sind Sponsorings mit eingerechnet (${money(m12.sponsor)} in Monat 12).</div>
+    <details class="hmore" style="margin-top:10px"><summary>Monatstabelle</summary><table style="margin-top:8px"><thead><tr><th>Monat</th><th class="r">Posts</th><th class="r">Ø Views</th><th class="r">über Schwelle</th><th class="r">Umsatz</th><th class="r">Gewinn</th></tr></thead><tbody>${rows.map(r=>`<tr><td>M${r.m}</td><td class="r">${fmt(r.posts)}</td><td class="r">${k(r.avg)}</td><td class="r">${Math.round(r.q*100)} %</td><td class="r">${money(r.revenue)}</td><td class="r"><b>${money(r.profit)}</b></td></tr>`).join("")}</tbody></table></details></div>
+    <div>${P("accounts","Accounts",1,20,1,v=>v,"eigene Accounts über alle Nischen")}${P("posts","Posts pro Account/Tag",1,8,1,v=>v,"Kampagne + Fan zusammen")}${P("platforms","Plattformen",1,3,1,v=>v,"TikTok, Instagram, YouTube")}${P("q1","Quote über Schwelle (eingelaufen)",0.1,0.7,0.05,v=>Math.round(v*100)+" %","Anteil Clips ≥ 5.000 Views ab Monat 5")}${P("cpm","Rate pro 1.000 Views",0.8,3,0.1,v=>v.toFixed(1)+" $","Vyro/Whop Mischwert nach Proration")}${P("growth","Wachstum Ø Views/Monat",0.05,0.35,0.01,v=>Math.round(v*100)+" %","Kaltstart → eingelaufen")}${P("camp","Anteil bezahlter Clips",0.2,0.8,0.05,v=>Math.round(v*100)+" %","Rest ist Fan-Content (Reichweite, kein Geld)")}${P("cost","Fixkosten/Monat",30,1500,10,v=>v+" $","Blotato, API, Assistent")}</div></div>`}
+function wireHow(d){document.querySelectorAll(".xnode").forEach(g=>g.onclick=()=>{howSel=+g.dataset.how;howSub=-1;page(d)});
+  document.querySelectorAll("[data-hownav]").forEach(b=>b.onclick=()=>{howSel=(howSel+(+b.dataset.hownav)+HOW.length)%HOW.length;howSub=-1;page(d)});
+  document.querySelectorAll("[data-xr='root']").forEach(b=>b.onclick=e=>{e.preventDefault();howSel=-1;howSub=-1;page(d)});
+  document.querySelectorAll("[data-sub]").forEach(b=>b.onclick=()=>{howSub=+b.dataset.sub;page(d)});
+  document.querySelectorAll("[data-scen]").forEach(b=>b.onclick=()=>{fcScen=b.dataset.scen;FC=null;page(d)});
+  document.querySelectorAll("[data-fc]").forEach(i=>i.oninput=()=>{FC[i.dataset.fc]=+i.value;page(d);const j=document.querySelector(`[data-fc="${i.dataset.fc}"]`);if(j)j.focus()});}
 function wireStudio(d){
   const bulk=$("#bulk");if(bulk)bulk.onclick=async()=>{if(DEMO_MODE){document.querySelectorAll(".rv").forEach(c=>c.style.opacity=.35);return}await fetch(cfg.apiUrl+"/review/bulk",{method:"POST",headers:{"x-api-key":cfg.apiKey,"Content-Type":"application/json"},body:JSON.stringify({ids:(d.review||[]).map(c=>c.id),action:"approve"})});refresh()};
   document.querySelectorAll(".rv").forEach(card=>{const id=card.dataset.id;const tags=new Set();
@@ -513,8 +652,7 @@ function wireStudio(d){
   document.querySelectorAll(".tab[data-niche]").forEach(b=>b.onclick=()=>{setNiche=b.dataset.niche;d.settings=PEND;page(d)});
   wireSimple(d);
   document.querySelectorAll('.set input[type=range]').forEach(i=>i.oninput=()=>{setp(N(),i.dataset.p,+i.value);i.previousElementSibling.querySelector(".v").textContent=i.value+(i.dataset.unit||"")});
-  // im Experten-Modus ebenfalls Vorschau anzeigen
-  if(expert&&!$("#prev")){const wrap=$("#expertwrap");if(wrap){const pv=document.createElement("div");pv.className="prev";pv.id="prev";pv.style.cssText="position:static;max-width:300px;margin-bottom:14px";wrap.parentNode.insertBefore(pv,wrap);repaint(d)}}
+  if(expert)wirePreview(d);
   document.querySelectorAll('.set input[type=range],.set select[data-p],.set input[type=color][data-p]').forEach(i=>i.addEventListener("input",()=>repaint(d)));
   document.querySelectorAll('.set select[data-p],.set input[type=color][data-p]').forEach(i=>i.onchange=()=>setp(N(),i.dataset.p,i.value));
   document.querySelectorAll('.set input[type=text][data-p]').forEach(i=>i.onchange=()=>{const v=i.value;setp(N(),i.dataset.p,(i.dataset.p==="slots"||i.dataset.p==="caption.hashtags")?v.split(",").map(x=>x.trim()).filter(Boolean):v)});
@@ -523,18 +661,16 @@ function wireStudio(d){
   document.querySelectorAll('.seg button[data-g]').forEach(b=>b.onclick=()=>{PEND.global[b.dataset.g]=b.dataset.v==="true";b.parentElement.querySelectorAll("button").forEach(x=>x.classList.toggle("on",x===b))});
   document.querySelectorAll('[data-ovadd]').forEach(b=>b.onclick=()=>{const id=b.dataset.ovadd;const sel=document.querySelector(`[data-ov="${id}"]`).value;const val=document.querySelector(`[data-ovv="${id}"]`).value;if(!sel||val==="")return;PEND.accounts[id]=PEND.accounts[id]||{};setp(PEND.accounts[id],sel,num(val));d.settings=PEND;page(d)});
   document.querySelectorAll('[data-clr]').forEach(b=>b.onclick=()=>{const [id,path]=b.dataset.clr.split("|");const ks=path.split(".");let x=PEND.accounts[id];for(const k of ks.slice(0,-1)){if(!x)return;x=x[k]}if(x)delete x[ks.at(-1)];d.settings=PEND;page(d)});
-  const sv=$("#save");if(sv)sv.onclick=async()=>{if(DEMO_MODE){sv.textContent="Gespeichert ✓ (Demo)";setTimeout(()=>sv.textContent="Speichern",1500);return}const r=await fetch(cfg.apiUrl+"/settings",{method:"PUT",headers:{"x-api-key":cfg.apiKey,"Content-Type":"application/json"},body:JSON.stringify({...PEND,confirm:true})});const j=await r.json().catch(()=>({}));sv.textContent=r.ok?"Gespeichert ✓":"Fehler: "+((j.errors||[j.error]).join("; ")||r.status);setTimeout(()=>sv.textContent="Speichern",1500);PEND=null;refresh()};}
+  const sv=$("#save");if(sv)sv.onclick=async()=>{if(DEMO_MODE){sv.textContent="Gespeichert ✓ (Demo)";setTimeout(()=>sv.textContent="Speichern",1500);return}const r=await fetch(cfg.apiUrl+"/settings",{method:"PUT",headers:{"x-api-key":cfg.apiKey,"Content-Type":"application/json"},body:JSON.stringify(PEND)});sv.textContent=r.ok?"Gespeichert ✓":"Fehler";setTimeout(()=>sv.textContent="Speichern",1500);PEND=null;refresh()};}
 function wireUpload(d){const drop=$("#drop"),file=$("#file"),stat=$("#upstat");if(!drop)return;const n=nicheOf(d,route().slice(2));
   drop.onclick=()=>file.click();drop.ondragover=e=>{e.preventDefault();drop.classList.add("over")};drop.ondragleave=()=>drop.classList.remove("over");
   drop.ondrop=e=>{e.preventDefault();drop.classList.remove("over");upload([...e.dataTransfer.files])};file.onchange=()=>upload([...file.files]);
   async function upload(files){if(DEMO_MODE||!cfg){stat.textContent="Beispielmodus – Upload erst mit verbundenem Worker.";return}
     for(const f of files){try{stat.textContent=`${f.name}: vorbereiten…`;
       const pre=await (await fetch(cfg.apiUrl+"/sources/presign",{method:"POST",headers:{"x-api-key":cfg.apiKey,"Content-Type":"application/json"},body:JSON.stringify({niche:n.key,name:f.name,size:f.size,type:"fan"})})).json();
-      if(!pre.source_id)throw new Error(pre.error||"presign fehlgeschlagen");
-      await putChunked(pre,f,(p,i,nn)=>{stat.textContent=`${f.name}: ${p} % hochgeladen (Teil ${i}/${nn})`});
-      stat.textContent=`${f.name}: abschließen…`;const fin=await (await fetch(cfg.apiUrl+"/sources/complete",{method:"POST",headers:{"x-api-key":cfg.apiKey,"Content-Type":"application/json"},body:JSON.stringify({source_id:pre.source_id})})).json();
-      if(fin.error)throw new Error(fin.error);
-      stat.textContent=`${f.name}: fertig – Clip-Job für ${n.accounts.join(" + ")} gestartet.`;}catch(err){stat.textContent=`${f.name}: ${err.message}`}}
+      await new Promise((res,rej)=>{const x=new XMLHttpRequest();x.open("PUT",pre.upload_url);x.upload.onprogress=e=>{if(e.lengthComputable)stat.textContent=`${f.name}: ${Math.round(e.loaded/e.total*100)} % hochgeladen`};x.onload=()=>x.status<300?res():rej(new Error("HTTP "+x.status));x.onerror=()=>rej(new Error("Upload fehlgeschlagen"));x.setRequestHeader("Content-Type",f.type||"video/mp4");x.send(f)});
+      await fetch(cfg.apiUrl+"/sources/complete",{method:"POST",headers:{"x-api-key":cfg.apiKey,"Content-Type":"application/json"},body:JSON.stringify({source_id:pre.source_id})});
+      stat.textContent=`${f.name}: fertig – Clip-Jobs gestartet.`;}catch(err){stat.textContent=`${f.name}: ${err.message}`}}
     refresh();}}
 async function refresh(){if(DEMO_MODE||!cfg){gate();return}try{DATA=await load(cfg);page(DATA)}catch(e){gate("Verbindung verloren: "+e.message)}}
 function gate(msg=""){$("#nav").innerHTML="";$("#main").innerHTML=`<div class="gate"><h1 style="font-size:20px;margin:0 0 6px">ClipForge</h1><p style="color:var(--ink2);font-size:14px;margin:0 0 12px">Mit dem Worker verbinden (Werte aus SECRETS.local.md).</p><input id="u" placeholder="Worker-URL" value="${cfg?.apiUrl||""}"><input id="p" type="password" placeholder="Dashboard-Lese-Key"><div style="color:var(--bad);font-size:13px;min-height:18px;margin-bottom:8px">${msg}</div><button id="go">Öffnen</button><div class="banner" style="margin-top:12px;text-align:center"><a href="#" id="demo">Mit Beispieldaten ansehen</a></div></div>`;

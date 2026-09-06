@@ -139,26 +139,96 @@ def _hex_to_ffmpeg(c: str) -> str:
 SAFE_TOP, SAFE_BOTTOM, SAFE_RIGHT = 140, 400, 180
 HOOK_MAX_Y = 0.72
 DEFAULT_STYLE = {"font": "dejavu-bold", "color": "#FFFFFF", "outline_px": 5, "outline_color": "#000000", "accent_color": None,
-                 "accent_mode": "bar", "box_color": None, "align": "center", "y_pct": 0.685, "max_lines": 2, "size_max": 72, "size_min": 36}
+                 "accent_mode": "bar", "box_color": None, "align": "center", "y_pct": 0.685, "max_lines": 2, "size_max": 72, "size_min": 36,
+                 # Feinjustierung (settings.visual): size = px bei 1080 Breite, weight nur für variable Fonts
+                 "size": None, "weight": None, "spacing": 0, "line_h": None, "x_pct": 50, "w_pct": 84, "case": "none",
+                 "box": None, "box_opacity": 55, "box_pad": 10, "box_radius": 10, "shadow": 0, "anim": "none", "safe_right": SAFE_RIGHT, "safe_top": SAFE_TOP}
+ANIM_S = 0.4                                                       # Einblendung (pop/slide/typewriter) in Sekunden
 
 
-def hook_png(text: str, style: dict, width: int, height: int, accent_word: str | None, out: Path) -> tuple[Path, int, int]:
+def style_from_visual(vis: dict) -> dict:
+    """settings.visual (Dashboard → Feinjustierung) → Style-Tokens für apply_text_hook. Altformat (box:true, align) wird gemappt."""
+    box = vis.get("box")
+    if isinstance(box, bool): box = "solid" if box else "none"
+    box = box or "none"
+    mode = vis.get("accent_mode") or ("none" if box == "solid" and not vis.get("accent_mode") else "keyword")
+    g = lambda k, d=None: vis[k] if vis.get(k) is not None else d
+    return {"font": str(vis["font"]).lower().replace(" ", "-"), "color": g("color", "#FFFFFF"), "accent_color": g("accent"), "accent_mode": mode,
+            "box": box, "box_color": g("box_color", g("accent") if box == "solid" else "#000000"), "box_opacity": float(g("box_opacity", 55)),
+            "box_pad": float(g("box_pad", 10)), "box_radius": float(g("box_radius", 10)),
+            "outline_px": int(g("outline_px", 5)), "y_pct": float(g("hook_y_pct", 68)) / 100, "max_lines": int(g("hook_max_lines", 2)),
+            "align": g("hook_align", g("align", "center")), "size": g("hook_size"), "weight": g("hook_weight"), "spacing": float(g("hook_spacing", 0)),
+            "line_h": g("hook_line_h"), "x_pct": float(g("hook_x_pct", 50)), "w_pct": float(g("hook_w_pct", 84)), "case": g("hook_case", "none"),
+            "shadow": int(g("shadow", 0)), "anim": g("anim", "none"),
+            "safe_right": int(g("safe_right_px", SAFE_RIGHT)), "safe_top": int(g("safe_top_px", SAFE_TOP))}
+
+
+def _style(style: dict | None) -> dict:
+    st = {**DEFAULT_STYLE, **{k: v for k, v in (style or {}).items() if v is not None}}
+    if st.get("box") is None:                                     # Altformat: box_color gesetzt = solide Box
+        st["box"] = "solid" if (st.get("box_color") and st.get("accent_mode") == "box") else "none"
+    if st["box"] == "solid" and st.get("accent_mode") == "box" and "box_opacity" not in (style or {}):
+        st["box_opacity"] = 100
+    return st
+
+
+def accent_indices(words: list[str], mode: str, accent_word: str | None) -> set[int]:
+    """Welche Wörter in der Akzentfarbe: none | first | last2 | keyword (Akzentwort aus der Momentwahl, Alt: 'word')."""
+    n = len(words)
+    if not n or mode in ("none", "box", "bar", None):
+        return set()
+    if mode == "first":
+        return {0}
+    if mode == "last2":
+        return {n - 2, n - 1} if n >= 2 else {0}
+    strip = lambda s: s.lower().strip(".,!?\"'’“”:;")
+    acc = strip(accent_word or "")
+    for i, w in enumerate(words):
+        if acc and strip(w) == acc:
+            return {i}
+    return {n - 1} if mode in ("keyword", "word") and n else set()
+
+
+def _hook_render_args(st: dict, text: str, accent_word: str | None, width: int) -> dict:
+    scale = width / 1080
+    size = int(round(float(st["size"]) * scale)) if st.get("size") else int(st["size_max"])
+    words = (text.upper() if st.get("case") == "upper" else text).split()
+    return dict(font=st["font"], size_max=max(size, int(st["size_min"])), size_min=int(min(st["size_min"], size)), color=st["color"],
+                outline_px=int(st["outline_px"]), outline_color=st["outline_color"], accent_color=st.get("accent_color"),
+                accent_idx=accent_indices(words, st.get("accent_mode"), accent_word), box=st["box"],
+                box_color=st.get("box_color") if st["box"] != "none" else None, box_opacity=float(st.get("box_opacity", 55)),
+                box_pad=int(round(float(st.get("box_pad", 10)) * scale)), box_radius=int(round(float(st.get("box_radius", 10)) * scale)),
+                align=st["align"], max_lines=int(st["max_lines"]), weight=st.get("weight"), spacing=float(st.get("spacing") or 0) * scale,
+                line_h=st.get("line_h"), case=st.get("case", "none"), shadow=int(st.get("shadow") or 0))
+
+
+def hook_box(st: dict, width: int) -> tuple[int, int]:
+    """Textbox: Breite w_pct % der Videobreite, Mitte bei x_pct %, immer innerhalb der Safe-Zone (rechts 180 px, 60 px Rand)."""
+    margin = 60
+    lo, hi = margin, width - int(st.get("safe_right", SAFE_RIGHT)) - margin
+    bw = int(width * float(st.get("w_pct", 84)) / 100)
+    bw = max(200, min(bw, hi - lo))
+    cx = int(width * float(st.get("x_pct", 50)) / 100)
+    left = max(lo, min(cx - bw // 2, hi - bw))
+    return left, bw
+
+
+def hook_png(text: str, style: dict, width: int, height: int, accent_word: str | None, out: Path,
+             visible_words: int | None = None) -> tuple[Path, int, int]:
     """Hook-Text als PNG (pipeline/text.py). Rückgabe: (png, x, y) für ffmpeg overlay – Block um y_pct zentriert, nie unter 72 %."""
     from pipeline import text as T
-    st = {**DEFAULT_STYLE, **{k: v for k, v in (style or {}).items() if v is not None}}
-    margin = 60
-    max_w = width - SAFE_RIGHT - 2 * margin                       # Safe-Zone rechts: Block nur im Bereich 60…900 px
-    max_h = int(height * 0.075)                                    # 2 Zeilen ≈ 65–72 %
-    img = T.render(text, max_w, max_h, font=st["font"], size_max=int(st["size_max"]), size_min=int(st["size_min"]), color=st["color"],
-                   outline_px=int(st["outline_px"]), outline_color=st["outline_color"],
-                   accent_word=accent_word if st.get("accent_mode") == "word" else None, accent_color=st.get("accent_color"),
-                   box_color=st.get("box_color"), align=st["align"], max_lines=int(st["max_lines"]))
+    st = _style(style)
+    left, box_w = hook_box(st, width)
+    max_h = int(height * 0.075) if not st.get("size") else int(height * 0.16)      # feste Größe: Block darf bis ~16 % hoch werden
+    img = T.render(text, box_w, max_h, visible_words=visible_words, **_hook_render_args(st, text, accent_word, width))
     T.save(img, out)
     y_center = int(height * float(st["y_pct"]))
     y = min(y_center - img.height // 2, int(height * HOOK_MAX_Y) - img.height)
-    y = max(y, SAFE_TOP)
-    x = margin if st["align"] == "left" else margin + (max_w - img.width) // 2   # zentriert innerhalb der Safe-Zone
-    return out, x, y
+    y = max(y, int(st.get("safe_top", SAFE_TOP)))
+    if st["align"] == "left": x = left
+    elif st["align"] == "right": x = left + box_w - img.width
+    else: x = left + (box_w - img.width) // 2
+    return out, int(x), int(y)
 
 
 def best_motion_frame(src: Path, window_s: float, min_scene: float = 0.4, min_luma: float = 40.0) -> float:
@@ -209,10 +279,10 @@ def cover_frame(src: Path, text: str, style: dict, accent_word: str | None, out_
     at = best_motion_frame(src, max(1.0, dur / 3))
     subprocess.run(["ffmpeg", "-y", "-ss", f"{at:.3f}", "-i", str(src), "-frames:v", "1", str(tmp)], check=True, capture_output=True)
     base = Image.open(tmp).convert("RGBA")
-    st = {**DEFAULT_STYLE, **{k: v for k, v in (style or {}).items() if v is not None}}
-    img = T.render(text, w - SAFE_RIGHT - 120, int(h * 0.30), font=st["font"], size_max=140, size_min=64, color=st["color"], outline_px=8,
-                   outline_color=st["outline_color"], accent_word=accent_word if st.get("accent_mode") == "word" else None,
-                   accent_color=st.get("accent_color"), box_color=st.get("box_color"), align="center", max_lines=3)
+    st = _style(style)
+    args = _hook_render_args(st, text, accent_word, w)
+    args.update(size_max=140, size_min=64, outline_px=8, align="center", max_lines=3, box_pad=int(args["box_pad"] * 1.6), box_radius=int(args["box_radius"] * 1.6))
+    img = T.render(text, w - SAFE_RIGHT - 120, int(h * 0.30), **args)
     x = 60 + (w - SAFE_RIGHT - 120 - img.width) // 2
     y = int(h * 0.45) - img.height // 2
     base.alpha_composite(img, (max(0, x), max(SAFE_TOP, y)))
@@ -238,11 +308,65 @@ def _ending_filters(ending: dict | None, dur: float) -> tuple[str, str]:
     return "", ""
 
 
+def _ease(t_expr: str = "t") -> str:
+    """ease-out cubic über ANIM_S Sekunden als ffmpeg-Ausdruck (0 → 1)."""
+    return f"(1-pow(1-min(1,{t_expr}/{ANIM_S}),3))"
+
+
+def _hook_filters(src: Path, text: str, st: dict, w: int, h: int, seconds: float, accent_word: str | None, out_dir: Path, stem: str) -> tuple[list[str], list[str], int]:
+    """Baut Eingaben + filter_complex-Kette für den Hook-Text: Box (solid im PNG, blur per boxblur auf dem Video),
+    Einblendung anim = none | pop (Scale 0.5→1) | slide (von unten) | typewriter (Wort für Wort). Rückgabe (inputs, filters, png_height).
+    Der Kette liegt [0:v] an, sie endet in [hv]."""
+    from PIL import Image
+    en = f"enable='between(t,0,{seconds})'"
+    png, x, y = hook_png(text, st, w, h, accent_word, out_dir / f"{stem}.hook.png")
+    pw, ph = Image.open(png).size
+    inputs, fc = [], []
+    cur = "[0:v]"
+    if st["box"] == "blur":                                        # Bereich hinter dem Text weichzeichnen
+        pad = int(st.get("box_pad", 10)) + 6
+        bx, by = max(0, x - pad), max(0, y - pad)
+        bw, bh = min(w - bx, pw + 2 * pad), min(h - by, ph + 2 * pad)
+        bw -= bw % 2; bh -= bh % 2
+        fc.append(f"{cur}split[b0][b1];[b1]crop={bw}:{bh}:{bx}:{by},boxblur=14:2[bl];[b0][bl]overlay=x={bx}:y={by}:{en}[bg]")
+        cur = "[bg]"
+    anim = str(st.get("anim") or "none")
+    n_words = len(text.split())
+    if anim == "typewriter" and n_words > 1:
+        step = ANIM_S / n_words
+        for k in range(1, n_words + 1):
+            p_k, xk, yk = hook_png(text, st, w, h, accent_word, out_dir / f"{stem}.hook{k}.png", visible_words=k)
+            idx = inputs.count("-i") + 1
+            inputs += ["-i", str(p_k)]
+            t0, t1 = round((k - 1) * step, 3), (round(k * step, 3) if k < n_words else seconds)
+            fc.append(f"{cur}[{idx}:v]overlay=x={xk}:y={yk}:enable='between(t,{t0},{t1})'[t{k}]")
+            cur = f"[t{k}]"
+        fc[-1] = fc[-1].replace(f"[t{n_words}]", "[hv]")
+        return inputs, fc, ph
+    idx = inputs.count("-i") + 1
+    if anim in ("pop", "slide"):
+        inputs += ["-loop", "1", "-t", f"{seconds:.3f}", "-i", str(png)]
+        e = _ease()
+        if anim == "pop":
+            cx, cy = x + pw / 2, y + ph / 2
+            fc.append(f"[{idx}:v]format=rgba,scale=w='max(2,iw*(0.5+0.5*{e}))':h=-1:eval=frame,fade=t=in:st=0:d={ANIM_S / 2}:alpha=1[ha];"
+                      f"{cur}[ha]overlay=x='{cx:.1f}-w/2':y='{cy:.1f}-h/2':{en}[hv]")
+        else:
+            fc.append(f"[{idx}:v]format=rgba,fade=t=in:st=0:d={ANIM_S}:alpha=1[ha];"
+                      f"{cur}[ha]overlay=x={x}:y='{y}+140*(1-{e})':{en}[hv]")
+        return inputs, fc, ph
+    inputs += ["-i", str(png)]
+    fc.append(f"{cur}[{idx}:v]overlay=x={x}:y={y}:{en}[hv]")
+    if st.get("accent_mode") == "bar" and st.get("accent_color"):
+        fc[-1] = fc[-1].replace("[hv]", "[h0]") + f";[h0]drawbox=x=iw*0.2:y={y + ph + 8}:w=iw*0.6:h=8:color={_hex_to_ffmpeg(st['accent_color'])}@0.95:t=fill:{en}[hv]"
+    return inputs, fc, ph
+
+
 def apply_text_hook(src: Path, text: str, out_dir: Path, name: str | None = None, seconds: float = 2.0,
                     color: str = "white", accent: str = "#FF5A1F", style: str | dict = "bar", accent_word: str | None = None,
                     cover: bool = True, ending: dict | None = None) -> tuple[Path, Path | None]:
     """Hook-Text (Zone 65–72 %, `seconds` s) + Cover-Frame als erster Frame (2 Frames, Blotato videoCoverTimestamp=0).
-    style: 'bar' (A: weiß, Akzentbalken) | 'box' (B: Text auf Box) | dict mit Tokens aus config/brand.yaml.
+    style: 'bar' (A: weiß, Akzentbalken) | 'box' (B: Text auf Box) | dict mit Tokens aus config/brand.yaml / settings.visual.
     Rückgabe: (Video, Cover-JPEG oder None). Ohne Text → Kopie."""
     out_dir.mkdir(parents=True, exist_ok=True)
     out = out_dir / (name or src.name)
@@ -251,21 +375,15 @@ def apply_text_hook(src: Path, text: str, out_dir: Path, name: str | None = None
         return out, None
     w, h = probe_size(src)
     if isinstance(style, dict):
-        st = dict(style)
+        st = _style(style)
     elif style == "box":
-        st = {"font": "dejavu-bold", "color": color, "box_color": accent, "accent_mode": "box", "align": "center"}
+        st = _style({"font": "dejavu-bold", "color": color, "box_color": accent, "accent_mode": "box", "align": "center"})
     else:
-        st = {"font": "dejavu-bold", "color": color, "accent_color": accent, "accent_mode": "bar", "align": "center"}
+        st = _style({"font": "dejavu-bold", "color": color, "accent_color": accent, "accent_mode": "bar", "align": "center"})
     seconds = float(st.get("hook_seconds", seconds))
     ending = ending if ending is not None else st.get("ending")
-    png, x, y = hook_png(text, st, w, h, accent_word, out_dir / f"{out.stem}.hook.png")
-    en = f"enable='between(t,0,{seconds})'"
-    inputs = ["-i", str(src), "-i", str(png)]
-    fc = [f"[0:v][1:v]overlay=x={x}:y={y}:{en}[hv]"]
-    if st.get("accent_mode") == "bar" and st.get("accent_color"):
-        from PIL import Image
-        ph = Image.open(png).height
-        fc[0] = fc[0].replace("[hv]", "[h0]") + f";[h0]drawbox=x=iw*0.2:y={y + ph + 8}:w=iw*0.6:h=8:color={_hex_to_ffmpeg(st['accent_color'])}@0.95:t=fill:{en}[hv]"
+    extra_inputs, fc, _ = _hook_filters(src, text, st, w, h, seconds, accent_word, out_dir, out.stem)
+    inputs = ["-i", str(src), *extra_inputs]
     dur = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(src)], capture_output=True, text=True).stdout.strip() or 0)
     vf_end, af_end = _ending_filters(ending, dur)
     audio_src = "[0:a]"
@@ -276,8 +394,9 @@ def apply_text_hook(src: Path, text: str, out_dir: Path, name: str | None = None
     if cover:
         cover_png = cover_frame(src, text, st, accent_word, out_dir / f"{out.stem}.cover.png", out_dir / f"{out.stem}.cover.jpg")
         cover_jpg = out_dir / f"{out.stem}.cover.jpg"
+        ci = inputs.count("-i")
         inputs += ["-loop", "1", "-t", "0.067", "-i", str(cover_png)]
-        fc.append(f"[2:v]scale={w}:{h},format=yuv420p,setsar=1,fps=30[cv];[hv]fps=30,setsar=1,format=yuv420p[vv];[cv][vv]concat=n=2:v=1:a=0[v];{audio_src}adelay=67|67[a]")
+        fc.append(f"[{ci}:v]scale={w}:{h},format=yuv420p,setsar=1,fps=30[cv];[hv]fps=30,setsar=1,format=yuv420p[vv];[cv][vv]concat=n=2:v=1:a=0[v];{audio_src}adelay=67|67[a]")
         maps = ["-map", "[v]", "-map", "[a]"]
     else:
         fc.append(f"[hv]format=yuv420p[v];{audio_src}anull[a]"); maps = ["-map", "[v]", "-map", "[a]"]
