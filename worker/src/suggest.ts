@@ -21,7 +21,8 @@ export async function listSuggestions(env: Env, niche: string, ws = "default", l
   const { fresh, archive } = await suggestionLists(env, niche, ws, limit);
   const mix = [...archive, ...fresh].slice(0, limit);               // eine Liste für Aufrufer, die nur eine erwarten (Archiv zuerst)
   return mix.map((c) => ({ id: c.id, title: c.title, url: c.url, channel: c.channel, duration_s: c.duration_s, views: c.views,
-                           published_at: c.published_at, age_days: c.age_days, fresh: c.list === "fresh", reason: c.reason }));
+                           published_at: c.published_at, age_days: c.age_days, fresh: c.list === "fresh",
+                           reason: `${c.list === "fresh" ? "Frisch" : "Archiv"} · ${fmtViews(c.views)} Aufrufe · ${fmtDur(c.duration_s)}${c.score != null ? ` · Bewertung ${c.score}` : ""}${c.account ? ` · passt zu ${c.account}` : ""}. ${c.reason}` }));
 }
 
 /** „Nehmen": Quelle mit needs_download + Aufgabe zum Herunterladen/Hochladen. auto = vom System gewählt. */

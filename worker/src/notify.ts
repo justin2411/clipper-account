@@ -99,7 +99,7 @@ export async function runNotify(env: Env) {
   const { runAnomalyCheck } = await import("./insights");
   out.anomalies = await runAnomalyCheck(env).catch((e: any) => ({ error: String(e?.message ?? e) }));   // Nachtrag 7: täglicher Anomalie-Check (eigener Cron nicht möglich, Free-Limit 5)
   const { rateVideos } = await import("./catalog");
-  out.catalog = await rateVideos(env, 20).catch((e: any) => ({ error: String(e?.message ?? e) }));    // Nachschub-Agent: Katalog nachbewerten (Tagesbudget gilt)
+  out.catalog = await rateVideos(env, 60).catch((e: any) => ({ error: String(e?.message ?? e) }));    // Nachschub-Agent: Katalog nachbewerten (Tagesbudget gilt)
   const { runPacer } = await import("./pacer");
   out.pacer = await runPacer(env).catch((e: any) => ({ error: String(e?.message ?? e) }));            // Taktgeber im Beobachtungsmodus: schlägt vor, ändert nichts
   out.submissions = await submissionList(env);
