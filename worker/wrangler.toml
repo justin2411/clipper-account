@@ -13,7 +13,7 @@ crons = [
   "*/10 * * * *",   # scout
   "*/30 * * * *",   # publisher
   "0 */6 * * *",    # tracker
-  "0 18 * * *",     # notify – 20:00 Berlin (Sommer): Einreich-Liste, Tagesübersicht
+  "0 18 * * *",     # notify – 20:00 Berlin (Sommer): Einreich-Liste, Tagesübersicht, Anomalie-Check (Cloudflare Free: max. 5 Cron-Trigger)
   "0 7 * * SUN",    # report – sonntags 09:00 Berlin (Sommerzeit; Winter 08:00): Wochenbericht #report + Telegram-Kurzfassung
 ]
 

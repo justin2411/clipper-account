@@ -46,6 +46,9 @@
                 top_posts:[{url,account,views,likes,hook,kind,campaign,posted_at}], learned:{best_slot,best_hook_type,best_font,best_account}, suggestions:[{text,action?:{kind,label,href}}], summary:[3 Sätze] }
               -> GET /report?week=latest|current|<YYYY-Www> (Dashboard-Key), GET /report/weeks. Sonntags 09:00 Berlin: Bericht in kv + Telegram-Kurzfassung mit Link auf #report.
               WeeklyReport zusätzlich: ab:{variable,leader,lift_pct,hint,variants:[{value,posts,avg_views}]}|null, changes:[{at,text}] (was das System umgestellt hat)
+  anomalies (Nachtrag 7): { at, found:[{key, severity:"warn|alert", title, detail, question}] } -> GET /anomalies (letzter Lauf) · GET /anomalies?live=1 (jetzt prüfen)
+              Cron täglich 06:00 UTC: neue Anomalien landen im Posteingang (mit „Erklären"-Link in den Chat), je Anomalie höchstens einmal in 24 h.
+              Wochenbericht sonntags: das starke Modell schreibt die 3 Sätze und 3 Vorschläge (report.latest.by = "analysis"), sonst die Regelfassung.
   library (Nachtrag 6): { total, limit, offset, items:[{id, account, status, created_at, hook, caption, duration_s, media_url, cover, score, scores, qa, variant, campaign, kind, niche, views, post_url, platforms:[..], reusable}],
               filters:{statuses:{status:n}, sources:[{id,name,kind,n}], accounts:[..]} }
               -> GET /library?q=&status=&account=&source=&min_score=&min_views=&sort=new|views|score|oldest&limit=&offset=
@@ -497,6 +500,7 @@ function page(d){const r=route(); nav(d);
   if(r==="home"){const t=d.totals,profit=t.revenue-t.costs,max=Math.max(1,...d.history.map(h=>h.revenue));
     html=`<div class="top"><h1>Übersicht</h1><div class="meta">${monthLabel(d.month)} <span class="live"><i></i>live</span><button class="b" id="rf">Aktualisieren</button></div></div>${banner}
     <div class="grid g4" style="margin-bottom:14px"><div class="kpi"><b>${money(profit)}</b><span>Gewinn · ≈ ${fmt(profit*(d.eur_rate||0.92))} €</span><small>+${money(t.week_delta)} diese Woche</small></div><div class="kpi"><b>${money(t.revenue)}</b><span>Umsatz ausgezahlt</span></div><div class="kpi"><b>${k(d.accounts.reduce((a,x)=>a+(x.views_7d||0),0))}</b><span>Views 7 Tage · alle Accounts</span></div><div class="kpi"><b>${k(d.accounts.reduce((a,x)=>a+(x.followers||0),0))}</b><span>Follower gesamt</span><small>+${k(d.accounts.reduce((a,x)=>a+(x.followers_7d||0),0))} diese Woche</small></div></div>
+    ${(d.anomalies?.found||[]).length?`<section><h2>Auffälligkeiten <span>${tm(d.anomalies.at)} · täglicher Check</span></h2>${d.anomalies.found.map(a=>`<div class="sg"><div class="n" style="background:${a.severity==="alert"?"var(--bad)":"var(--warn)"};color:#fff">!</div><div class="t"><b>${a.title}</b><div style="font-size:12px;color:var(--ink3)">${a.detail}</div></div><a class="go" href="#chat:${encodeURIComponent(a.question)}">Erklären →</a></div>`).join("")}</section>`:""}
     ${d.onboarding&&!d.onboarding.complete&&!hideOnb()?onboardingBlock(d.onboarding,true):""}
     ${(d.tasks||[]).length?`<section><h2>Deine Aufgaben <span><a href="#tasks">alle →</a></span></h2>${(d.tasks||[]).slice(0,3).map(t=>taskCard(t,d)).join("")}</section>`:""}
     <section><h2>Rangliste Accounts <span>Spalte anklicken = sortieren · Handle öffnet TikTok</span></h2>${leaderboard(d)}</section>
@@ -670,7 +674,7 @@ function reportBody(rep,d){const t=rep.totals,p=rep.prev||{};
     ${kpi(k(t.avg_views),"Ø Views pro Post",dl(t.avg_views,p.avg_views))}
     ${kpi((t.followers_delta>=0?"+":"")+k(t.followers_delta),"Follower",dl(t.followers_delta,p.followers_delta))}
     ${kpi(money(t.payouts_usd),"Ausgezahlt",dl(t.payouts_usd,p.payouts_usd,v=>money(v)))}</div>
-  <section><h2>Kurz gesagt<span>${rep.partial?"Woche läuft noch":"abgeschlossen"} · ${tm(rep.generated_at)}</span></h2>${rep.summary.map(s=>`<p class="sum">${s}</p>`).join("")}</section>
+  <section><h2>Kurz gesagt<span>${rep.by==="analysis"?"vom Assistenten · ":""}${rep.partial?"Woche läuft noch":"abgeschlossen"} · ${tm(rep.generated_at)}</span></h2>${rep.summary.map(s=>`<p class="sum">${s}</p>`).join("")}</section>
   ${rep.ab?`<section><h2>Laufender A/B-Test<span>${rep.ab.variable}</span></h2><div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr))">${rep.ab.variants.map(v=>`<div class="abv ${rep.ab.leader===v.value?"lead":""}"><div class="t"><span>${v.value}</span>${rep.ab.leader===v.value?`<span class="pill ok">Tendenz</span>`:""}</div><b>${k(v.avg_views)}</b> <span class="m">Ø Views · ${v.posts} gepostet</span></div>`).join("")}</div><div class="up" style="margin-top:8px">${rep.ab.hint}</div></section>`:""}
   <section><h2>Vorschläge<span>${rep.suggestions.length} · zum Bestätigen anklicken</span></h2>${rep.suggestions.map((s,i)=>`<div class="sg"><div class="n">${i+1}</div><div class="t">${s.text}</div>${s.action?`<a class="go" href="${s.action.href||"#"}">${s.action.label} →</a>`:""}</div>`).join("")}</section>
   <details class="more"><summary>Accounts &amp; Paid vs. Fan</summary><div>
