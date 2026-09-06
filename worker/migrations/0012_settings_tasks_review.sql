@@ -53,5 +53,6 @@ ALTER TABLE events ADD COLUMN workspace_id TEXT NOT NULL DEFAULT 'default';
 ALTER TABLE account_state ADD COLUMN workspace_id TEXT NOT NULL DEFAULT 'default';
 ALTER TABLE account_stats ADD COLUMN workspace_id TEXT NOT NULL DEFAULT 'default';
 ALTER TABLE payouts ADD COLUMN workspace_id TEXT NOT NULL DEFAULT 'default';
+INSERT OR IGNORE INTO workspaces (id, name) VALUES ('default', 'default');   -- fester Workspace-Schlüssel (campaigns.workspace_id → workspaces.id)
 UPDATE campaigns SET workspace_id = 'default' WHERE workspace_id IS NULL;
 UPDATE costs SET workspace_id = 'default' WHERE workspace_id IS NULL;
