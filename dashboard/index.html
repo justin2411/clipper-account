@@ -577,7 +577,12 @@ const get=(o,p)=>p.split(".").reduce((x,k)=>x?.[k],o);
 const setp=(o,p,v)=>{const ks=p.split(".");let x=o;ks.slice(0,-1).forEach(k=>{x[k]=x[k]||{};x=x[k]});x[ks.at(-1)]=v};
 const flatten=(o,pre="")=>Object.entries(o||{}).reduce((a,[k,v])=>{const kk=pre?pre+"."+k:k;if(v&&typeof v==="object"&&!Array.isArray(v))Object.assign(a,flatten(v,kk));else a[kk]=Array.isArray(v)?v.join(","):v;return a},{});
 const num=v=>(v===""||isNaN(v))?v:+v;
-async function load(c){const r=await fetch(c.apiUrl+"/dashboard",{headers:{"x-api-key":c.apiKey},cache:"no-store"});if(!r.ok)throw new Error("HTTP "+r.status);return r.json()}
+async function load(c){const r=await fetch(c.apiUrl+"/dashboard",{headers:{"x-api-key":c.apiKey},cache:"no-store"});
+  if(!r.ok){ let grund="";                                          // der Worker schreibt den Grund in die Antwort
+    try{ const j=await r.json(); grund=j.error||""; }catch(e){}
+    if(/daily row read limit|exceeded/i.test(grund)) throw new Error("Die Datenbank hat ihr Tageslimit erreicht (D1 Free: 5 Mio. gelesene Zeilen). Es geht um 00:00 UTC weiter.");
+    throw new Error(grund ? `HTTP ${r.status}: ${grund.slice(0,160)}` : "HTTP "+r.status); }
+  return r.json()}
 const route=()=>location.hash.replace("#","")||"home";
 const nicheOf=(d,key)=>(d.niches||[]).find(n=>n.key===key);
 const av=(a,d)=>`<span class="av" style="background:${nicheOf(d,a.niche)?.color||"#555"}">${a.id}</span>`;
@@ -1505,7 +1510,23 @@ window.addEventListener("hashchange",()=>{if(route()!=="settings")PEND=null;if(r
   }
   notice("Der Worker antwortet nicht.","Der Lese-Key steckt in der Seite – es liegt nicht an einer Anmeldung. Prüfe den Worker (wrangler deploy) und versuche es erneut.");
 })();
-setInterval(async()=>{if(cfg&&!DEMO_MODE){try{DATA=await load(cfg);page(DATA)}catch(e){console.log("Aktualisieren fehlgeschlagen:",e.message)}}},30000);
+// Takt: alle 30 s nur der schlanke Puls (drei Abfragen). Der volle Datensatz wird erst geladen, wenn sich
+// etwas geändert hat – oder spätestens alle fünf Minuten. Im Hintergrund-Tab passiert gar nichts: ein offen
+// liegengelassenes Dashboard hat sonst mit 24 Abfragen alle 30 Sekunden das Leselimit der Datenbank aufgebraucht.
+let PULS=null, LETZTE_LADUNG=Date.now();
+async function puls(){
+  if(!cfg||DEMO_MODE||document.hidden)return;
+  try{
+    const r=await fetch(cfg.apiUrl+"/pulse",{headers:{"x-api-key":cfg.apiKey},cache:"no-store"});
+    if(!r.ok)return;
+    const p=await r.json();
+    const geaendert = PULS!==null && p.stand!==PULS;
+    PULS=p.stand;
+    if(geaendert || Date.now()-LETZTE_LADUNG > 300000){ LETZTE_LADUNG=Date.now(); DATA=await load(cfg); page(DATA); }
+  }catch(e){console.log("Puls fehlgeschlagen:",e.message)}
+}
+setInterval(puls,30000);
+document.addEventListener("visibilitychange",()=>{if(!document.hidden)puls()});   // beim Zurückkommen sofort nachsehen
 </script>
 </body>
 </html>

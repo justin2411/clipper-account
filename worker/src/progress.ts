@@ -186,6 +186,28 @@ export async function jobProgress(env: Env, ws = "default", key?: string): Promi
            running: jobs.filter((j) => j.status === "running").length, beat_s: BEAT_S, stuck_min: STUCK_MIN };
 }
 
+/** Schlanker Takt fuer das Dashboard: nur was sich staendig aendert, drei Abfragen statt vierundzwanzig.
+ *  Das Dashboard fragt im 30-Sekunden-Takt nur noch hier nach und laedt den vollen Datensatz erst,
+ *  wenn sich wirklich etwas geruehrt hat – sonst liest ein offener Tab die Datenbank leer. */
+export async function pulse(env: Env, ws = "default") {
+  const rows = await db.all<JobRun>(env,
+    "SELECT * FROM job_runs WHERE workspace_id = ? AND status = 'running' ORDER BY id DESC LIMIT 10", ws);
+  const q = await db.first<any>(env,
+    `SELECT SUM(status = 'ready') AS ready, SUM(status IN ('review')) AS review,
+            SUM(status IN ('scheduled','shadow')) AS scheduled FROM clips WHERE workspace_id = ?`, ws);
+  const ev = await db.first<{ id: number }>(env, "SELECT MAX(id) AS id FROM events WHERE workspace_id = ?", ws);
+  const jobs = rows.map((r) => {
+    const silent = age(r.heartbeat_at);
+    return { key: r.campaign_id ?? r.upload_id ?? String(r.id), stage: r.stage, stage_label: STAGE_LABEL[r.stage] ?? r.stage,
+             status: silent > STUCK_MIN * 60 ? "stuck" : "running", percent: r.progress == null ? null : Math.round(clamp01(Number(r.progress)) * 100),
+             detail: r.detail, since_s: age(r.started_at), silent_s: silent };
+  });
+  // Ein einziger Wert, an dem das Dashboard erkennt, ob sich etwas geaendert hat.
+  const stand = [ev?.id ?? 0, q?.ready ?? 0, q?.review ?? 0, q?.scheduled ?? 0,
+                 jobs.map((j) => `${j.key}:${j.stage}:${j.status}:${j.percent ?? ""}`).join(",")].join("|");
+  return { at: nowIso(), stand, jobs, queue: { ready: Number(q?.ready ?? 0), review: Number(q?.review ?? 0), scheduled: Number(q?.scheduled ?? 0) } };
+}
+
 // ---------- GitHub Actions: Lauf abbrechen ----------
 
 /** POST /repos/:repo/actions/runs/:id/cancel – 202 abgebrochen, 409 lief nicht mehr, 403 fehlendes Recht (actions: write). */
