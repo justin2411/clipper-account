@@ -5,6 +5,7 @@ on:
       campaign: { required: true, type: string }
       account:  { required: true, type: string }   # A | B | AB… (mehrere Buchstaben = alle Accounts der Nische, ein Schnitt, Verteilung nach Rang)
       preview:  { required: false, type: string, default: "false" }   # "true": Standbilder + Caption per Telegram (Stufen-Test)
+      feedback: { required: false, type: string, default: "" }        # Review "redo": Zusatzanweisung an die Momentwahl
 # Nur ein Clip-Job gleichzeitig (YouTube-Cookies rotieren bei jedem Download): die Serialisierung macht der Worker
 # (fan.ts startet erst den nächsten Job, wenn keiner mehr läuft) – GitHub-Concurrency-Gruppen würden wartende Runs abbrechen.
 jobs:
@@ -16,6 +17,7 @@ jobs:
       CLIPFORGE_API_KEY: ${{ secrets.CLIPFORGE_API_KEY }}
       GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
       PREVIEW: ${{ inputs.preview }}
+      FEEDBACK: ${{ inputs.feedback }}
     steps:
       - uses: actions/checkout@v4
         with: { submodules: recursive }

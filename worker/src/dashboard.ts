@@ -3,6 +3,9 @@
 // rechnen mit dem jeweils neuesten vorhandenen Wert (views_7d → views_72h → views_24h), sonst 0.
 import { Env, db, nichesOf, tiktokProfileCached } from "./shared";
 import { accountsOf } from "./publisher";
+import { getSettings } from "./settings";
+import { listTasks, syncTasks } from "./tasks";
+import { listReview } from "./review";
 
 const BLOTATO_FIXED_USD = 29, LLM_PER_CLIP_USD = 0.01, EUR_RATE = 0.92, GOAL_MONTHLY = 2000;
 const NICHE: Record<string, string> = { moments: "Momente", reactions: "Reaktionen" };
@@ -111,18 +114,12 @@ export async function buildDashboard(env: Env) {
     qualified_rate: postedAll.length ? withViews.filter((p) => p.views >= (p.min_views ?? 0)).length / postedAll.length : 0,
   };
 
-  // Aufgaben
-  const tasks: { type: string; text: string; url?: string }[] = [];
-  const toSubmit: Record<string, { n: number; name: string; url: string }> = {};
-  for (const p of posts.filter((p) => p.status === "posted" && !p.submitted_at && p.post_url)) {
-    const c = campRows.find((x) => x.id === p.campaign_id);
-    (toSubmit[p.campaign_id] ??= { n: 0, name: p.camp_name, url: c?.external_url ?? "https://app.vyro.com" }).n++;
-  }
-  for (const t of Object.values(toSubmit)) tasks.push({ type: "submit", text: `${t.n} Post-Link${t.n > 1 ? "s" : ""} bei Vyro einreichen – ${t.name}`, url: t.url });
-  for (const c of campRows.filter((c) => c.status === "draft"))
-    tasks.push({ type: "join", text: `Neue Kampagne wartet auf Join – ${c.name}${c.rate_per_1k_usd ? `, ${c.rate_per_1k_usd} $/1k` : ""}`, url: c.external_url || "https://app.vyro.com" });
-  for (const s of state.filter((s) => s.paused))
-    tasks.push({ type: "review", text: `Account ${s.account} prüfen und wieder freigeben${s.reason ? ` (${s.reason})` : ""}` });
+  // Aufgaben (tasks.ts: automatisch angelegt/abgehakt), Review-Clips, Einstellungen
+  try { await syncTasks(env); } catch (e: any) { console.log("[dashboard] syncTasks", e?.message ?? e); }
+  const taskList = await listTasks(env);
+  const tasks = taskList.map((t) => ({ ...t, type: t.kind, text: t.title, url: t.campaign_url ?? undefined }));   // type/text/url: Kompatibilität v1
+  const review = await listReview(env);
+  const settings = await getSettings(env);
 
   const daysLeft = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0)).getUTCDate() - now.getUTCDate();
   const pipeline = await buildPipeline(env);
@@ -134,7 +131,7 @@ export async function buildDashboard(env: Env) {
     caption: String(p.caption ?? "").split("\n")[0], posted_at: p.posted_at, views: p.views ?? 0, likes: p.likes ?? 0, type: p.kind ?? "paid", campaign: p.camp_name }));
   const sources = await buildSources(env, allCamps, cfg);
   return {
-    pipeline, niches, sources, posts: postList,
+    pipeline, niches, sources, posts: postList, review, settings,
     month, currency: "USD", eur_rate: EUR_RATE,
     totals: { revenue: Math.round(rev?.s ?? 0), costs, pending, week_delta: Math.round(revWeek?.s ?? 0) },
     history, campaigns, accounts, insights, tasks, goal_monthly: GOAL_MONTHLY,

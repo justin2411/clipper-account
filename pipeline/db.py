@@ -96,3 +96,20 @@ def patch_upload(upload_id, **fields):
         return _req("PATCH", f"/uploads/{upload_id}", json=fields)
     except SystemExit as e:
         print("patch_upload failed:", e); return None
+
+
+def effective_settings(account):
+    """Wirksame Feinjustierung (Nische + Account-Override) aus dem Dashboard; {} bei Fehler."""
+    try:
+        r = requests.get(f"{URL}/api/settings/effective", params={"account": account}, headers=H, timeout=30)
+        return r.json() if r.ok else {}
+    except Exception as e:
+        print("effective_settings failed:", e); return {}
+
+
+def feedback_hints(niche=None):
+    try:
+        r = requests.get(f"{URL}/api/feedback", params={"niche": niche} if niche else None, headers=H, timeout=30)
+        return r.json() if r.ok else {}
+    except Exception as e:
+        print("feedback_hints failed:", e); return {}
