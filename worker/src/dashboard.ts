@@ -3,7 +3,7 @@
 // rechnen mit dem jeweils neuesten vorhandenen Wert (views_7d → views_72h → views_24h), sonst 0.
 import { Env, db, nichesOf, tiktokProfileCached } from "./shared";
 import { accountsOf } from "./publisher";
-import { getSettings } from "./settings";
+import { getSettings, listVersions } from "./settings";
 import { listTasks, syncTasks } from "./tasks";
 import { listReview } from "./review";
 import { getReport, listReports } from "./report";
@@ -121,6 +121,7 @@ export async function buildDashboard(env: Env) {
   const tasks = taskList.map((t) => ({ ...t, type: t.kind, text: t.title, url: t.campaign_url ?? undefined }));   // type/text/url: Kompatibilität v1
   const review = await listReview(env);
   const settings = await getSettings(env);
+  const settings_versions = await listVersions(env);   // Stufe 3: letzte 10 Stände fürs Zurücksetzen
 
   const daysLeft = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0)).getUTCDate() - now.getUTCDate();
   const pipeline = await buildPipeline(env);
@@ -133,7 +134,7 @@ export async function buildDashboard(env: Env) {
   const sources = await buildSources(env, allCamps, cfg);
   const report = { latest: await getReport(env, "latest"), weeks: await listReports(env) };   // Stufe 2: zuletzt gespeicherter Wochenbericht + Wochenliste
   return {
-    pipeline, niches, sources, posts: postList, review, settings, report,
+    pipeline, niches, sources, posts: postList, review, settings, settings_versions, report,
     month, currency: "USD", eur_rate: EUR_RATE,
     totals: { revenue: Math.round(rev?.s ?? 0), costs, pending, week_delta: Math.round(revWeek?.s ?? 0) },
     history, campaigns, accounts, insights, tasks, goal_monthly: GOAL_MONTHLY,

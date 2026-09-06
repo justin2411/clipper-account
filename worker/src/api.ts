@@ -30,7 +30,7 @@ import { runTracker } from "./tracker";
 import { runNotify, dailyOverview, weeklyReport } from "./notify";
 import { runWeeklyReport, getReport, listReports } from "./report";
 import { runFan, startUploadJob } from "./fan";
-import { getSettings, effectiveSettings, validateSettings, diffSettings, putSettings } from "./settings";
+import { getSettings, effectiveSettings, validateSettings, diffSettings, putSettings, listVersions, getVersion, defaultSettings, deepMerge } from "./settings";
 import { listTasks, completeTask, resumeAccount, syncTasks } from "./tasks";
 import { listReview, reviewAction, feedbackHints } from "./review";
 import { buildDashboard } from "./dashboard";
@@ -162,9 +162,28 @@ export async function handleRequest(req: Request, env: Env, ctx: ExecutionContex
         const errors = validateSettings(next);
         if (errors.length) return J({ ok: false, errors }, 400);
         const diff = diffSettings(env, cur, next);
-        if (body.preview || url.searchParams.get("preview") === "1") return J({ ok: false, preview: true, diff, hint: "Mit confirm:true senden, um zu schreiben" });   // Stufe 3: Diff zuerst
+        if (!body.confirm || body.preview || url.searchParams.get("preview") === "1") return J({ ok: false, preview: true, diff, hint: "Mit confirm:true senden, um zu schreiben" });   // Stufe 3: Diff zuerst, Bestätigung nötig
+        if (!diff.length) return J({ ok: true, unchanged: true, diff });
         const r = await putSettings(env, next, ws, diff);
         await logEvent(env, `settings_saved changes=${diff.length} version=${r.version}`);
+        return J({ ok: true, ...r, diff });
+      }
+      if (seg[0] === "settings" && seg[1] === "versions" && req.method === "GET") return J(await listVersions(env, ws));
+      if (seg[0] === "settings" && seg[1] === "reset" && req.method === "POST") {       // Stufe 3: auf Version oder Standard zurücksetzen (Diff zuerst)
+        const body = (await b()) as any;
+        const cur = await getSettings(env, ws);
+        const target = body.version ? await getVersion(env, Number(body.version), ws) : defaultSettings(env, ws);
+        if (!target) return J({ ok: false, error: "Version nicht gefunden" }, 404);
+        const def = defaultSettings(env, ws), niches: Record<string, any> = {};
+        for (const k of Object.keys(def.niches)) niches[k] = deepMerge(def.niches[k], target.niches?.[k] ?? {});   // ältere Stände ohne neue Felder: Defaults auffüllen
+        const next = { global: { ...cur.global, shadow: target.global?.shadow ?? cur.global.shadow }, niches, accounts: target.accounts ?? cur.accounts };
+        const errors = validateSettings(next);
+        if (errors.length) return J({ ok: false, errors }, 400);
+        const diff = diffSettings(env, cur, next);
+        if (!body.confirm) return J({ ok: false, preview: true, diff, target: body.version ? `Version ${body.version}` : "Standard" });
+        if (!diff.length) return J({ ok: true, unchanged: true, diff });
+        const r = await putSettings(env, next, ws, diff);
+        await logEvent(env, `settings_reset target=${body.version ? "v" + body.version : "default"} changes=${diff.length} version=${r.version}`);
         return J({ ok: true, ...r, diff });
       }
       if (seg[0] === "tasks" && !seg[1] && req.method === "GET") { await syncTasks(env, ws); return J(await listTasks(env, ws)); }
