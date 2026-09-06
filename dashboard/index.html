@@ -149,10 +149,10 @@ function nav(d){const r=route();
 function leaderboard(d,filterNiche){
   const acc=d.accounts.filter(a=>!filterNiche||a.niche===filterNiche).slice().sort((a,b)=>(b[sortKey]||0)-(a[sortKey]||0));
   const th=(key,label)=>`<th class="r" data-k="${key}">${label}${sortKey===key?" ▾":""}</th>`;
-  return `<table><thead><tr><th>#</th><th>Account</th>${th("followers","Follower")}${th("followers_7d","+7d")}${th("views_7d","Views 7d")}${th("views_30d","Views 30d")}${th("avg_views","Ø/Clip")}${th("earnings_30d","Einnahmen 30d")}<th>Status</th></tr></thead><tbody>
+  return `<table><thead><tr><th>#</th><th>Account</th>${th("followers","Follower")}${th("followers_7d","+7d")}${th("likes_total","Likes gesamt")}${th("views_7d","Views 7d")}${th("views_30d","Views 30d")}${th("avg_views","Ø/Clip")}${th("earnings_30d","Einnahmen 30d")}<th>Status</th></tr></thead><tbody>
   ${acc.map((a,i)=>`<tr><td><span class="rank ${["g","s","b"][i]||""}">${i+1}</span></td>
    <td><div class="acct">${av(a,d)}<div><div class="h"><a href="${a.url}" target="_blank" rel="noopener">${a.handle}</a></div><div class="n">${nicheOf(d,a.niche)?.label||a.niche} · ${a.platform||"tiktok"}</div></div></div></td>
-   <td class="r">${k(a.followers)}</td><td class="r" style="color:var(--ok)">+${k(a.followers_7d||0)}</td><td class="r">${k(a.views_7d)}</td><td class="r">${k(a.views_30d)}</td><td class="r">${k(a.avg_views)}</td><td class="r"><b>${money(a.earnings_30d)}</b></td>
+   <td class="r">${k(a.followers)}</td><td class="r" style="color:var(--ok)">+${k(a.followers_7d||0)}</td><td class="r">${k(a.likes_total||0)}</td><td class="r">${k(a.views_7d)}</td><td class="r">${k(a.views_30d)}</td><td class="r">${k(a.avg_views)}</td><td class="r"><b>${money(a.earnings_30d)}</b></td>
    <td>${a.paused?`<span class="pill warn">pausiert</span>`:(a.followers===0?`<span class="pill">neu</span>`:`<span class="pill ok">aktiv</span>`)}</td></tr>`).join("")}</tbody></table>`;}
 
 function stepper(s){return `<div class="steps">${STAGES.map((n,i)=>{const cls=s.error&&i===s.stage?"err":i<s.stage?"done":i===s.stage?"cur":"";return `<div class="step ${cls}"><b>${i<s.stage?"✓":i+1}</b>${n}</div>`}).join("")}</div>`}
@@ -184,7 +184,7 @@ function page(d){const r=route(); nav(d);
     const acc=d.accounts.filter(a=>n.accounts.includes(a.id)), src=d.sources.filter(s=>s.niche===n.key), posts=d.posts.filter(p=>p.niche===n.key).sort((a,b)=>new Date(b.posted_at)-new Date(a.posted_at)), camps=d.campaigns.filter(c=>c.niche===n.key);
     html=`<div class="top"><div class="nhead"><span class="sw" style="background:${n.color}"></span><h1>${n.label}</h1></div><div class="meta">${acc.length} Accounts · ${src.filter(s=>s.stage<5).length} in Arbeit <button class="b" id="rf">Aktualisieren</button></div></div>${banner}
     <section><h2>Accounts <span>Handle öffnet das Profil</span></h2><div class="cards">${acc.map(a=>`<div class="card"><div class="row"><div class="acct">${av(a,d)}<div><div class="h"><a href="${a.url}" target="_blank" rel="noopener">${a.handle}</a></div><div class="n">${a.platform||"tiktok"} · ${a.posts_7d||0} Posts/7d</div></div></div>${a.paused?`<span class="pill warn">pausiert</span>`:`<span class="pill ok">aktiv</span>`}</div>
-      <div class="stats"><div><b>${k(a.followers)}</b>Follower <span style="color:var(--ok)">+${k(a.followers_7d||0)}</span></div><div><b>${k(a.views_7d)}</b>Views 7d</div><div><b>${money(a.earnings_30d)}</b>30 Tage</div></div>
+      <div class="stats"><div><b>${k(a.followers)}</b>Follower <span style="color:var(--ok)">+${k(a.followers_7d||0)}</span></div><div><b>${k(a.likes_total||0)}</b>Likes gesamt</div><div><b>${k(a.views_7d)}</b>Views 7d</div><div><b>${a.videos??"–"}</b>Videos</div><div><b>${money(a.earnings_30d)}</b>30 Tage</div><div><b>${a.posts_7d||0}</b>Posts 7d</div></div>
       <div class="links"><a href="${a.url}" target="_blank" rel="noopener">Profil ↗</a>${a.paused?`<span class="pill warn">${a.reason||"pausiert"}</span>`:""}</div></div>`).join("")}</div></section>
     <section><h2>Footage hochladen <span>landet in R2 · Clip-Jobs starten automatisch</span></h2>${dropzone(n)}</section>
     <section><h2>Workflow <span>jede Quelle mit aktueller Stufe</span></h2>${src.map(sourceRow).join("")||`<div class="empty">Noch keine Quelle – lade oben ein Video hoch.</div>`}</section>

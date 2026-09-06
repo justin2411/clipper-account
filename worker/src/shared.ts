@@ -129,3 +129,44 @@ export const mediaKeyFromUrl = (url: string): string | null => {
   const i = url.indexOf("/media/");
   return i < 0 ? null : decodeURIComponent(url.slice(i + 7));
 };
+
+// ---------- TikTok-Zahlen direkt von der Profil-/Videoseite (öffentlich eingebettetes JSON), kein Login nötig ----------
+const TT_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0 Safari/537.36";
+const ttNum = (html: string, key: string): number | null => {
+  const m = html.match(new RegExp(`"${key}":"?(\\d+)"?`));
+  return m ? Number(m[1]) : null;
+};
+/** Profil: Follower, Likes gesamt (heartCount), Videos. null, wenn TikTok die Seite nicht liefert (Bot-Schutz). */
+export async function tiktokProfile(handle: string): Promise<{ followers: number; likes_total: number; videos: number; following: number } | null> {
+  const h = handle.replace(/^@/, "");
+  try {
+    const r = await fetch(`https://www.tiktok.com/@${h}`, { headers: { "User-Agent": TT_UA, "Accept-Language": "en-US,en;q=0.9", Accept: "text/html" }, redirect: "follow" });
+    if (!r.ok) return null;
+    const html = await r.text();
+    const followers = ttNum(html, "followerCount"), likes = ttNum(html, "heartCount");
+    if (followers == null || likes == null) return null;
+    return { followers, likes_total: likes, videos: ttNum(html, "videoCount") ?? 0, following: ttNum(html, "followingCount") ?? 0 };
+  } catch { return null; }
+}
+/** Video: Views (playCount), Likes (diggCount), Kommentare, Shares. */
+export async function tiktokVideo(url: string): Promise<{ views: number; likes: number; comments: number; shares: number } | null> {
+  try {
+    const r = await fetch(url, { headers: { "User-Agent": TT_UA, "Accept-Language": "en-US,en;q=0.9", Accept: "text/html" }, redirect: "follow" });
+    if (!r.ok) return null;
+    const html = await r.text();
+    const views = ttNum(html, "playCount");
+    if (views == null) return null;
+    return { views, likes: ttNum(html, "diggCount") ?? 0, comments: ttNum(html, "commentCount") ?? 0, shares: ttNum(html, "shareCount") ?? 0 };
+  } catch { return null; }
+}
+
+/** Profilzahlen mit 5-Minuten-Cache in kv (tt:<handle>), damit /dashboard live bleibt, ohne TikTok bei jedem Aufruf zu treffen. */
+export async function tiktokProfileCached(env: Env, handle: string, maxAgeMs = 5 * 60000) {
+  const key = `tt:${handle.replace(/^@/, "")}`;
+  const row = await db.first<{ value: string; updated_at: string }>(env, "SELECT value, updated_at FROM kv WHERE key = ?", key);
+  if (row?.value && Date.now() - new Date(row.updated_at).getTime() < maxAgeMs) { try { return JSON.parse(row.value); } catch {} }
+  const fresh = await tiktokProfile(handle);
+  if (fresh) await db.run(env, "INSERT INTO kv (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at", key, JSON.stringify(fresh), nowIso());
+  else if (row?.value) { try { return JSON.parse(row.value); } catch {} }
+  return fresh;
+}

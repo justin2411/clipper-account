@@ -1,7 +1,7 @@
 // Tracker: holt Post-Status/URLs von Blotato, Post-Analytics (Views/Likes je Post: GET /v2/posts/{publishedPostId}/analytics),
 // Tages-Snapshot je Account (account_stats: Views 7/30 Tage, Posts 7 Tage – Follower liefert Blotato nicht), Kill-Switch,
 // löscht eingereichte/abgeschlossene Clips aus R2.
-import { BLOTATO, Env, blotatoHeaders, db, mediaKeyFromUrl, nowIso, telegram } from "./shared";
+import { BLOTATO, Env, blotatoHeaders, db, mediaKeyFromUrl, nowIso, telegram, tiktokProfile } from "./shared";
 import { accountsOf } from "./publisher";
 
 const DROP = 0.2;
@@ -76,7 +76,8 @@ export async function runTracker(env: Env) {
   }
   // Tages-Snapshot je Account (Views/Likes der Posts der letzten 7/30 Tage, Posts 7 Tage)
   const today = new Date().toISOString().slice(0, 10);
-  for (const acc of Object.keys(accountsOf(env))) {
+  for (const [acc, a] of Object.entries(accountsOf(env))) {
+    const prof = a.handle ? await tiktokProfile(a.handle) : null;                 // Follower / Likes gesamt / Videos (TikTok-Profilseite)
     const agg = await db.first<any>(env,
       `SELECT SUM(CASE WHEN p.posted_at >= ? THEN COALESCE(p.views, 0) ELSE 0 END) AS v7,
               SUM(CASE WHEN p.posted_at >= ? THEN COALESCE(p.views, 0) ELSE 0 END) AS v30,
@@ -86,9 +87,10 @@ export async function runTracker(env: Env) {
       new Date(Date.now() - 7 * 86400000).toISOString(), new Date(Date.now() - 30 * 86400000).toISOString(),
       new Date(Date.now() - 30 * 86400000).toISOString(), new Date(Date.now() - 7 * 86400000).toISOString(), acc);
     await db.run(env,
-      `INSERT INTO account_stats (account, day, views_7d, views_30d, likes_30d, posts_7d) VALUES (?, ?, ?, ?, ?, ?)
-       ON CONFLICT(account, day) DO UPDATE SET views_7d = excluded.views_7d, views_30d = excluded.views_30d, likes_30d = excluded.likes_30d, posts_7d = excluded.posts_7d`,
-      acc, today, agg?.v7 ?? 0, agg?.v30 ?? 0, agg?.l30 ?? 0, agg?.n7 ?? 0);
+      `INSERT INTO account_stats (account, day, views_7d, views_30d, likes_30d, posts_7d, followers, likes_total, videos) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(account, day) DO UPDATE SET views_7d = excluded.views_7d, views_30d = excluded.views_30d, likes_30d = excluded.likes_30d, posts_7d = excluded.posts_7d,
+         followers = COALESCE(excluded.followers, account_stats.followers), likes_total = COALESCE(excluded.likes_total, account_stats.likes_total), videos = COALESCE(excluded.videos, account_stats.videos)`,
+      acc, today, agg?.v7 ?? 0, agg?.v30 ?? 0, agg?.l30 ?? 0, agg?.n7 ?? 0, prof?.followers ?? null, prof?.likes_total ?? null, prof?.videos ?? null);
   }
 
   // Kill-Switch pro Account

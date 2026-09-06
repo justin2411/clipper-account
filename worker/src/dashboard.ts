@@ -1,7 +1,7 @@
 // GET /dashboard – Datenvertrag aus dashboard/index.html (Kommentar am Dateianfang).
 // Views kommen erst, wenn eine Views-Quelle angebunden ist (Blotato liefert keine) → views/qualified/earned
 // rechnen mit dem jeweils neuesten vorhandenen Wert (views_7d → views_72h → views_24h), sonst 0.
-import { Env, db, nichesOf } from "./shared";
+import { Env, db, nichesOf, tiktokProfileCached } from "./shared";
 import { accountsOf } from "./publisher";
 
 const BLOTATO_FIXED_USD = 29, LLM_PER_CLIP_USD = 0.01, EUR_RATE = 0.92, GOAL_MONTHLY = 2000;
@@ -79,7 +79,8 @@ export async function buildDashboard(env: Env) {
   const nichesCfg = nichesOf(env);
   const todayStat = await db.all<any>(env, "SELECT s.* FROM account_stats s WHERE s.day = (SELECT MAX(day) FROM account_stats WHERE account = s.account)");
   const weekAgoStat = await db.all<any>(env, "SELECT s.* FROM account_stats s WHERE s.day = (SELECT MAX(day) FROM account_stats WHERE account = s.account AND day <= ?)", new Date(now.getTime() - 7 * 86400000).toISOString().slice(0, 10));
-  const accounts = Object.entries(cfg).map(([id, a]) => {
+  const accounts = [] as any[];
+  for (const [id, a] of Object.entries(cfg)) {
     const st = state.find((s) => s.account === id);
     const ps = posts.filter((p) => p.account === id && p.status === "posted" && p.views != null);
     const avg = ps.length ? Math.round(ps.reduce((x, p) => x + p.views, 0) / ps.length) : 0;
@@ -87,11 +88,13 @@ export async function buildDashboard(env: Env) {
     const earned30 = Math.round(posts.filter((p) => p.account === id && p.status === "posted" && p.posted_at >= new Date(now.getTime() - 30 * 86400000).toISOString()).reduce((x, p) => x + earnedOf(p), 0));
     const handle = String(a.handle ?? "");
     const niche = a.niche ?? nichesCfg.find((n) => n.accounts.includes(id))?.key ?? "";
-    return { id, handle, niche, platform: "tiktok", url: handle ? `https://www.tiktok.com/${handle.startsWith("@") ? handle : "@" + handle}` : "",
-      followers: t?.followers ?? 0, followers_7d: Math.max(0, (t?.followers ?? 0) - (w?.followers ?? 0)),
+    const live = handle ? await tiktokProfileCached(env, handle) : null;              // Follower/Likes live von der TikTok-Profilseite (5-min-Cache)
+    const followers = live?.followers ?? t?.followers ?? 0;
+    accounts.push({ id, handle, niche, platform: "tiktok", url: handle ? `https://www.tiktok.com/${handle.startsWith("@") ? handle : "@" + handle}` : "",
+      followers, followers_7d: Math.max(0, followers - (w?.followers ?? followers)), likes_total: live?.likes_total ?? t?.likes_total ?? 0, videos: live?.videos ?? t?.videos ?? null,
       views_7d: t?.views_7d ?? 0, views_30d: t?.views_30d ?? 0, earnings_30d: earned30, avg_views: avg, posts_7d: t?.posts_7d ?? 0,
-      paused: !!st?.paused, reason: st?.reason ?? null, niche_label: NICHE[a.niche ?? a.style ?? ""] ?? (a.niche ?? a.style ?? "") };
-  });
+      paused: !!st?.paused, reason: st?.reason ?? null, niche_label: NICHE[a.niche ?? a.style ?? ""] ?? (a.niche ?? a.style ?? ""), live: !!live });
+  }
   const niches = nichesCfg.map((n) => ({ key: n.key, label: n.label, color: n.color, accounts: n.accounts }));
 
   // Insights (nur mit Views-Daten aussagekräftig)
