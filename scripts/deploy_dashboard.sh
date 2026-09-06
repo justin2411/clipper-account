@@ -5,5 +5,6 @@ cd "$(dirname "$0")/.."
 set -a; source .env; set +a
 [ -n "${DASHBOARD_READ_KEY:-}" ] || { echo "DASHBOARD_READ_KEY fehlt in .env"; exit 1; }
 OUT=$(mktemp -d); sed "s|__DASHBOARD_READ_KEY__|$DASHBOARD_READ_KEY|" dashboard/index.html > "$OUT/index.html"
+cp dashboard/manifest.webmanifest dashboard/sw.js dashboard/icon-192.png dashboard/icon-512.png "$OUT/"   # PWA (Nachtrag 8)
 ( cd worker && WRANGLER_SEND_METRICS=false npx wrangler pages deploy "$OUT" --project-name clipforge-dashboard --branch main --commit-dirty=true )
 rm -rf "$OUT"

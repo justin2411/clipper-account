@@ -4,6 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ClipForge</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#FF5A1F">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="ClipForge">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<link rel="icon" href="/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&family=Anton&family=Bangers&family=Bebas+Neue&family=Luckiest+Guy&family=Montserrat:wght@800&family=Oswald:wght@700&family=Archivo+Black&display=swap" rel="stylesheet">
 <!--
@@ -46,6 +53,9 @@
                 top_posts:[{url,account,views,likes,hook,kind,campaign,posted_at}], learned:{best_slot,best_hook_type,best_font,best_account}, suggestions:[{text,action?:{kind,label,href}}], summary:[3 Sätze] }
               -> GET /report?week=latest|current|<YYYY-Www> (Dashboard-Key), GET /report/weeks. Sonntags 09:00 Berlin: Bericht in kv + Telegram-Kurzfassung mit Link auf #report.
               WeeklyReport zusätzlich: ab:{variable,leader,lift_pct,hint,variants:[{value,posts,avg_views}]}|null, changes:[{at,text}] (was das System umgestellt hat)
+  PWA (Nachtrag 8): /manifest.webmanifest + /sw.js (App-Shell offline, Daten immer aus dem Netz), Icons /icon-192.png und /icon-512.png.
+              Installierbar über „Zum Startbildschirm"; Hinweis im Kopf der Übersicht, wenn der Browser das Installieren anbietet.
+              Web-Push ist im Service Worker vorbereitet (push/notificationclick, Nachricht {title, body, url}) – die Anmeldung folgt, sobald VAPID-Schlüssel gesetzt sind; bis dahin informiert Telegram.
   anomalies (Nachtrag 7): { at, found:[{key, severity:"warn|alert", title, detail, question}] } -> GET /anomalies (letzter Lauf) · GET /anomalies?live=1 (jetzt prüfen)
               Cron täglich 06:00 UTC: neue Anomalien landen im Posteingang (mit „Erklären"-Link in den Chat), je Anomalie höchstens einmal in 24 h.
               Wochenbericht sonntags: das starke Modell schreibt die 3 Sätze und 3 Vorschläge (report.latest.by = "analysis"), sonst die Regelfassung.
@@ -344,6 +354,8 @@ details.more{border:1px solid var(--line);border-radius:var(--r);background:var(
 .lc .th2 .v{position:absolute;right:6px;bottom:6px;background:rgba(0,0,0,.6);color:#fff;font-size:11px;font-weight:700;padding:2px 6px;border-radius:999px}
 .lc .m2{padding:8px 10px}.lc .hk2{font-size:12px;font-weight:700;line-height:1.35;max-height:3.2em;overflow:hidden}.lc .n2{font-size:11px;color:var(--ink3);margin-top:3px}
 .lc .re{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}.lc .re button{font:inherit;font-size:11px;font-weight:700;padding:3px 8px;border-radius:999px;border:1px solid var(--line);background:transparent;color:var(--ink2);cursor:pointer}
+.inst{display:flex;align-items:center;gap:10px;background:var(--panel);border:1px solid var(--flame);border-radius:var(--r);padding:10px 14px;margin-bottom:14px;font-size:13px}
+.inst button{font:inherit;font-weight:700;font-size:13px;padding:6px 12px;border-radius:999px;border:0;background:var(--flame);color:#fff;cursor:pointer;margin-left:auto}
 main{min-width:0;overflow-x:hidden}section,.kpi,.tk,.card,.rv{min-width:0}
 .urls{white-space:pre-wrap;word-break:break-all}
 @media (max-width:480px){.g2,.g4,.flow,.cards{grid-template-columns:1fr}.steps{grid-template-columns:repeat(2,1fr)}table{display:block;overflow-x:auto}}
@@ -428,6 +440,7 @@ const fmt=n=>Math.round(n||0).toLocaleString("de-DE"), k=n=>n>=1e6?(n/1e6).toFix
 const ago=i=>{const m=Math.max(0,Math.round((Date.now()-new Date(i))/60000));return m<60?`vor ${m} min`:m<1440?`vor ${Math.floor(m/60)} h`:`vor ${Math.floor(m/1440)} d`};
 const tm=i=>new Date(i).toLocaleTimeString("de-DE",{hour:"2-digit",minute:"2-digit"});
 const monthLabel=m=>{const [y,mo]=(m||"").split("-");const n=["Januar","Februar","März","April","Mai","Juni","Juli","August","September","Oktober","November","Dezember"];return mo?`${n[+mo-1]} ${y}`:""};
+let INSTALL=null;
 let LIB=null, libQ="", libStatus="all", libSort="new", libAcc="all", libSrc="all", libScore=0;
 let CAL=null, calWeek=0, calDay=new Date().toISOString().slice(0,10), calSel=null;
 let REP=null, LOG=null, logCat="all", logQ="", INB=null, inbFilter="open", inbKind="all", CHAT={id:null,msgs:[],busy:false,budget:null};
@@ -500,6 +513,7 @@ function page(d){const r=route(); nav(d);
   if(r==="home"){const t=d.totals,profit=t.revenue-t.costs,max=Math.max(1,...d.history.map(h=>h.revenue));
     html=`<div class="top"><h1>Übersicht</h1><div class="meta">${monthLabel(d.month)} <span class="live"><i></i>live</span><button class="b" id="rf">Aktualisieren</button></div></div>${banner}
     <div class="grid g4" style="margin-bottom:14px"><div class="kpi"><b>${money(profit)}</b><span>Gewinn · ≈ ${fmt(profit*(d.eur_rate||0.92))} €</span><small>+${money(t.week_delta)} diese Woche</small></div><div class="kpi"><b>${money(t.revenue)}</b><span>Umsatz ausgezahlt</span></div><div class="kpi"><b>${k(d.accounts.reduce((a,x)=>a+(x.views_7d||0),0))}</b><span>Views 7 Tage · alle Accounts</span></div><div class="kpi"><b>${k(d.accounts.reduce((a,x)=>a+(x.followers||0),0))}</b><span>Follower gesamt</span><small>+${k(d.accounts.reduce((a,x)=>a+(x.followers_7d||0),0))} diese Woche</small></div></div>
+    ${INSTALL?`<div class="inst" id="instbar"><b>ClipForge als App installieren</b><span style="color:var(--ink3)">Startbildschirm, Vollbild, offline lesbar</span><button id="instgo">Installieren</button></div>`:""}
     ${(d.anomalies?.found||[]).length?`<section><h2>Auffälligkeiten <span>${tm(d.anomalies.at)} · täglicher Check</span></h2>${d.anomalies.found.map(a=>`<div class="sg"><div class="n" style="background:${a.severity==="alert"?"var(--bad)":"var(--warn)"};color:#fff">!</div><div class="t"><b>${a.title}</b><div style="font-size:12px;color:var(--ink3)">${a.detail}</div></div><a class="go" href="#chat:${encodeURIComponent(a.question)}">Erklären →</a></div>`).join("")}</section>`:""}
     ${d.onboarding&&!d.onboarding.complete&&!hideOnb()?onboardingBlock(d.onboarding,true):""}
     ${(d.tasks||[]).length?`<section><h2>Deine Aufgaben <span><a href="#tasks">alle →</a></span></h2>${(d.tasks||[]).slice(0,3).map(t=>taskCard(t,d)).join("")}</section>`:""}
@@ -662,7 +676,7 @@ function page(d){const r=route(); nav(d);
     html=`<div class="top"><h1>Aufgaben</h1><div class="meta">${(d.tasks||[]).length} offen <button class="b" id="rf">Aktualisieren</button></div></div>${banner}<section>${(d.tasks||[]).map(t=>taskCard(t,d)).join("")||`<div class="empty">Nichts offen – alles läuft.</div>`}</section>`;
   }
   $("#main").innerHTML=html; const rf=$("#rf"); if(rf) rf.onclick=refresh;
-  document.querySelectorAll("th[data-k]").forEach(th=>th.onclick=()=>{sortKey=th.dataset.k;page(d)}); wireUpload(d); wireTasks(d); wireStudio(d); wireHow(d); wireReport(d); wireAb(d); wireLog(d); wireOnb(d); wireSuggest(d); wireHealth(); wireInbox(d); wireChat(d); wireCal(d); wirePayouts(); wireLib(d);}
+  document.querySelectorAll("th[data-k]").forEach(th=>th.onclick=()=>{sortKey=th.dataset.k;page(d)}); wireUpload(d); wireTasks(d); wireStudio(d); wireHow(d); wireReport(d); wireAb(d); wireLog(d); wireOnb(d); wireSuggest(d); wireHealth(); wireInbox(d); wireChat(d); wireCal(d); wirePayouts(); wireLib(d); wireInstall(d);}
 
 // Wochenbericht (Stufe 2) – Tiefe 1: Kennzahlen + 3 Sätze + Vorschläge; Tiefe 2: Accounts / Paid vs Fan (zu); Tiefe 3: Top-Posts, Gelernt, Produktion (zu)
 function reportBody(rep,d){const t=rep.totals,p=rep.prev||{};
@@ -1009,6 +1023,7 @@ function wireSuggest(d){const H={"x-api-key":cfg?.apiKey,"Content-Type":"applica
 const hideOnb=()=>{try{return localStorage.getItem("onb_hide")==="1"}catch(e){return false}};
 function onboardingBlock(o,compact){return `<section><h2>Erste Schritte <span>${o.done}/${o.total} erledigt${compact?` · <a href="#start">alle →</a> · <a href="#" id="onb-hide">ausblenden</a>`:""}</span></h2><div class="prog"><i style="width:${Math.round(o.done/o.total*100)}%"></i></div>
   ${o.steps.map((s,i)=>`<div class="onb ${s.done?"done":""}" data-onb="${s.key}"><div class="ck">${s.done?"✓":i+1}</div><div class="w"><div class="l">${s.label}</div><div class="d">${s.detail}</div>${s.hint?`<div class="h">→ ${s.hint}</div>`:""}</div>${s.done?"":`<a class="go" href="${s.href}">öffnen →</a>`}</div>`).join("")}</section>`}
+function wireInstall(d){const b=$("#instgo");if(b)b.onclick=async()=>{if(!INSTALL)return;INSTALL.prompt();const r=await INSTALL.userChoice.catch(()=>null);if(r&&r.outcome!=="dismissed"){INSTALL=null;page(d)}};}
 function wireHealth(){document.querySelectorAll("[data-hd]").forEach(a=>a.onclick=e=>{e.preventDefault();a.closest(".card").classList.toggle("open")})}
 function wireOnb(d){document.querySelectorAll("[data-onb]").forEach(el=>el.onclick=e=>{if(e.target.closest("a"))return;el.classList.toggle("open")});const h=$("#onb-hide");if(h)h.onclick=e=>{e.preventDefault();try{localStorage.setItem("onb_hide","1")}catch(x){}page(d)}}
 // Ereignis-Log (Stufe 5): Zeile = Zeit · Kategorie · Text (+ Kampagne) · Actions-Link
@@ -1060,6 +1075,9 @@ async function refresh(){if(DEMO_MODE||!cfg){gate();return}try{DATA=await load(c
 function gate(msg=""){$("#nav").innerHTML="";$("#main").innerHTML=`<div class="gate"><h1 style="font-size:20px;margin:0 0 6px">ClipForge</h1><p style="color:var(--ink2);font-size:14px;margin:0 0 12px">Mit dem Worker verbinden (Werte aus SECRETS.local.md).</p><input id="u" placeholder="Worker-URL" value="${cfg?.apiUrl||""}"><input id="p" type="password" placeholder="Dashboard-Lese-Key"><div style="color:var(--bad);font-size:13px;min-height:18px;margin-bottom:8px">${msg}</div><button id="go">Öffnen</button><div class="banner" style="margin-top:12px;text-align:center"><a href="#" id="demo">Mit Beispieldaten ansehen</a></div></div>`;
   $("#go").onclick=async()=>{const c={apiUrl:$("#u").value.trim().replace(/\/$/,""),apiKey:$("#p").value.trim()};try{DATA=await load(c);cfg=c;localStorage.setItem("clipforge.cfg",JSON.stringify(c));DEMO_MODE=false;page(DATA)}catch(e){gate("Keine Verbindung: "+e.message)}};
   $("#demo").onclick=e=>{e.preventDefault();DEMO_MODE=true;DATA=DEMO;page(DATA)}}
+if("serviceWorker" in navigator) window.addEventListener("load",()=>navigator.serviceWorker.register("/sw.js").catch(e=>console.log("sw",e)));
+window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();INSTALL=e;if(DATA&&route()==="home")page(DATA)});
+window.addEventListener("appinstalled",()=>{INSTALL=null});
 window.addEventListener("hashchange",()=>{if(route()!=="settings")PEND=null;if(route()!=="report")REP=null;if(route()!=="log"){LOG=null;logCat="all";logQ=""}if(route()!=="inbox"){INB=null;inbFilter="open";inbKind="all"}if(route()!=="calendar"){CAL=null;calWeek=0;calSel=null}if(route()!=="library"){LIB=null;libQ="";libStatus="all";libAcc="all";libSrc="all";libSort="new";libScore=0}if(DATA)page(DATA)});
 (async()=>{ if(!cfg){try{cfg=JSON.parse(localStorage.getItem("clipforge.cfg")||"null")}catch(e){}}
   if(cfg){try{DATA=await load(cfg);page(DATA);return}catch(e){}} gate(); })();
