@@ -6,7 +6,7 @@ Aufruf: python -m pipeline.main --campaign <id> --account A|B|AB
   (A: 1,3,5… B: 2,4,6…), immer mit Hook-Text (nie roh), Caption „<Hook> · Credit @mrbeast #mrbeast“.
 Env: CLIPFORGE_API_URL, CLIPFORGE_API_KEY, GOOGLE_API_KEY (Gemini), PREVIEW=true (Standbilder per Telegram)
 """
-import copy, argparse, os, re, sys, yaml
+import copy, argparse, os, re, subprocess, sys, yaml
 from pathlib import Path
 from pipeline import download, overlay, checks, storage, db, clipper, ai
 from platforms import REGISTRY
@@ -14,6 +14,7 @@ from platforms import REGISTRY
 ROOT = Path(__file__).resolve().parent.parent
 WORK = Path("work").resolve(); WORK.mkdir(exist_ok=True)
 MIN_SOURCE_S = 180        # kürzere Quellen (Shorts/Teaser) werden nicht geclippt
+MIN_SOURCE_HEIGHT = 480   # alte Videos: unter 480p aussortieren, 480–1079p auf 1080 hochskalieren (Vermerk im QA-Bericht)
 
 
 def load_yaml(p): return yaml.safe_load(Path(p).read_text())
@@ -73,6 +74,30 @@ def main():
             if up: db.patch_upload(up, status="error", note="zu kurz (< 3 min)" if src_dur < MIN_SOURCE_S else "vertikales Video")
             db.notify(f"⏭ Fan-Video übersprungen ({'zu kurz' if src_dur < MIN_SOURCE_S else 'vertikal'}): {campaign['name']}")
             return
+
+    # Alte Videos technisch: vor 2019 liefert YouTube oft nur 720p oder weniger. Unter 480p wird aussortiert,
+    # zwischen 480p und 1080p wird auf 1080 Breite hochskaliert und im QA-Bericht vermerkt.
+    src_notes: list[str] = []
+    for i, src in enumerate(list(sources)):
+        w, h = overlay.probe_size(src)
+        short_side = min(w, h)
+        if video_id and i == 0:
+            db.patch_video(video_id, height=int(short_side))
+        if short_side < MIN_SOURCE_HEIGHT:
+            db.log(a.campaign, f"footage_low_res account={label} src={src.name} {w}x{h} < {MIN_SOURCE_HEIGHT}p – aussortiert")
+            if video_id: db.patch_video(video_id, status="skipped", note=f"Quelle nur {short_side}p")
+            sources.remove(src); continue
+        if short_side < 1080:
+            up = src.with_name(src.stem + ".up1080.mp4")
+            subprocess.run(["ffmpeg", "-y", "-i", str(src), "-vf", "scale=-2:1080:flags=lanczos", "-c:v", "libx264", "-crf", "18",
+                            "-preset", "medium", "-pix_fmt", "yuv420p", "-c:a", "copy", str(up)], check=True, capture_output=True)
+            sources[sources.index(src)] = up
+            src_notes.append(f"Quelle {short_side}p auf 1080p hochskaliert")
+            db.log(a.campaign, f"footage_upscaled account={label} {short_side}p → 1080p")
+    if not sources:
+        db.log(a.campaign, f"footage_missing account={label} alle Quellen unter {MIN_SOURCE_HEIGHT}p")
+        db.notify(f"⏭ Quelle aussortiert (unter {MIN_SOURCE_HEIGHT}p): {campaign['name']}")
+        return
 
     # Schnitt: paid → je Account eigener Stil; fan → ein Schnitt (fan-Profil), Verteilung nach Rang
     jobs: list[tuple[str, int, Path, dict, int]] = []   # (account, src-index, clip, meta, rank)
@@ -169,11 +194,12 @@ def main():
                 cover_url = storage.upload(cover_jpg, prefix=prefix)
         except Exception as e:
             print("thumbnail failed:", e)
-        qa_report = {"notes": qa_render.get("notes", []), "overlay": {"used": bool(ov_geom.get("used")), "bottom_pct": ov_geom.get("bottom_pct", 0)},
+        qa_report = {"notes": [*src_notes, *qa_render.get("notes", [])], "overlay": {"used": bool(ov_geom.get("used")), "bottom_pct": ov_geom.get("bottom_pct", 0)},
                      "hook_moved_px": qa_render.get("hook_moved_px", 0), "overlap_risk": bool(qa_render.get("overlap_risk"))}
         r = db.insert_clip(a.campaign, acc, url, status="review" if review_mode.get(acc) else "ready", caption=caption, hook_type=overlay.hook_type_of(clip),
                            duration_s=dur, hook=hook, pinned_comment=pinned, video_id=video_id, rank=rank, thumb_url=thumb_url,
-                           context_line=context_line, cover_url=cover_url, scores=meta.get("scores"), qa=qa_report, variant=variant)
+                           context_line=context_line, cover_url=cover_url, scores=meta.get("scores"), qa=qa_report, variant=variant,
+                           start_s=meta.get("start"), end_s=meta.get("end"))
         kept[acc] += 1
         if preview_on and previews[acc] < 3:                                                 # Vorschau: Standbild (Hook sichtbar) + Caption
             previews[acc] += 1

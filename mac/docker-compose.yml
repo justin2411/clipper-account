@@ -1,0 +1,19 @@
+# Cobalt lokal auf dem Mac – kein Railway, keine Cloud, keine Kosten.
+# Die Instanz hört nur auf 127.0.0.1:9000 und verlangt für jede Anfrage den Schlüssel aus keys.json.
+services:
+  cobalt:
+    image: ghcr.io/imputnet/cobalt:11
+    init: true
+    read_only: true
+    restart: unless-stopped
+    container_name: clipforge-cobalt
+    ports:
+      - "127.0.0.1:9000:9000/tcp"        # nur lokal erreichbar, nichts nach außen
+    environment:
+      API_URL: "http://localhost:9000/"  # muss die Adresse sein, unter der der Helfer die Instanz erreicht
+      API_AUTH_REQUIRED: "1"             # ohne gültigen Schlüssel wird jede Anfrage abgelehnt
+      API_KEY_URL: "file:///keys.json"
+      DURATION_LIMIT: "14400"            # MrBeast-Videos sind lang; 4 Stunden Obergrenze
+      RATELIMIT_MAX: "60"
+    volumes:
+      - ./keys.json:/keys.json:ro
