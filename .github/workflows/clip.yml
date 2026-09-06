@@ -48,6 +48,9 @@ jobs:
       - name: system packages
         run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-dejavu-core libegl1 libgles2 libgl1 libopengl0 libglib2.0-0
       # CPU-Torch (kein CUDA, spart ~2 GB); pyannote/HF nur bei --split-screen nötig
+      # yt-dlp braucht für YouTube eine JS-Laufzeit (Deno empfohlen) + yt-dlp-ejs (Challenge-Solver), sonst fehlen Formate
+      - uses: denoland/setup-deno@v2
+        with: { deno-version: v2.x }
       - name: pip install
         run: pip install --extra-index-url https://download.pytorch.org/whl/cpu -r pipeline/requirements.txt -r vendor/opensource-clipping/requirements.txt
       - name: clip pipeline
