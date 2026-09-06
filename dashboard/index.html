@@ -69,7 +69,8 @@
               -> GET /payouts?days=90 · CSV: ?csv=1 (Kampagnen) und ?csv=posts. Erwartet = Views/1000 × Rate, gedeckelt durch max_per_post_usd, unter min_views zählt der Post nicht;
               Kosten = gebuchte Kosten + 0,01 $ je Clip + Blotato (29 $/Monat) anteilig nach Clip-Anzahl.
   calendar (Nachtrag 4): { from, to, week_offset, days:[YYYY-MM-DD ×7], accounts:[{id, handle, niche, slots, posts_per_day, min_gap_min, paused, paused_until}],
-              items:[{id, clip_id, account, at, status, mode, kind, hook, cover, duration_s, campaign, campaign_id, niche, url, views, movable}] }
+              items:[{id, clip_id, account, at, status, mode, kind, hook, cover, duration_s, campaign, campaign_id, niche, url, views, movable, media_url, caption, scores, qa}] }
+              Klick auf einen Eintrag öffnet die Clip-Vorschau (Video aus media_url, Hook, Caption, Scores, QA); Verschieben weiterhin per Drag bzw. über den Knopf „Verschieben".
               -> GET /calendar?week=0|-1|1 · POST /calendar/move {post_id, at} (Kollisionsschutz: Mindestabstand und Tageslimit des Accounts; Schatten-Post umdatieren, Live-Post über Blotato neu planen)
   chat (Nachtrag 3): { enabled, budget:{day, used_usd, calls, limit_usd, exhausted} }
               -> POST /chat {conversation_id?, message, context:{page,niche,account}, force?:"analysis"} → { conversation_id, reply:{text, more, sources:[{tool,rows}], tier:"data|analysis|action", how, model, usd, action?:{id,tool,args,label,confirm_token}}, budget }
@@ -340,11 +341,17 @@ details.more{border:1px solid var(--line);border-radius:var(--r);background:var(
 .cal .hr{color:var(--ink3);text-align:right;padding-right:6px;font-variant-numeric:tabular-nums}
 .cal .cell{min-width:0;overflow:hidden;min-height:34px;border:1px dashed transparent;border-radius:8px;padding:2px}
 .cal .cell.drop{border-color:var(--flame);background:color-mix(in srgb,var(--flame) 10%,transparent)}
+.pv{display:grid;grid-template-columns:220px 1fr;gap:16px}.pv video{width:100%;border-radius:12px;background:#000;max-height:70vh}
+.pv .meta2{font-size:13px}.pv .meta2 .row2{display:flex;gap:8px;padding:5px 0;border-top:1px solid var(--line)}.pv .meta2 .row2:first-child{border-top:0}.pv .meta2 .row2 span:first-child{color:var(--ink3);min-width:96px}
+.pv .cap{white-space:pre-wrap;font-size:12px;color:var(--ink2);background:var(--panel2);border-radius:8px;padding:8px 10px;margin-top:8px;max-height:150px;overflow:auto}
+@media (max-width:700px){.pv{grid-template-columns:1fr}.pv video{max-height:50vh}}
 .ev2{display:flex;gap:6px;align-items:center;padding:4px 6px;border-radius:8px;background:var(--panel2);border:1px solid var(--line);margin-bottom:3px;cursor:grab}
 .ev2.shadow{border-style:dashed;opacity:.75}.ev2.posted{background:color-mix(in srgb,var(--ok) 12%,transparent);cursor:default}.ev2.paid{border-left:3px solid var(--flame)}.ev2.fan{border-left:3px solid var(--violet)}
 .ev2 img{width:22px;height:30px;object-fit:cover;border-radius:4px;flex:none;background:var(--line)}
 .ev2 .t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px}
 .ev2 .h{font-size:10px;color:var(--ink3)}
+.ev2 .mv{font:inherit;font-size:12px;line-height:1;padding:3px 5px;border:1px solid var(--line);border-radius:6px;background:transparent;color:var(--ink3);cursor:grab;flex:none}
+.ev2 .mv.on{border-color:var(--flame);color:var(--flame)}
 @media (max-width:900px){.cal{grid-template-columns:44px 1fr;overflow-x:auto}.cal .hd.d,.cal .cell{display:none}.cal .hd.d.on,.cal .cell.on{display:block}}
 .bar2{height:8px;border-radius:4px;background:var(--line);overflow:hidden;min-width:80px}.bar2 i{display:block;height:100%;background:var(--ok)}.bar2 i.warn{background:var(--warn)}
 .lib{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:12px}
@@ -945,8 +952,8 @@ function calendarBlock(c,d){const hours=[...new Set([...(c.accounts.flatMap(a=>a
   return c.accounts.map(a=>`<section><h2>${a.id} · ${a.handle.startsWith("@")?a.handle:"@"+a.handle} <span>${a.paused?`pausiert${a.paused_until?` bis ${tm(a.paused_until)}`:""} · `:""}${(a.slots||[]).join(", ")} · ${a.posts_per_day||"?"}/Tag · Abstand ${a.min_gap_min||"?"} min</span></h2>
     <div class="cal"><div class="hd"></div>${c.days.map((day,i)=>`<div class="hd d ${day===calDay?"on":""}" data-calday="${day}">${dayNames[i]}<small>${day.slice(8,10)}.${day.slice(5,7)}.</small></div>`).join("")}
     ${rows.map(h=>`<div class="hr">${h}</div>${c.days.map(day=>`<div class="cell ${day===calDay?"on":""}" data-cell="${a.id}|${day}|${h}">${at(day,h).filter(i=>i.account===a.id).map(i=>`
-      <div class="ev2 ${i.kind} ${i.status==="shadow"?"shadow":""} ${["posted","submitted"].includes(i.status)?"posted":""}" draggable="${i.movable}" data-ev="${i.id}" title="${(i.hook||"").replace(/"/g,"")} · ${i.campaign}">
-        ${i.cover?`<img src="${i.cover}" alt="">`:`<img alt="">`}<div class="t">${i.at.slice(11,16)} ${i.hook||i.campaign}<div class="h">${i.campaign}${i.status==="shadow"?" · Schatten":["posted","submitted"].includes(i.status)?` · gepostet${i.views?` · ${k(i.views)} Views`:""}`:""}</div></div></div>`).join("")}</div>`).join("")}`).join("")}</div>
+      <div class="ev2 ${i.kind} ${i.status==="shadow"?"shadow":""} ${["posted","submitted"].includes(i.status)?"posted":""}" draggable="${i.movable}" data-ev="${i.id}" data-open="${i.id}" title="Klicken: Clip ansehen${i.movable?" · Ziehen: verschieben":""}">
+        ${i.cover?`<img src="${i.cover}" alt="">`:`<img alt="">`}<div class="t">${i.at.slice(11,16)} ${i.hook||i.campaign}<div class="h">${i.campaign}${i.status==="shadow"?" · Schatten":["posted","submitted"].includes(i.status)?` · gepostet${i.views?` · ${k(i.views)} Views`:""}`:""}</div></div>${i.movable?`<button class="mv" data-move="${i.id}" title="Verschieben: hier klicken, dann Zielzelle">↕</button>`:""}</div>`).join("")}</div>`).join("")}`).join("")}</div>
     <div class="up" id="calstat-${a.id}"></div></section>`).join("")}
 async function loadCal(d,week){if(DEMO_MODE||!cfg)return;try{CAL=await (await fetch(cfg.apiUrl+"/calendar?week="+week,{headers:{"x-api-key":cfg.apiKey}})).json();page(d)}catch(e){console.log(e)}}
 function wireCal(d){if(route()!=="calendar")return;const c=CAL||d.calendar;if(!c)return;
@@ -961,11 +968,34 @@ function wireCal(d){if(route()!=="calendar")return;const c=CAL||d.calendar;if(!c
     if(r.ok){calSel=null;loadCal(d,calWeek)}};
   document.querySelectorAll("[data-ev]").forEach(el=>{
     el.ondragstart=e=>{e.dataTransfer.setData("text/plain",el.dataset.ev)};
-    el.onclick=()=>{if(el.getAttribute("draggable")!=="true")return;calSel=calSel===el.dataset.ev?null:el.dataset.ev;document.querySelectorAll("[data-ev]").forEach(x=>x.style.outline="");if(calSel)el.style.outline="2px solid var(--flame)"}});
+    el.onclick=e=>{if(e.target.closest("[data-move]"))return;const it=(c.items||[]).find(x=>x.id===el.dataset.open);if(it)showClip(it,d)}});
+  document.querySelectorAll("[data-move]").forEach(b=>b.onclick=e=>{e.stopPropagation();const id=b.dataset.move;
+    calSel=calSel===id?null:id;document.querySelectorAll("[data-move]").forEach(x=>x.classList.remove("on"));
+    const stat=$("#calstat-"+((c.items||[]).find(x=>x.id===id)?.account||""));
+    if(calSel){b.classList.add("on");if(stat)stat.textContent="Zielzelle anklicken (oder Eintrag ziehen)"}else if(stat)stat.textContent=""});
   document.querySelectorAll("[data-cell]").forEach(cell=>{
     cell.ondragover=e=>{e.preventDefault();cell.classList.add("drop")};cell.ondragleave=()=>cell.classList.remove("drop");
     cell.ondrop=e=>{e.preventDefault();cell.classList.remove("drop");const id=e.dataTransfer.getData("text/plain");move(id,cell.dataset.cell,$("#calstat-"+cell.dataset.cell.split("|")[0]))};
     cell.onclick=()=>{if(!calSel)return;move(calSel,cell.dataset.cell,$("#calstat-"+cell.dataset.cell.split("|")[0]))}})}
+// Clip-Vorschau aus dem Kalender: Video, Hook, Caption, Scores, QA und die passenden Sprünge
+function showClip(i,d){const old=$("#ovl");if(old)old.remove();
+  const st={scheduled:"geplant",shadow:"Schatten",posted:"gepostet",submitted:"eingereicht"}[i.status]||i.status;
+  const sc=i.scores&&typeof i.scores==="object"?Object.entries(i.scores).filter(([k2])=>k2!=="total"):[];
+  const row=(l,v)=>v?`<div class="row2"><span>${l}</span><span>${v}</span></div>`:"";
+  const el=document.createElement("div");el.className="ovl";el.id="ovl";
+  el.innerHTML=`<div class="dlg" style="max-width:860px"><h3>${esc(i.hook||i.campaign||"Clip")}</h3><div class="sub">${i.account} · ${st} · ${tm(i.at)}${i.duration_s?` · ${Math.round(i.duration_s)} s`:""}</div>
+    <div class="pv">${i.media_url?`<video src="${i.media_url}" controls playsinline preload="metadata" ${i.cover?`poster="${i.cover}"`:""}></video>`:`<div class="empty">Keine Videodatei hinterlegt.</div>`}
+      <div class="meta2">${row("Kampagne",i.campaign)}${row("Art",i.kind==="fan"?"Fan-Content":"Kampagne")}${row("Views",i.views!=null?k(i.views):"")}${row("Score",i.scores?.total!=null?i.scores.total:"")}
+        ${sc.length?`<div class="row2"><span>Bewertung</span><span>${sc.map(([k2,v])=>`${k2} ${v}`).join(" · ")}</span></div>`:""}
+        ${i.qa?`<div class="row2"><span>QA</span><span>${typeof i.qa==="object"?Object.entries(i.qa).map(([k2,v])=>`${k2}: ${v===true?"ok":v===false?"nein":v}`).join(" · "):String(i.qa)}</span></div>`:""}
+        ${i.caption?`<div class="cap">${esc(i.caption)}</div>`:""}
+        <div class="tools" style="margin-top:10px">${i.url?`<a class="go" href="${i.url}" target="_blank" rel="noopener">Auf TikTok ansehen ↗</a>`:""}
+          ${i.media_url?`<a href="${i.media_url}" target="_blank" rel="noopener">Datei öffnen ↗</a>`:""}
+          ${["ready","review","scheduled","shadow"].includes(i.status)?`<a href="#review">In der Clip-Vorschau öffnen →</a>`:""}
+          <a href="#library">In der Bibliothek suchen →</a></div></div></div>
+    <div class="act"><button class="b" id="dlg-x">Schließen</button></div></div>`;
+  document.body.appendChild(el);$("#dlg-x").onclick=()=>el.remove();el.onclick=e=>{if(e.target===el)el.remove()};
+  document.addEventListener("keydown",function esc2(e){if(e.key==="Escape"){el.remove();document.removeEventListener("keydown",esc2)}});}
 // Chat (Nachtrag 3) – kurze Antwort zuerst, „mehr" holt die Begründung; Aktionen erst nach Bestätigung
 function chatMsg(m){if(m.role==="user")return `<div class="msg user">${esc(m.text)}</div>`;
   const a=m.action,src=(m.sources||[]).map(s=>`${s.tool} (${s.rows})`).join(" · ");

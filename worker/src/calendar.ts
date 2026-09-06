@@ -14,7 +14,7 @@ export async function buildCalendar(env: Env, weekOffset = 0, ws = "default") {
   const rows = await db.all<any>(env,
     `SELECT p.id, p.status, p.mode, p.scheduled_at, p.posted_at, p.post_url, COALESCE(p.views, p.views_7d) AS views,
             COALESCE(p.kind, ca.kind, 'paid') AS kind, c.id AS clip_id, c.account, c.hook, c.context_line, c.cover_url, c.thumb_url, c.duration_s,
-            c.campaign_id, ca.name AS campaign, ca.niche_id
+            c.media_url, c.caption, c.scores, c.qa, c.campaign_id, ca.name AS campaign, ca.niche_id
      FROM posts p JOIN clips c ON c.id = p.clip_id LEFT JOIN campaigns ca ON ca.id = c.campaign_id
      WHERE p.workspace_id = ? AND p.status IN ('scheduled','shadow','posted','submitted')
        AND COALESCE(p.scheduled_at, p.posted_at) >= ? AND COALESCE(p.scheduled_at, p.posted_at) < ?
@@ -32,6 +32,7 @@ export async function buildCalendar(env: Env, weekOffset = 0, ws = "default") {
     id: r.id, clip_id: r.clip_id, account: r.account, at: r.scheduled_at ?? r.posted_at, status: r.status, mode: r.mode, kind: r.kind,
     hook: r.context_line ?? r.hook ?? "", cover: r.cover_url ?? r.thumb_url ?? null, duration_s: r.duration_s ?? null, campaign: r.campaign ?? (r.kind === "fan" ? "Fan-Content" : ""),
     campaign_id: r.campaign_id, niche: r.niche_id, url: r.post_url, views: r.views ?? null,
+    media_url: r.media_url ?? null, caption: r.caption ?? "", scores: r.scores ? JSON.parse(r.scores) : null, qa: r.qa ? JSON.parse(r.qa) : null,
     movable: ["scheduled", "shadow"].includes(r.status) && new Date(r.scheduled_at ?? 0).getTime() > Date.now(),
   }));
   const days = Array.from({ length: 7 }, (_, i) => new Date(from.getTime() + i * 86400000).toISOString().slice(0, 10));
