@@ -637,6 +637,17 @@ export async function handleRequest(req: Request, env: Env, ctx: ExecutionContex
     if (rest[0] === "accounts" && !rest[1] && req.method === "GET") return json(await db.all(env, "SELECT * FROM account_state"));
 
     // manual clip job dispatch for one account
+    // Diagnose: einen beliebigen Workflow ohne Eingaben anstoßen (z.B. ping.yml), um zu pruefen,
+    // ob GitHub ueberhaupt noch einen Laeufer stellt.
+    if (rest[0] === "dispatch_workflow" && rest[1] && req.method === "POST") {
+      if (!env.GITHUB_TOKEN || !env.GITHUB_REPO) return json({ error: "GITHUB_TOKEN/REPO fehlt" }, 503);
+      const r = await fetch(`https://api.github.com/repos/${env.GITHUB_REPO}/actions/workflows/${rest[1]}/dispatches`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${env.GITHUB_TOKEN}`, Accept: "application/vnd.github+json", "User-Agent": "clipforge-worker", "Content-Type": "application/json" },
+        body: JSON.stringify({ ref: env.GITHUB_REF || "main" }),
+      });
+      return json({ workflow: rest[1], status: r.status, ok: r.status === 204, body: r.status === 204 ? "" : (await r.text()).slice(0, 300) }, r.status === 204 ? 200 : 502);
+    }
     if (rest[0] === "dispatch" && rest[1] && rest[2] && req.method === "POST") {
       const camp = await db.first(env, "SELECT id FROM campaigns WHERE id = ?", rest[1]);
       if (!camp) return json({ error: `campaign ${rest[1]} not found` }, 404);
