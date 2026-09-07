@@ -70,13 +70,15 @@ jobs:
         run: python3 scripts/check_pipeline.py
       - name: clip pipeline
         run: python -m pipeline.main --campaign "${{ inputs.campaign }}" --account "${{ inputs.account }}"
+      # Nur die kleinen Berichte als Artefakt. Die fertigen Clips liegen in R2 und stehen im Dashboard –
+      # sie hier noch einmal abzulegen hat je Lauf ueber hundert Megabyte gekostet und den Speicher des
+      # Kontos (500 MB im kostenlosen Plan) gefuellt, bis GitHub keine Laeufe mehr gestartet hat.
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: clips-${{ inputs.campaign }}-${{ inputs.account }}
+          name: berichte-${{ inputs.campaign }}-${{ inputs.account }}
           path: |
-            work/final/*.mp4
             work/${{ inputs.account }}/**/outputs/render_manifest.json
             work/${{ inputs.account }}/**/outputs/gemini_response.json
           if-no-files-found: ignore
-          retention-days: 7
+          retention-days: 3
