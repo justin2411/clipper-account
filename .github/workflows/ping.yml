@@ -1,0 +1,9 @@
+# Kleinster moeglicher Lauf: nur zum Pruefen, ob GitHub ueberhaupt noch einen Laeufer stellt.
+name: ping
+on: { workflow_dispatch: {} }
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - run: echo "hallo von $(uname -a)"
