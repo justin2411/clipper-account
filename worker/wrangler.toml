@@ -8,14 +8,20 @@ workers_dev = true
 enabled = true
 
 # Cron → Funktion (Zuordnung in src/index.ts). Zeiten UTC.
+# Automatik auf Wunsch angehalten (12.09.): keine Cron-Trigger, der Worker macht von sich aus nichts mehr –
+# kein Scout, kein Publisher, kein Tracker, keine Berichte, kein Nachschub, keine Clip-Jobs.
+# Die API bleibt erreichbar, Dashboard und manuelle Läufe (POST /api/run/<fn>) funktionieren weiter.
+# Zum Wiedereinschalten die folgenden Zeilen entkommentieren und `wrangler deploy` ausführen:
+# [triggers]
+# crons = [
+#   "*/10 * * * *",   # scout
+#   "*/30 * * * *",   # publisher
+#   "0 */6 * * *",    # tracker
+#   "0 18 * * *",     # notify – 20:00 Berlin (Sommer)
+#   "0 7 * * SUN",    # report – sonntags 09:00 Berlin
+# ]
 [triggers]
-crons = [
-  "*/10 * * * *",   # scout
-  "*/30 * * * *",   # publisher
-  "0 */6 * * *",    # tracker
-  "0 18 * * *",     # notify – 20:00 Berlin (Sommer): Einreich-Liste, Tagesübersicht, Anomalie-Check (Cloudflare Free: max. 5 Cron-Trigger)
-  "0 7 * * SUN",    # report – sonntags 09:00 Berlin (Sommerzeit; Winter 08:00): Wochenbericht #report + Telegram-Kurzfassung
-]
+crons = []
 
 [[d1_databases]]
 binding = "DB"
